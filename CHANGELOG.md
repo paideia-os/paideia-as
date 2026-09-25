@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.36.29 — 2026-09-25 — R229.M2 REPL turn: AST → datalog Program lowering + R226.M9 typecheck wiring
+
+**R229.M2** — Replaces M1's re-tokenize-then-parse_block bridge with a proper
+AST → shell-datalog `Program` walk, and routes the typed evaluator through it:
+
+- **New module** `paideia-as-shell-repl/src/lower.rs` —
+  `lower_datalog(&SyntaxNode) -> Result<Program, LowerError>`. Walks a
+  `SyntaxNode::DatalogBlock`. Term dictionary: `QVar/Var → Term::Var`,
+  `Ident → Term::Const(Value::Ident)`, `LitStr → Term::Const(Value::Str)`,
+  `LitInt → Term::Const(Value::Num)`, `InterpVar → Term::Bound`. Clause
+  dictionary: `Atom → fact`, `Rule → Rule` (body `Atom → Positive`,
+  `NotAtom(Atom) → Negative`), top-level `NotAtom → MalformedRule`.
+  `LowerError` variants: `UnsupportedNode { kind }`, `IdentExpected { got }`,
+  `EmptyDatalogBlock` (reserved), `MalformedRule { reason }`.
+- **turn.rs** — `execute_datalog` now calls `lower_datalog` then
+  `Evaluator::run_query_typed(&program, &Query{goals:vec![]}, &SchemaRegistry::new())`.
+  Renders: `dlg: N facts` on typecheck success, `typecheck: K error(s)` on
+  `EvalError::TypeCheckErrors`, `run: <err>` on other evaluator failures,
+  `lower: <LowerError>` on lowering failure. Dropped the now-dead `source: &str`
+  parameter from `execute`.
+- **lib.rs** — `pub mod lower;` + `pub use lower::{lower_datalog, LowerError};`.
+- **Cargo.toml** — dropped `paideia-as-shell-lex` and `paideia-as-unicode`; the
+  M2 branch no longer re-tokenizes.
+- 8-test corpus (`r229m2-turn-01`..`r229m2-turn-08`): two-fact lowering + empty-
+  registry typecheck error, rule lowering + head/body shapes, negated-body-goal
+  round-trip, non-`DatalogBlock` root rejection, end-to-end `eval_turn` typecheck
+  render, pipeline stub untouched, lambda stub untouched, ten-turn state stress.
+
+**M1 test adjustments** (necessary consequence of the M2 render change):
+- `r229m1_turn_02_datalog_block` — expects `TurnResult::Error` prefixed `typecheck:`
+  (was: `Value` containing `dlg: … facts loaded`). Empty `SchemaRegistry` rejects
+  every user-declared predicate as `UnknownPredicate` under R226.M9's typed path.
+- `r229m1_turn_09_session_edb_preserved` — turn 1 (empty block) still checks
+  `dlg: 0 facts`; turn 2 (`q(b)`) now checks `typecheck:` error; the field-
+  survival invariant (`state.session_edb.total_tuple_count()` unchanged across
+  a datalog turn) is pinned separately.
+
+A later milestone will re-wire the session-EDB overlay through the typed surface
+(`run_query_typed` does not accept a `SessionEdb` yet).
+
+SYSTEM_VERSION const bumped 0.36.28 → 0.36.29.
+
+Closes paideia-as#1462.
+
 ## 0.36.28 — 2026-09-25 — R229.M1 REPL evaluator loop skeleton (new crate `paideia-as-shell-repl`)
 
 **R229.M1** — First R229 milestone. The `{parse → typecheck → elaborate → execute}`

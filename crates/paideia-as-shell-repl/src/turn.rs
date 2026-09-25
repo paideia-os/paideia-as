@@ -16,20 +16,21 @@
 //!         execute (dispatch on SyntaxNode variant)
 //! ```
 //!
-//! # Executor branches (R229.M1)
+//! # Executor branches (R229.M2)
 //!
-//! * [`SyntaxNode::DatalogBlock`] — re-tokenize the source, slice out
-//!   the `Context::Datalog` tokens (excluding the wrapping braces),
-//!   call [`paideia_as_shell_datalog::parser::parse_block`], then run
-//!   [`Evaluator::run_stratified_with_session`] with the session EDB
-//!   as the overlay. Renders "dlg: N facts loaded" where N is the
-//!   fixpoint's total tuple count. The re-tokenization exists because
-//!   the shell-ast parser already produced a `SyntaxNode::DatalogBlock`
-//!   over the same source, but its item shape (`SyntaxNode::Atom` /
-//!   `SyntaxNode::Rule`) is not what R226's evaluator consumes
-//!   (`Program { rules, facts }`). R229.M2's typed elaborator replaces
-//!   this bridge with a proper AST → Program lowering; M1 keeps the
-//!   double-parse to avoid landing an adapter that will be discarded.
+//! * [`SyntaxNode::DatalogBlock`] — lower the block to a
+//!   [`paideia_as_shell_datalog::Program`] via [`crate::lower::lower_datalog`]
+//!   (a direct AST → program walk, replacing the M1 re-tokenization
+//!   bridge), then run [`Evaluator::run_query_typed`] with an empty
+//!   [`Query`] and an empty [`SchemaRegistry`] so the R226.M9 schema
+//!   check runs on every atom the block mentions. Renders
+//!   `dlg: N facts` on typecheck success (N = program.facts.len()),
+//!   `typecheck: K error(s)` on schema failure, or `run: <err>` on
+//!   other evaluator failures. The M1 fixpoint + session-EDB overlay
+//!   path is intentionally dropped for M2 — R226.M9's typed path is
+//!   the only path a schema-driven caller needs; a follow-on
+//!   milestone re-wires the session overlay through the typed path
+//!   (see the R226.M9 doc for the intended shape).
 //! * [`SyntaxNode::Cmd`] / [`SyntaxNode::Pipe`] — stub. R229.M3 wires
 //!   the command dispatcher through here.
 //! * [`SyntaxNode::Lambda`] — stub. R229.M4 wires the lambda JIT.
@@ -43,8 +44,11 @@
 //! doc for the R229.M7 replay-alignment rationale.
 
 use paideia_as_shell_ast::{parser as ast_parser, SyntaxNode};
-use paideia_as_shell_datalog::{parser as dl_parser, Evaluator, SessionEdb};
-use paideia_as_shell_lex::{Context, Token, TokenKind};
+use paideia_as_shell_datalog::{
+    EvalError, Evaluator, Query, SchemaRegistry, SessionEdb,
+};
+
+use crate::lower;
 
 /// Session-scoped mutable state a driver threads through every
 /// [`eval_turn`] call.
@@ -154,17 +158,17 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
     let elaborated = &node;
 
     // Stage 4: execute — dispatch by variant.
-    let result = execute(state, &source, elaborated);
+    let result = execute(state, elaborated);
 
     ReplTurn { source, result, fingerprint }
 }
 
-/// Dispatch the executor by AST root variant. R229.M1's four real
+/// Dispatch the executor by AST root variant. R229.M2's four real
 /// arms (plus the fallback) map one-to-one to the four sub-language
 /// surfaces the shell composes.
-fn execute(state: &mut ReplState, source: &str, node: &SyntaxNode) -> TurnResult {
+fn execute(state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
     match node {
-        SyntaxNode::DatalogBlock { .. } => execute_datalog(state, source),
+        SyntaxNode::DatalogBlock { .. } => execute_datalog(state, node),
         SyntaxNode::Cmd { .. } | SyntaxNode::Pipe { .. } => {
             TurnResult::Value("cmd: <not yet implemented in R229.M1>".into())
         }
@@ -184,42 +188,45 @@ fn execute(state: &mut ReplState, source: &str, node: &SyntaxNode) -> TurnResult
     }
 }
 
-/// Datalog branch of the executor. See the module doc for why we
-/// re-tokenize rather than lower the shell-ast items in-place.
-fn execute_datalog(state: &mut ReplState, source: &str) -> TurnResult {
-    // Re-normalize the source with the same NFC pass the shell-ast
-    // parser used, then re-tokenize. `tokenize_ok` panics on lex
-    // errors; the shell-ast parser succeeded on the same input, so
-    // any lex error here would be a bug (we would rather surface it
-    // as a crash in tests than silently mask it).
-    let nfc = paideia_as_unicode::nfc_normalize(source);
-    let tokens = paideia_as_shell_lex::tokenize_ok(&nfc);
-
-    // Slice out the Datalog-context tokens, dropping the wrapping
-    // `{ … }` (both stamped `Datalog` per the R221.M4 delimiter
-    // arithmetic). `parse_block` refuses those braces at its first
-    // token (it wants a predicate name or clause opener).
-    let dl_tokens: Vec<Token> = tokens
-        .into_iter()
-        .filter(|t| {
-            t.context == Context::Datalog
-                && !matches!(t.kind, TokenKind::LBrace | TokenKind::RBrace)
-        })
-        .collect();
-
-    let program = match dl_parser::parse_block(&dl_tokens) {
+/// Datalog branch of the executor (R229.M2).
+///
+/// Lowers the AST block to a [`paideia_as_shell_datalog::Program`] via
+/// [`crate::lower::lower_datalog`], then runs
+/// [`Evaluator::run_query_typed`] with an empty query and an empty
+/// [`SchemaRegistry`] so R226.M9's schema check runs on every atom the
+/// program mentions. The three render arms cover:
+///
+/// * lowering failure — `lower: <LowerError>`.
+/// * schema failure — `typecheck: K error(s)`. The R226.M9 pass batches
+///   every diagnostic into one [`EvalError::TypeCheckErrors`], so a
+///   single Error render is enough regardless of how many atoms fail.
+/// * fixpoint success — `dlg: N facts` where N is the lowered
+///   program's fact count. The empty-query path returns the empty
+///   binding set on success, so `N` intentionally names the input's
+///   fact count rather than the fixpoint's tuple count (the former is
+///   what a caller who just typed a block wants to see confirmed).
+/// * other evaluator failure (`UnstratifiedNegation`, aggregation,
+///   pipeline-value refusal, …) — `run: <err>`.
+///
+/// `state.session_edb` is *not* consulted on this path: R226.M9's
+/// typed query surface does not (yet) accept a session overlay; a
+/// follow-on milestone re-wires the overlay through the typed pass.
+fn execute_datalog(_state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
+    let program = match lower::lower_datalog(node) {
         Ok(p) => p,
-        Err(err) => return TurnResult::Error(format!("parse: dlg: {:?}", err)),
+        Err(e) => return TurnResult::Error(format!("lower: {e}")),
     };
 
-    // R226.M8: run the fixpoint with the session EDB as overlay. The
-    // Database result carries `.total_tuple_count()` — every ground
-    // fact loaded (program facts + session overlay + any IDB tuples
-    // that fired) in one number.
     let evaluator = Evaluator::new();
-    match evaluator.run_stratified_with_session(&program, &state.session_edb) {
-        Ok(db) => TurnResult::Value(format!("dlg: {} facts loaded", db.total_tuple_count())),
-        Err(err) => TurnResult::Error(format!("exec: dlg: {:?}", err)),
+    let registry = SchemaRegistry::new();
+    let empty_query = Query { goals: Vec::new() };
+
+    match evaluator.run_query_typed(&program, &empty_query, &registry) {
+        Ok(_) => TurnResult::Value(format!("dlg: {} facts", program.facts.len())),
+        Err(EvalError::TypeCheckErrors(errs)) => {
+            TurnResult::Error(format!("typecheck: {} error(s)", errs.len()))
+        }
+        Err(other) => TurnResult::Error(format!("run: {other:?}")),
     }
 }
 

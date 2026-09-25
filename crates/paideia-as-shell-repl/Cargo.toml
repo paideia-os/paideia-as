@@ -39,25 +39,22 @@ name = "paideia_as_shell_repl"
 
 [dependencies]
 # The unified AST + parser entry (`paideia_as_shell_ast::parser::parse`)
-# that stage-1 of `eval_turn` calls.
+# that stage-1 of `eval_turn` calls. `crate::lower` also consumes its
+# `SyntaxNode` shape directly (no re-parse).
 paideia-as-shell-ast = { path = "../paideia-as-shell-ast" }
-# The seminaïve Datalog evaluator + `SessionEdb` overlay that stage-4
-# uses for the `SyntaxNode::DatalogBlock` execution branch. `SessionEdb`
-# is embedded in `ReplState` so assertions persist across turns per
-# R226.M8.
+# The seminaïve Datalog evaluator + `SessionEdb` overlay + R226.M9
+# `SchemaRegistry` / typed query path (`Evaluator::run_query_typed`)
+# that stage-4 uses for the `SyntaxNode::DatalogBlock` execution branch.
+# `SessionEdb` is embedded in `ReplState` so assertions persist across
+# turns per R226.M8; R229.M2 does not yet route it through the typed
+# pass (see the `execute_datalog` doc).
 paideia-as-shell-datalog = { path = "../paideia-as-shell-datalog" }
-# The context-tagged lexer. Stage-4's Datalog branch tokenizes the raw
-# source and hands the `Context::Datalog` slice to `parse_block` — the
-# shell-ast layer already parsed the whole thing but its AST shape
-# (`SyntaxNode::DatalogBlock { items }`) is not what the R226 evaluator
-# consumes (`Program { rules, facts }`), so we re-lex for M1 rather
-# than land an adapter that R229.M2's typed elaborator will replace
-# anyway.
-paideia-as-shell-lex = { path = "../paideia-as-shell-lex" }
-# NFC normalization. The shell-ast parser normalizes internally; when
-# we re-tokenize in stage-4 we must feed it the same NFC-normalized
-# input the parser saw, or spans and identifier bytes will diverge on
-# non-ASCII sources.
-paideia-as-unicode = { path = "../paideia-as-unicode" }
+
+# R229.M1's dependence on `paideia-as-shell-lex` + `paideia-as-unicode`
+# is gone in M2: the datalog branch no longer re-tokenizes the source
+# because `crate::lower::lower_datalog` walks the shell-ast tree
+# directly. Re-add them when a future milestone brings a re-tokenizing
+# stage back (unlikely — every downstream path R229 wires uses the
+# same AST vocabulary).
 
 [dev-dependencies]

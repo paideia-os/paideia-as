@@ -48,6 +48,8 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod lower;
 pub mod turn;
 
+pub use lower::{lower_datalog, LowerError};
 pub use turn::{eval_turn, ReplState, ReplTurn, TurnResult};

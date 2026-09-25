@@ -33,8 +33,13 @@ fn r229m1_turn_01_empty_source() {
     }
 }
 
-/// `r229m1-turn-02`: `datalog { p(a). }` runs the Datalog branch and
-/// renders the `dlg:` prefix.
+/// `r229m1-turn-02`: `datalog { p(a). }` runs the Datalog branch,
+/// lowers the AST to a `Program`, then hits R226.M9's schema check
+/// with the default (empty) `SchemaRegistry` — which rejects the
+/// unregistered `p/1`. Rendered as a `typecheck:` error. (Updated
+/// under R229.M2: the M1 render was "dlg: N facts loaded" against
+/// `run_stratified_with_session`; M2 replaces that with the typed
+/// query path and the empty registry rejects any user predicate.)
 #[test]
 fn r229m1_turn_02_datalog_block() {
     const FP: &str = "r229m1-turn-02";
@@ -42,17 +47,17 @@ fn r229m1_turn_02_datalog_block() {
     let turn = eval_turn(&mut state, "datalog { p(a). }".to_owned());
 
     match turn.result {
-        TurnResult::Value(v) => {
+        TurnResult::Error(e) => {
             assert!(
-                v.starts_with("dlg:"),
-                "{FP}: datalog branch must render 'dlg:' prefix, got: {v:?}"
+                e.starts_with("typecheck:"),
+                "{FP}: datalog branch under M2 must render 'typecheck:' prefix, got: {e:?}"
             );
             assert!(
-                v.contains("facts loaded"),
-                "{FP}: expected 'facts loaded' text, got: {v:?}"
+                e.contains("error"),
+                "{FP}: expected 'error' text in typecheck diagnostic, got: {e:?}"
             );
         }
-        TurnResult::Error(e) => panic!("{FP}: datalog block failed: {e}"),
+        TurnResult::Value(v) => panic!("{FP}: expected typecheck error, got Value: {v}"),
     }
 }
 
@@ -161,44 +166,63 @@ fn r229m1_turn_08_fingerprints_distinct() {
     );
 }
 
-/// `r229m1-turn-09`: session EDB survives across turns. Assert a fact
-/// programmatically after turn 1; turn 2's datalog block should see it
-/// in `total_tuple_count`. We assert one fact after the first turn, so
-/// the second turn's fixpoint count must be at least 2 (its own `q(b)`
-/// plus the session-EDB `p(a)`).
+/// `r229m1-turn-09`: `SessionEdb` survives across turns as an owned
+/// field of `ReplState`. Under R229.M2 the datalog executor no longer
+/// consults the session overlay (the R226.M9 typed query surface
+/// doesn't yet accept one — a follow-on milestone re-wires it), so
+/// this test now verifies session-EDB *field survival* rather than
+/// session-overlay tuple counting: a fact asserted after turn 1 is
+/// still visible on `state.session_edb` after turn 2's datalog block
+/// runs. Turn 1's empty block passes typecheck vacuously and renders
+/// `dlg: 0 facts`; turn 2's `q(b)` block trips the empty-registry
+/// schema check and renders a `typecheck:` error, but neither turn
+/// mutates the session overlay.
 #[test]
 fn r229m1_turn_09_session_edb_preserved() {
     const FP: &str = "r229m1-turn-09";
     let mut state = ReplState::new();
 
-    // Turn 1: an empty program's fixpoint yields only the session-EDB
-    // overlay. Session is empty here, so 0 facts.
+    // Turn 1: an empty program has no atoms to check, so typecheck
+    // passes trivially and the run_query_typed dispatches to run_query
+    // with an empty program → empty binding set. Renders "dlg: 0 facts".
     let t1 = eval_turn(&mut state, "datalog { }".to_owned());
     match &t1.result {
         TurnResult::Value(v) => assert!(
             v.contains("0 facts"),
-            "{FP}: turn 1 with empty session must render '0 facts', got: {v:?}"
+            "{FP}: turn 1 empty block must render '0 facts', got: {v:?}"
         ),
         TurnResult::Error(e) => panic!("{FP}: turn 1 errored: {e}"),
     }
 
-    // Assert programmatically per R226.M8 (parser-level `assert` /
-    // `retract` REPL commands land in R222; the R229.M1 skeleton has
-    // no user-typed session-mutation syntax yet).
+    // Assert programmatically per R226.M8 — this mutates
+    // `state.session_edb` directly (the R229.M1 skeleton has no
+    // user-typed session-mutation syntax yet; R222 adds it).
     state
         .session_edb
         .assert("p", vec![Value::Ident("a".into())]);
+    let session_len_before_t2 = state.session_edb.total_tuple_count();
 
-    // Turn 2: a block declaring q(b); the merged EDB carries `p(a)`
-    // from session plus `q(b)` from the block: 2 total.
+    // Turn 2: a block declaring `q(b)`; empty-registry schema check
+    // rejects the unregistered `q/1`. The executor does not touch
+    // `state.session_edb` on any path (M2's typed query surface has
+    // no session overlay), so the assertion above survives.
     let t2 = eval_turn(&mut state, "datalog { q(b). }".to_owned());
     match &t2.result {
-        TurnResult::Value(v) => assert!(
-            v.contains("2 facts"),
-            "{FP}: turn 2 with session overlay must render '2 facts loaded', got: {v:?}"
+        TurnResult::Error(e) => assert!(
+            e.starts_with("typecheck:"),
+            "{FP}: turn 2 must render 'typecheck:' under M2, got: {e:?}"
         ),
-        TurnResult::Error(e) => panic!("{FP}: turn 2 errored: {e}"),
+        TurnResult::Value(v) => panic!("{FP}: expected typecheck error, got Value: {v}"),
     }
+    assert_eq!(
+        state.session_edb.total_tuple_count(),
+        session_len_before_t2,
+        "{FP}: session EDB must survive a turn that touches datalog"
+    );
+    assert!(
+        session_len_before_t2 >= 1,
+        "{FP}: sanity: session EDB should carry the p(a) we asserted"
+    );
 }
 
 /// `r229m1-turn-10`: sanity — ten turns don't leak state, and the
