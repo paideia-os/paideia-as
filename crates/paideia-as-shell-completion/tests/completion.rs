@@ -91,6 +91,7 @@ fn r228m1_cmp_04_lambda_var_prefix() {
             text: "xyz".to_string(),
             kind: CandidateKind::Var,
             display: None,
+            type_hint: None,
         }
     );
     // Span covers just the `xy` token (bytes 6..8).
@@ -115,6 +116,7 @@ fn r228m1_cmp_05_datalog_keyword_prefix() {
             text: "not".to_string(),
             kind: CandidateKind::Keyword,
             display: None,
+            type_hint: None,
         }
     );
 }

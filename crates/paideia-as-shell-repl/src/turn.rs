@@ -48,10 +48,10 @@ use paideia_as_shell_cmd::CommandSig;
 use paideia_as_shell_datalog::{
     EvalError, Evaluator, Query, SchemaRegistry, SessionEdb,
 };
-use paideia_as_shell_hm::{MonoType, TypeEnv};
+use paideia_as_shell_hm::{MonoType, TypeEnv, TypeScheme, TypeVar};
 
 use crate::cmd_dispatch::{self, CmdDispatchRegistry};
-use crate::lambda_eval::{self, Value};
+use crate::lambda_eval::{self, LambdaError, Value};
 use crate::lower;
 use crate::pipeline;
 use crate::type_stage::{self, TypeStageError};
@@ -98,11 +98,15 @@ pub struct ReplState {
     pub type_env: TypeEnv,
     /// R229.M5 term-value environment threaded through the lambda
     /// executor. Empty at session start; the M5 executor reads it (via
-    /// [`lambda_eval::eval_lambda`]) but does not persist top-level
-    /// bindings across turns — that lands with the follow-on milestone
-    /// that wires `let` at the REPL surface. Kept as a public field so
-    /// a driver can seed prelude values (mirroring how `type_env` is
-    /// seeded) without going through a builder.
+    /// [`lambda_eval::eval_lambda`]) and, since R229.M6, top-level
+    /// `let` bindings mutate it in place — a `let x = 42` turn
+    /// installs `x → Int(42)`, which a subsequent turn's lambda body
+    /// sees when it references `x`. See [`execute_let`] and
+    /// [`eval_let_binding`] for the mutation paths; those paths also
+    /// keep [`Self::type_env`] in step (see `execute_let`'s doc). Kept
+    /// as a public field so a driver can seed prelude values
+    /// (mirroring how `type_env` is seeded) without going through a
+    /// builder.
     pub value_env: std::collections::HashMap<String, Value>,
 }
 
@@ -332,20 +336,31 @@ fn execute(state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
             // attribute a runtime lambda failure without inspecting
             // the AST.
             match lambda_eval::eval_lambda(node, &state.value_env) {
-                Ok(Value::Int(n)) => TurnResult::Value(format!("{n}")),
-                Ok(Value::Str(s)) => TurnResult::Value(s),
-                Ok(Value::Bool(b)) => TurnResult::Value(format!("{b}")),
-                Ok(Value::Unit) => TurnResult::Value("()".into()),
-                Ok(Value::Fn(_)) => TurnResult::Value("<closure>".into()),
+                Ok(v) => TurnResult::Value(render_value(&v)),
                 Err(e) => TurnResult::Error(format!("lambda: {e}")),
             }
         }
+        // R229.M6: intercept top-level `Let` and mutate `state.value_env`
+        // so subsequent turns see the binding. The R221.M5 pipeline
+        // parser does not (yet) emit a top-level `SyntaxNode::Let` — the
+        // canonical driver path is [`eval_let_binding`], which builds the
+        // node and threads it through this arm — but leaving the branch
+        // wired here means a follow-on parser milestone that produces
+        // `let x = 42` at the pipeline top-level slots in without a
+        // second executor touch. A `Let` reached inside a Lambda body is
+        // handled by `eval_lambda`'s own local-binding path (see the
+        // module doc's "top-level vs. nested" distinction).
+        SyntaxNode::Let { name, value, .. } => match execute_let(state, name, value) {
+            Ok(v) => TurnResult::Value(format!("{name} = {}", render_value(&v))),
+            Err(e) => TurnResult::Error(format!("lambda: {e}")),
+        },
         // Everything else — Seq, Group, Redirect, RecordExpr, literals,
-        // Atom/Rule outside a block, App/Var/Let/Match, BinOp/UnaryOp,
+        // Atom/Rule outside a block, App/Var/Match, BinOp/UnaryOp,
         // FieldAccess, QVar/InterpVar/NotAtom, Ident — falls into the
         // generic "not yet implemented" bucket. Naming the variant keeps
         // the user's error message specific without hard-coding twenty
-        // arms of essentially the same string.
+        // arms of essentially the same string. (`Let` moved up to its
+        // own arm in R229.M6.)
         other => TurnResult::Value(format!(
             "{} — <not yet implemented>",
             variant_name(other)
@@ -545,5 +560,143 @@ fn variant_name(n: &SyntaxNode) -> &'static str {
         SyntaxNode::LitInt { .. } => "lit-int",
         SyntaxNode::LitBool { .. } => "lit-bool",
         SyntaxNode::Ident { .. } => "ident",
+    }
+}
+
+/// R229.M6 — evaluate a `let` RHS under the session's `value_env` and,
+/// on success, insert the resulting binding so subsequent turns see it.
+///
+/// # Contract
+///
+/// * Reads `state.value_env` as the environment for `eval_lambda` so
+///   the RHS can reference previously-bound names — chained lets like
+///   `let x = 1; let y = x + 1` work because turn 1 has already
+///   installed `x` before turn 2 evaluates `x + 1`.
+/// * On `Ok(v)`, inserts `(name, v.clone())` into `state.value_env`
+///   (mutating the session) *and* extends `state.type_env` with a
+///   maximally-permissive `∀α. α` scheme for `name` (see the inline
+///   comment in the body — HM would otherwise trip `UnboundVar` on
+///   the next turn's reference to `name`), then returns the value.
+/// * On `Err(e)`, leaves *both* `state.value_env` and `state.type_env`
+///   untouched (the `?` early-returns before either mutation) — a
+///   failed binding must not leak a partial mutation into the session.
+///
+/// # Shadowing
+///
+/// `HashMap::insert` overwrites any prior entry for `name`, which is
+/// the shadowing semantic the R229 milestone doc calls out:
+/// `let x = 1; let x = 99` leaves `x → 99` in the environment. The
+/// M6 fixture `r229m6-let-04` pins this.
+///
+/// # Not a full turn
+///
+/// This helper does not bump `state.turn_counter` — the caller
+/// ([`eval_let_binding`] or the [`execute`] dispatch) owns that. Kept
+/// as a pure `(state, name, value_node) → Result<Value, _>` so a
+/// future replay harness can call it deterministically without
+/// re-driving the whole `eval_turn` pipeline.
+pub fn execute_let(
+    state: &mut ReplState,
+    name: &str,
+    value_node: &SyntaxNode,
+) -> Result<Value, LambdaError> {
+    let v = lambda_eval::eval_lambda(value_node, &state.value_env)?;
+    state.value_env.insert(name.to_owned(), v.clone());
+    // Keep `type_env` in step with `value_env` so a subsequent turn
+    // that references `name` under HM (stage 2 of `eval_turn`) does not
+    // abort with `type: unbound variable …`. R225.M4's HM checker
+    // covers only a lambda subset (see `crate::type_stage` module doc)
+    // and cannot always infer a precise scheme for the R229.M5 lambda
+    // walker's runtime values — a `BinOp`-shaped RHS surfaces as
+    // `UnsupportedNode` before HM ever sees the whole term. So M6
+    // installs a maximally-permissive scheme `∀α. α` per binding:
+    // instantiation at each use site mints a fresh var that HM unifies
+    // against whatever the context needs, which is the correct
+    // "type-check does not obstruct execution" story until a follow-on
+    // milestone lifts BinOp / UnaryOp / LitBool into the HM subset and
+    // execute_let can install the real inferred scheme.
+    let wildcard = wildcard_scheme();
+    state.type_env = state.type_env.extend(name.to_owned(), wildcard);
+    Ok(v)
+}
+
+/// A polymorphic "any type" scheme `∀α. α`, used by [`execute_let`] to
+/// keep `state.type_env` from tripping HM's UnboundVar on names the R229
+/// walker installs into `value_env`. Instantiation at each use site
+/// mints a fresh type variable that HM unifies freely — the scheme
+/// commits to nothing about the value's runtime shape.
+///
+/// The `TypeVar(0)` id is arbitrary because the scheme quantifies it —
+/// after `generalize`, the body's fresh copy carries a different id at
+/// every use site (see [`paideia_as_shell_hm::infer::instantiate`]),
+/// so no cross-scheme aliasing can occur.
+fn wildcard_scheme() -> TypeScheme {
+    let alpha = TypeVar(0);
+    TypeScheme {
+        quantified: vec![alpha],
+        body: MonoType::Var(alpha),
+    }
+}
+
+/// R229.M6 — public entry point for injecting a top-level `let`
+/// binding into a session without going through the source parser.
+///
+/// # Why a helper (and not `eval_turn` with source)
+///
+/// The R221.M5 pipeline parser does not (yet) produce a top-level
+/// `SyntaxNode::Let` — a bare `let x = 42` fails at the lexer (`=` is
+/// not a recognised operator glyph). M6 lands the state-mutation
+/// substrate that a follow-on parser milestone will wire into
+/// `eval_turn`; until then, drivers (and the M6 test corpus) construct
+/// a `SyntaxNode::Let`-shaped RHS by hand and hand it in through this
+/// helper. When the parser catches up, this helper stays as the
+/// programmatic path (an LSP action, a session-replay harness, a
+/// driver that seeds prelude bindings) and `eval_turn`'s dispatch
+/// begins reaching the [`SyntaxNode::Let`] arm on real source.
+///
+/// # Turn accounting
+///
+/// Bumps `state.turn_counter` and returns a [`TurnResult`] on the same
+/// shape `eval_turn` uses — a driver that mixes `eval_turn` calls with
+/// `eval_let_binding` calls sees a single monotone counter across the
+/// session (M6 fixture `r229m6-let-08` pins the counter reaching 10
+/// across a 10-turn mix).
+///
+/// # Rendering
+///
+/// On success, returns `TurnResult::Value("{name} = {rendered}")`
+/// where `rendered` follows the same M5 rules as the [`SyntaxNode::Lambda`]
+/// arm (`Int` → digits, `Str` → verbatim, `Bool` → "true"/"false",
+/// `Unit` → "()", `Fn` → "\<closure\>"). On failure, returns
+/// `TurnResult::Error("lambda: {err}")` and leaves the session
+/// unchanged — consistent with the [`execute_let`] contract.
+pub fn eval_let_binding(
+    state: &mut ReplState,
+    name: &str,
+    value: SyntaxNode,
+) -> TurnResult {
+    // Match `eval_turn`'s counter contract: always bump, even on
+    // error, so a fingerprint sequence has no gaps.
+    state.turn_counter += 1;
+    match execute_let(state, name, &value) {
+        Ok(v) => TurnResult::Value(format!("{name} = {}", render_value(&v))),
+        Err(e) => TurnResult::Error(format!("lambda: {e}")),
+    }
+}
+
+/// Render a [`Value`] for user-visible output.
+///
+/// Centralised so the [`SyntaxNode::Lambda`] executor arm, the
+/// [`SyntaxNode::Let`] executor arm, and [`eval_let_binding`] all
+/// project a value onto the same string surface — a future addition
+/// of, say, a hex-int renderer or a truncated-closure form has one
+/// place to touch.
+fn render_value(v: &Value) -> String {
+    match v {
+        Value::Int(n) => format!("{n}"),
+        Value::Str(s) => s.clone(),
+        Value::Bool(b) => format!("{b}"),
+        Value::Unit => "()".into(),
+        Value::Fn(_) => "<closure>".into(),
     }
 }

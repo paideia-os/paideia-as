@@ -43,22 +43,30 @@
 //!
 //! # What lands in later milestones
 //!
-//! * M2 — ranking (prefix > substring > subsequence; case-fold; recency).
-//! * M3 — argument-position completion for the running command.
-//! * M4 — field-name completion off a schema-typed record cursor.
+//! * M2 — Candidate enrichment (`type_hint` for commands) plus 1-level
+//!   Field completion off a `Record.<cursor>` shape. Nested lookup
+//!   (`foo.bar.<cursor>`) is deferred to M3+.
+//! * M3 — ranking (prefix > substring > subsequence; case-fold; recency)
+//!   plus argument-position completion (path expansion, flag hints).
+//! * M4 — nested field-name completion off a schema-typed record cursor.
 //! * M5 — async / streaming candidate providers.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+use std::collections::HashMap;
+
 use paideia_as_shell_lex::{Context, Lexer, Span, Token, TokenKind};
 use paideia_as_unicode::nfc_normalize;
 
 // R228.M4 will consume `paideia_as_shell_ast::SyntaxNode` to resolve
-// the record type behind a `.` cursor. Held as a no-name import here
+// the *nested* record type behind a chained `.` cursor. R228.M2 only
+// needs a flat `records: HashMap<String, Vec<String>>` on the engine,
+// which the caller (R229 REPL) seeds from the current session's
+// record catalogue — no AST walk yet. Held as a no-name import here
 // so the crate's Cargo.toml dep list is stable across the M1..M4
 // landings; the actual `use paideia_as_shell_ast::SyntaxNode` will
-// land at M4 with the field-completion module. The `_` binding is
+// land at M4 with the nested-lookup module. The `_` binding is
 // Rust's idiom for "load the crate but don't expose a name" — it
 // keeps the `unused_crate_dependencies` lint quiet without polluting
 // this crate's public surface.
@@ -92,8 +100,10 @@ pub enum CandidateKind {
     /// A lambda-bound or session-scoped variable. Emitted when the
     /// cursor sits in `Context::Lambda`.
     Var,
-    /// A record field. Reserved for R228.M4 (field completion after a
-    /// `.` cursor). Not emitted at M1.
+    /// A record field. Emitted from R228.M2 onward for a 1-level
+    /// `Record.<cursor>` shape when the engine's flat `records` map
+    /// carries the record name. Chained lookup (`foo.bar.<cursor>`)
+    /// awaits R228.M4's AST-driven resolver.
     Field,
     /// A reserved word of the sub-language grammar. Emitted for the
     /// Datalog keyword catalogue in `Context::Datalog`.
@@ -116,11 +126,23 @@ pub struct Candidate {
     pub text: String,
     /// The surface category the caller uses for rendering.
     pub kind: CandidateKind,
-    /// Optional human-facing render — a description, disambiguating
-    /// suffix, or type annotation. `None` means "render `text` alone".
-    /// M1 never populates this; the field is present so R228.M2's
-    /// ranker can annotate ambiguous matches without a shape change.
+    /// Optional human-facing render — a description or disambiguating
+    /// suffix. `None` means "render `text` alone".  Kept distinct from
+    /// [`Candidate::type_hint`] because the REPL and the LSP treat
+    /// them differently: `display` is the popup's *label*, while
+    /// `type_hint` is the *aligned right-column type annotation* the
+    /// popup renders in a dimmer face.
     pub display: Option<String>,
+    /// Optional type-annotation string the popup renders in the
+    /// aligned right-column type slot. Populated by the R228.M2
+    /// enrichment pass for `Command` candidates whose name appears in
+    /// [`CompletionEngine::commands_with_types`]; other candidate
+    /// kinds leave this `None` until their own enrichment source
+    /// (R228.M4's schema-typed record types, R228.M5's argument
+    /// declarations) lands. Kept as an owned `String` so the response
+    /// never borrows into the engine's catalogue — the caller may
+    /// swap the engine between requests.
+    pub type_hint: Option<String>,
 }
 
 /// The response the REPL / LSP consumes.
@@ -153,13 +175,30 @@ pub struct CompletionResponse {
 /// without a trait decision the ranker milestone will inform.
 pub struct CompletionEngine {
     /// Registered command names, in the order the REPL should show
-    /// them (dispatch-registry insertion order today; ranked by M2's
+    /// them (dispatch-registry insertion order today; ranked by M3's
     /// scorer at the next milestone).
     pub commands: Vec<String>,
     /// Known variable names in the current session scope. M1 populates
     /// this from the REPL's session-wide `let`-binding table; a lambda-
     /// local shadowing pass lands with M4's scope-aware completion.
     pub known_vars: Vec<String>,
+    /// Command name → rendered type-annotation string. Consulted by
+    /// the R228.M2 enrichment pass to fill `Candidate::type_hint` for
+    /// `Command` candidates. Kept as a flat map (not a
+    /// `HashMap<String, TypeExpr>`) at M2 so this crate stays isolated
+    /// from `paideia-as-shell-types`; the REPL formats the type once
+    /// at engine-seed time and hands the string through.  Missing
+    /// entries leave the candidate's `type_hint` as `None` rather
+    /// than an empty string — the REPL renders those two cases
+    /// differently.
+    pub commands_with_types: HashMap<String, String>,
+    /// Record name → ordered list of field names. Consulted by the
+    /// M2 Field-completion branch. A 1-level map at M2: the value is
+    /// a flat `Vec<String>` of field names, not a nested schema.
+    /// Chained lookup (`foo.bar.<cursor>` where `bar`'s type is a
+    /// record with its own fields) is deferred to R228.M4, which
+    /// will introduce an AST-driven resolver on top of this map.
+    pub records: HashMap<String, Vec<String>>,
 }
 
 impl CompletionEngine {
@@ -170,14 +209,40 @@ impl CompletionEngine {
         Self {
             commands: Vec::new(),
             known_vars: Vec::new(),
+            commands_with_types: HashMap::new(),
+            records: HashMap::new(),
         }
     }
 
     /// Construct an engine pre-seeded with a command and variable list.
+    /// The type-hint and record catalogues start empty; layer them on
+    /// with [`Self::with_command_types`] and [`Self::with_records`].
     /// Convenience for the M1 fixtures and for the R229 REPL boot
     /// path.
     pub fn with_lists(commands: Vec<String>, known_vars: Vec<String>) -> Self {
-        Self { commands, known_vars }
+        Self {
+            commands,
+            known_vars,
+            commands_with_types: HashMap::new(),
+            records: HashMap::new(),
+        }
+    }
+
+    /// Layer a command → type-hint map on top of an existing engine.
+    /// Overwrites any prior map wholesale; the REPL rebuilds this map
+    /// on every dispatch-registry mutation, so a partial-update
+    /// primitive would be an unused surface.
+    pub fn with_command_types(mut self, m: HashMap<String, String>) -> Self {
+        self.commands_with_types = m;
+        self
+    }
+
+    /// Layer a record → field-list map on top of an existing engine.
+    /// Overwrites any prior map wholesale for the same reason as
+    /// [`Self::with_command_types`].
+    pub fn with_records(mut self, records: HashMap<String, Vec<String>>) -> Self {
+        self.records = records;
+        self
     }
 }
 
@@ -283,6 +348,16 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
         }
         // ---- 4b. Active token: dispatch on (kind, context). --------
         Some(idx) => {
+            // R228.M2 -- field completion short-circuits the token-
+            // kind dispatch: a `Record.<cursor>` or `Record.pre<cursor>`
+            // shape is recognized purely from the token neighbourhood,
+            // independent of the surrounding sub-language context. If
+            // the helper claims the request, its response wins;
+            // otherwise fall through to the M1 (kind, context)
+            // dispatch below.
+            if let Some(resp) = try_field_completion(engine, &tokens, idx, cursor) {
+                return resp;
+            }
             let tok = &tokens[idx];
             match (&tok.kind, tok.context) {
                 (TokenKind::Ident(name), Context::Pipeline) => {
@@ -327,7 +402,10 @@ fn is_command_position(tokens: &[Token], idx: usize) -> bool {
 }
 
 /// Filter `engine.commands` to entries starting with `prefix` (case-
-/// sensitive) and wrap each as a `Command` candidate.
+/// sensitive) and wrap each as a `Command` candidate. Type-hint
+/// enrichment (R228.M2): if `engine.commands_with_types` carries an
+/// entry for the command name, its value populates the candidate's
+/// `type_hint`; otherwise `type_hint` stays `None`.
 fn command_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
     engine
         .commands
@@ -337,12 +415,14 @@ fn command_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate>
             text: c.clone(),
             kind: CandidateKind::Command,
             display: None,
+            type_hint: engine.commands_with_types.get(c).cloned(),
         })
         .collect()
 }
 
 /// Filter `engine.known_vars` to entries starting with `prefix` and
-/// wrap each as a `Var` candidate.
+/// wrap each as a `Var` candidate. Var type-hint enrichment lands
+/// with R228.M4's scope-aware pass; M2 leaves `type_hint` as `None`.
 fn var_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
     engine
         .known_vars
@@ -352,6 +432,7 @@ fn var_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
             text: v.clone(),
             kind: CandidateKind::Var,
             display: None,
+            type_hint: None,
         })
         .collect()
 }
@@ -366,8 +447,101 @@ fn keyword_candidates(prefix: &str) -> Vec<Candidate> {
             text: (*kw).to_owned(),
             kind: CandidateKind::Keyword,
             display: None,
+            type_hint: None,
         })
         .collect()
+}
+
+/// Filter `engine.records[rec_name]` to field names starting with
+/// `prefix` and wrap each as a `Field` candidate. Returns an empty
+/// vector when the record name is not in the map (the caller may
+/// still return a positioned response).
+fn field_candidates(engine: &CompletionEngine, rec_name: &str, prefix: &str) -> Vec<Candidate> {
+    let Some(fields) = engine.records.get(rec_name) else {
+        return Vec::new();
+    };
+    fields
+        .iter()
+        .filter(|f| f.starts_with(prefix))
+        .map(|f| Candidate {
+            text: f.clone(),
+            kind: CandidateKind::Field,
+            display: None,
+            type_hint: None,
+        })
+        .collect()
+}
+
+/// R228.M2 -- attempt Field completion off the token neighbourhood.
+///
+/// Recognized shapes (`^` marks the cursor):
+///
+/// * `Ident Dot ^`       — insertion at cursor, all fields of the
+///                          record named by the leading `Ident`.
+/// * `Ident Dot Ident^`  — overwrite the trailing `Ident`'s span,
+///                          filter fields by its text.
+///
+/// The helper deliberately keeps its shape-recognition detached from
+/// the [`Context`] tag: `.` is a field-access glyph in `Pipeline` and
+/// a fact terminator in `Datalog`, but at R228.M2 the caller only
+/// asks for field completion when the record catalogue is non-empty
+/// and the token neighbourhood matches — the Datalog surface never
+/// hands the engine a records map today, so the crossover is inert
+/// in practice.
+///
+/// Nested lookup (`Ident Dot Ident Dot ^` or
+/// `Ident Dot Ident Dot Ident^`) is deferred to R228.M4: the helper
+/// still *claims* the request (returning an empty response) so a
+/// caller does not fall through to the argument-position empty
+/// branch and produce misleading candidates in the interim.
+///
+/// Returns `None` when the neighbourhood does not match a field
+/// shape at all; then the caller continues the M1 token-kind
+/// dispatch.
+fn try_field_completion(
+    engine: &CompletionEngine,
+    tokens: &[Token],
+    active_idx: usize,
+    cursor: usize,
+) -> Option<CompletionResponse> {
+    // Case A: `Ident Dot ^` -- active token is the Dot.
+    if matches!(tokens[active_idx].kind, TokenKind::Dot) {
+        if active_idx == 0 {
+            return None;
+        }
+        let TokenKind::Ident(rec_name) = &tokens[active_idx - 1].kind else {
+            return None;
+        };
+        // Nested guard: the Ident we would consult is itself a field
+        // access (`prev.rec.<cursor>`). M4's resolver will pick this
+        // up; M2 returns an empty insertion so the caller does not
+        // fall through to a wrong dispatch branch.
+        if active_idx >= 2 && matches!(tokens[active_idx - 2].kind, TokenKind::Dot) {
+            return Some(empty_at(cursor));
+        }
+        let cands = field_candidates(engine, rec_name, "");
+        return Some(CompletionResponse {
+            candidates: cands,
+            prefix_start: cursor,
+            prefix_end: cursor,
+        });
+    }
+    // Case B: `Ident Dot Ident^` -- active token is the trailing
+    // Ident. Requires at least two preceding tokens.
+    if let TokenKind::Ident(field_prefix) = &tokens[active_idx].kind {
+        if active_idx >= 2 && matches!(tokens[active_idx - 1].kind, TokenKind::Dot) {
+            let TokenKind::Ident(rec_name) = &tokens[active_idx - 2].kind else {
+                return None;
+            };
+            // Nested guard: the record ident is itself a field access.
+            if active_idx >= 3 && matches!(tokens[active_idx - 3].kind, TokenKind::Dot) {
+                return Some(empty_at(cursor));
+            }
+            let cands = field_candidates(engine, rec_name, field_prefix);
+            return Some(response(cands, tokens[active_idx].span));
+        }
+    }
+    None
 }
 
 /// Build a `CompletionResponse` whose overwrite span is `tok_span`.

@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.36.33 — 2026-09-25 — R229.M6 persistent let-bindings + R228.M2 Field completion + type_hint enrichment
+
+**R229.M6** — Persistent top-level let-bindings mutate `state.value_env`
+across turns:
+
+- **New in turn.rs**:
+  - `execute_let(state, name, value_node) -> Result<Value, LambdaError>` —
+    mutates both `state.value_env` and `state.type_env` on success
+    (installs a maximally-permissive `∀α. α` scheme for the type binding
+    since R225.M4 HM doesn't model BinOp/UnaryOp/LitBool yet; a follow-on
+    milestone will swap `wildcard_scheme` for real `generalize`).
+  - `eval_let_binding(state, name, value) -> TurnResult` — public entry
+    point; bumps turn_counter and renders via shared `render_value`.
+  - Shared `render_value` helper centralises Lambda + Let rendering.
+- **Path B**: the R221.M5 parser does not emit top-level `SyntaxNode::Let`
+  (the shell-lex layer doesn't recognise `=` as an operator, and there's
+  no `let ident = expr` production at pipeline top). M6 lands the
+  state-mutation substrate only; a follow-on parser milestone will wire
+  it to real source. The `SyntaxNode::Let` executor arm exists in
+  `execute()` future-proof, so no second touch is needed once the parser
+  catches up.
+- 8-test corpus `r229m6-let-01`..`r229m6-let-08` uses `eval_let_binding`
+  directly.
+
+**R228.M2** — completion enrichment + 1-level Field candidates:
+
+- **Candidate** gained `type_hint: Option<String>`.
+- **CompletionEngine** gained `commands_with_types: HashMap<String, String>`
+  and `records: HashMap<String, Vec<String>>`; new builders
+  `with_command_types(m)` and `with_records(r)`.
+- **complete()** — `try_field_completion` short-circuits before the M1
+  (kind, context) dispatch:
+  - `Ident Dot ^` → insertion at cursor, all fields.
+  - `Ident Dot Ident^` → overwrite trailing ident, filter by starts_with.
+  - Nested (`Ident Dot Ident Dot ...`) claimed with empty response to
+    prevent wrong-branch fallthrough (R228.M4).
+- Command candidates now carry `type_hint` from `commands_with_types`.
+- 8-test corpus `r228m2-cmp-01`..`r228m2-cmp-08` (16 total).
+- M1 tests updated: two Candidate struct literals gained
+  `type_hint: None`.
+
+SYSTEM_VERSION const bumped 0.36.32 → 0.36.33.
+
+Closes paideia-as#1469. Closes paideia-as#1470.
+
 ## 0.36.32 — 2026-09-25 — R229.M5 lambda evaluation + R228.M1 tab-completion substrate
 
 **R229.M5** — Replace the M1/M2/M3/M4 Lambda stub in `eval_turn` with a
