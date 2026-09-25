@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.36.36 — 2026-09-25 — R229.M9 turn history + replay + R225.M5 cross-context TypedValue
+
+**R229.M9** — Persist last N ReplTurn results + replay:
+
+- **New module** `paideia-as-shell-repl/src/turn_history.rs` —
+  `TurnHistory { entries: VecDeque<ReplTurn>, capacity }` with
+  `record`, `get`, `latest`, `len`, `is_empty`, `capacity`; `Default =
+  new(1000)`. `while` loop in `record` keeps `TurnHistory::new(0)` legal.
+- **ReplState.history: TurnHistory** field (pub, matching other REPL
+  state fields — drivers can `state.history = TurnHistory::new(N)` for
+  a custom window before the first turn).
+- **eval_turn** refactored into `stages()` helper + single build-and-record
+  footer so every attempted turn records (parse-error and type-error
+  early-returns now flow through the same recorder as happy-path).
+- **New surface fn** `replay_turn(&mut ReplState, usize) -> Option<ReplTurn>`
+  — clones `history.get(index)?.source` and re-drives through eval_turn.
+  Replay re-drives under current session state (not a snapshot restore);
+  a follow-on milestone can layer deterministic restore on top.
+- 8-test corpus `r229m9-hist-01`..`r229m9-hist-08` (90 shell-repl total).
+
+**R225.M5** — Cross-context type flow via `TypedValue`:
+
+- **New module** `crates/paideia-as-shell-hm/src/typed_value.rs` —
+  `TypedValue { value_row: RowType, effect_row: EffectRow }` with
+  constructors `empty()`, `of_row(row)`, `with_effect(row, eff)`;
+  `unify_typed_values(a, b)` M1-style + `unify_typed_values_with_fresh`
+  M2-style. Algorithm: unify value rows → on success, apply subst_v to
+  both effect rows before unifying → compose; on value failure, still
+  attempt effect-side so both diagnostics can surface in one pass. Both
+  failure modes wrap into `UnifyError::TypedValueMismatch { value_err,
+  effect_err }`.
+- **MonoType::Typed(Box<TypedValue>)** variant wired through:
+  - `collect_free_vars` (union of both rows).
+  - Display as `{fields ! effects}`.
+  - `apply_subst` (walks both via existing apply_row / apply_effect_row).
+  - `unify` `(Typed, Typed)` → `unify_typed_values_with_fresh`.
+  - Cross-variant `(Row, Typed)`/`(EffectRow, Typed)` fall through to
+    plain `Mismatch` (never row-family error) — matches M3's disjoint-
+    namespace rule.
+  - `occurs_check` `Typed` arm.
+  - `infer::collect_free_in_order` — value-row first, then effect
+    payloads in BTreeMap order, then effect tail (reproducible
+    generalisation).
+- **UnifyError::TypedValueMismatch** variant. `unify_rows` promoted
+  `fn` → `pub(crate) fn` for typed_value dispatch.
+- 10-test corpus `r225m5-typed-01`..`r225m5-typed-10` (70 shell-hm total).
+
+SYSTEM_VERSION const bumped 0.36.35 → 0.36.36.
+
+Closes paideia-as#1475. Closes paideia-as#1476.
+
 ## 0.36.35 — 2026-09-25 — R229.M8 typed command Values + R228.M4 recency-aware ranking
 
 **R229.M8** — Migrate `execute_cmd` from String to typed Value return:

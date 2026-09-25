@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::effect_row::EffectRow;
 use crate::infer::TypeEnv;
 use crate::ty::{MonoType, RowType, TypeScheme, TypeVar};
+use crate::typed_value::TypedValue;
 
 /// A finite mapping from type variables to monotypes.
 ///
@@ -83,6 +84,14 @@ impl Substitution {
             ),
             MonoType::Record(row) => MonoType::Record(self.apply_row(row)),
             MonoType::EffectRow(row) => MonoType::EffectRow(self.apply_effect_row(row)),
+            // R225.M5: propagate the substitution through both rows
+            // of a typed value. The two sides share the substitution
+            // domain, so a single walk on each side is enough — no
+            // separate composition step is required.
+            MonoType::Typed(tv) => MonoType::Typed(Box::new(TypedValue {
+                value_row: self.apply_row(&tv.value_row),
+                effect_row: self.apply_effect_row(&tv.effect_row),
+            })),
         }
     }
 

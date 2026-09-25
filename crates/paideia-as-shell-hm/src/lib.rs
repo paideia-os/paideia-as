@@ -82,6 +82,7 @@ pub mod expr;
 pub mod infer;
 pub mod subst;
 pub mod ty;
+pub mod typed_value;
 pub mod unify;
 
 pub use effect_row::{unify_effect_rows, EffectRow};
@@ -91,4 +92,5 @@ pub use infer::{
 };
 pub use subst::Substitution;
 pub use ty::{MonoType, RowType, TypeScheme, TypeVar};
+pub use typed_value::{unify_typed_values, unify_typed_values_with_fresh, TypedValue};
 pub use unify::{unify, unify_with_fresh, UnifyError};

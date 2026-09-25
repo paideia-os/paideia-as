@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::effect_row::EffectRow;
+use crate::typed_value::TypedValue;
 
 /// A fresh type variable, minted by [`crate::infer::FreshVarGen`].
 ///
@@ -50,6 +51,18 @@ pub enum MonoType {
     /// ordinary [`crate::unify::UnifyError::Mismatch`], not as a
     /// row-shape failure.
     EffectRow(EffectRow),
+    /// A [`TypedValue`] — a paired record value-row and effect row
+    /// unified as one monotype (R225.M5). Boxed to keep [`MonoType`]
+    /// non-recursive-tail-inflating; the box costs one indirection
+    /// but the alternative is a wider enum discriminant for every
+    /// other variant that never carries a typed value.
+    ///
+    /// Cross-variant unification against a bare [`MonoType::Record`]
+    /// or [`MonoType::EffectRow`] is rejected as an ordinary
+    /// [`crate::unify::UnifyError::Mismatch`] — a `TypedValue` is a
+    /// distinct algebraic kind, not a sugar for either single-row
+    /// half.
+    Typed(Box<TypedValue>),
 }
 
 impl MonoType {
@@ -85,6 +98,21 @@ impl MonoType {
                     ty.collect_free_vars(out);
                 }
                 if let Some(v) = row.tail {
+                    out.insert(v);
+                }
+            }
+            Self::Typed(tv) => {
+                // Union of both sides' free vars — record row and
+                // effect row share a single substitution domain, so
+                // any variable free on either side is free in the
+                // whole typed value.
+                for v in tv.value_row.free_vars() {
+                    out.insert(v);
+                }
+                for ty in tv.effect_row.present.values() {
+                    ty.collect_free_vars(out);
+                }
+                if let Some(v) = tv.effect_row.tail {
                     out.insert(v);
                 }
             }
@@ -166,6 +194,61 @@ impl fmt::Display for MonoType {
                     }
                     write!(f, "{}", MonoType::Var(v))?;
                 }
+                f.write_str("}")
+            }
+            // Typed values render as `{value_row ! effect_row}`, a
+            // single brace pair with the two sides separated by `!`.
+            // The record half reuses the sorted-fields walker; the
+            // effect half reuses the elide-Unit convention so a
+            // typical R225.M5 fixture reads as `{name: Str ! io, fs}`.
+            Self::Typed(tv) => {
+                f.write_str("{")?;
+
+                // -- Value-row half -----------------------------
+                let (fields, v_tail) = tv.value_row.to_map();
+                let mut sorted: Vec<(String, MonoType)> = fields.into_iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(&b.0));
+                for (i, (name, ty)) in sorted.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{name}: {ty}")?;
+                }
+                if let Some(v) = v_tail {
+                    if sorted.is_empty() {
+                        f.write_str("| ")?;
+                    } else {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{}", MonoType::Var(v))?;
+                }
+
+                // -- Separator ---------------------------------
+                f.write_str(" ! ")?;
+
+                // -- Effect-row half ---------------------------
+                let unit_tag = MonoType::Con("Unit".to_owned());
+                let mut first = true;
+                for (name, ty) in &tv.effect_row.present {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    first = false;
+                    if *ty == unit_tag {
+                        f.write_str(name)?;
+                    } else {
+                        write!(f, "{name}: {ty}")?;
+                    }
+                }
+                if let Some(v) = tv.effect_row.tail {
+                    if tv.effect_row.present.is_empty() {
+                        f.write_str("| ")?;
+                    } else {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{}", MonoType::Var(v))?;
+                }
+
                 f.write_str("}")
             }
         }

@@ -28,6 +28,7 @@ use crate::effect_row::{unify_effect_rows, EffectRow};
 use crate::infer::FreshVarGen;
 use crate::subst::Substitution;
 use crate::ty::{MonoType, RowType, TypeVar};
+use crate::typed_value::unify_typed_values_with_fresh;
 
 /// Failure modes for [`unify`] / [`unify_with_fresh`].
 ///
@@ -89,6 +90,25 @@ pub enum UnifyError {
         /// Extra labels present on the left row.
         extra: Vec<String>,
     },
+    /// R225.M5: a [`crate::typed_value::TypedValue`] vs
+    /// `TypedValue` unification failed on the value side, the effect
+    /// side, or both. The two sub-errors are reported independently
+    /// so a consumer can see every disagreement in one pass — no
+    /// side is silently masked by the other.
+    ///
+    /// Populated fields:
+    /// * `value_err = Some(_)` iff the value-row unification failed.
+    /// * `effect_err = Some(_)` iff the effect-row unification failed.
+    ///
+    /// At least one of the two is always `Some(_)`; both `None` would
+    /// mean the unification succeeded, which contradicts the error
+    /// being constructed at all.
+    TypedValueMismatch {
+        /// The value-row side's failure, if any.
+        value_err: Option<Box<UnifyError>>,
+        /// The effect-row side's failure, if any.
+        effect_err: Option<Box<UnifyError>>,
+    },
 }
 
 impl fmt::Display for UnifyError {
@@ -117,6 +137,20 @@ impl fmt::Display for UnifyError {
                     missing.join(", "),
                     extra.join(", ")
                 )
+            }
+            Self::TypedValueMismatch { value_err, effect_err } => {
+                // Compose the two-sided diagnostic, naming only the
+                // sides that actually failed. Ordering — value then
+                // effect — is fixed so a downstream text diff is
+                // reproducible.
+                f.write_str("typed value mismatch:")?;
+                if let Some(v) = value_err {
+                    write!(f, " value: {v};")?;
+                }
+                if let Some(e) = effect_err {
+                    write!(f, " effect: {e};")?;
+                }
+                Ok(())
             }
         }
     }
@@ -174,6 +208,16 @@ pub fn unify_with_fresh(
         }
         (MonoType::Record(ra), MonoType::Record(rb)) => unify_rows(ra, rb, fresh),
         (MonoType::EffectRow(ea), MonoType::EffectRow(eb)) => unify_effect_rows(ea, eb, fresh),
+        // R225.M5: component-wise unification of typed values —
+        // dispatched to the crate::typed_value module so the two-
+        // sided diagnostic (TypedValueMismatch) is minted in one
+        // place. Cross-variant pairs — TypedValue against a bare
+        // Record or EffectRow — fall through to the default
+        // Mismatch arm, mirroring the disjoint-namespace discipline
+        // R225.M3 established between records and effect rows.
+        (MonoType::Typed(ta), MonoType::Typed(tb)) => {
+            unify_typed_values_with_fresh(ta, tb, fresh)
+        }
         _ => Err(UnifyError::Mismatch {
             a: a.clone(),
             b: b.clone(),
@@ -211,6 +255,13 @@ pub(crate) fn occurs_check(var: TypeVar, ty: &MonoType) -> bool {
         MonoType::Arrow(a, b) => occurs_check(var, a) || occurs_check(var, b),
         MonoType::Record(row) => occurs_check_row(var, row),
         MonoType::EffectRow(row) => occurs_check_effect_row(var, row),
+        // R225.M5: walk both rows inside the typed value. Either
+        // side hosting `var` counts as an occurrence — the
+        // substitution would build an infinite two-sided term.
+        MonoType::Typed(tv) => {
+            occurs_check_row(var, &tv.value_row)
+                || occurs_check_effect_row(var, &tv.effect_row)
+        }
     }
 }
 
@@ -259,7 +310,7 @@ fn occurs_check_row(var: TypeVar, row: &RowType) -> bool {
 /// The occurs-check for each row-var binding walks the *other* side's
 /// extras — an `av` that appears free in `b_only`'s field types would
 /// produce an infinite record type.
-fn unify_rows(
+pub(crate) fn unify_rows(
     a: &RowType,
     b: &RowType,
     fresh: &mut FreshVarGen,

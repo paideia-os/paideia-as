@@ -54,6 +54,7 @@ use crate::cmd_dispatch::{self, CmdDispatchRegistry};
 use crate::lambda_eval::{self, LambdaError, Value};
 use crate::lower;
 use crate::pipeline;
+use crate::turn_history::TurnHistory;
 use crate::type_stage::{self, TypeStageError};
 
 /// Session-scoped mutable state a driver threads through every
@@ -108,6 +109,26 @@ pub struct ReplState {
     /// (mirroring how `type_env` is seeded) without going through a
     /// builder.
     pub value_env: std::collections::HashMap<String, Value>,
+    /// R229.M9 bounded ring-buffer of completed turns.
+    ///
+    /// [`eval_turn`] pushes each finalised [`ReplTurn`] onto the back
+    /// of this buffer before returning it; [`replay_turn`] reads back
+    /// from it by index to re-drive a recorded source through the
+    /// pipeline. The buffer's capacity is fixed at construction — the
+    /// [`Default`] value is `TurnHistory::new(1000)` (see the module
+    /// doc for the heuristic). Kept as a public field so a driver can
+    /// swap in a differently-sized `TurnHistory` before the first
+    /// turn, matching the shape of every other session-scoped field on
+    /// this struct.
+    ///
+    /// The counter/history pair is intentionally *not* aliased: the
+    /// counter is monotone across the whole session, the history is a
+    /// bounded window into it. A caller that wants to find the entry
+    /// for turn `k` after the window has advanced past `k` gets
+    /// `None` from `history.get(k)` (an out-of-range index into the
+    /// current live window), which is the correct signal that the
+    /// requested turn has been evicted.
+    pub history: TurnHistory,
 }
 
 impl ReplState {
@@ -207,16 +228,50 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
     state.turn_counter += 1;
     let fingerprint = format!("repl.turn.{:016x}", id);
 
+    // The result-building phase must not early-return: R229.M9 requires
+    // every attempted turn (parse-error included) to land on the
+    // session's history ring buffer in insertion order. Compute a
+    // `(result, inferred_type)` pair through the four stages, then fall
+    // through to a single build-and-record footer that constructs the
+    // `ReplTurn`, records a clone on `state.history`, and returns.
+    let (result, inferred_type) = eval_turn_stages(state, &source);
+
+    let turn = ReplTurn { source, result, fingerprint, inferred_type };
+    // R229.M9: record the completed turn on the session's history ring
+    // buffer *after* every stage has run and the `ReplTurn` value is
+    // final. Cloning is unavoidable because `record` takes ownership of
+    // the stored entry and the caller expects the value back; the clone
+    // is cheap for the typical turn (a small AST-free record — source
+    // String, TurnResult, fingerprint String, Option<MonoType>). Both a
+    // parse-error turn and a happy-path turn take this path so a replay
+    // harness sees every attempted turn in insertion order, not just the
+    // successful ones.
+    state.history.record(turn.clone());
+    turn
+}
+
+/// The four-stage body of [`eval_turn`], split out so the outer
+/// function has a single build-and-record footer (see the M9 record
+/// contract in [`eval_turn`]'s doc).
+///
+/// Returns `(result, inferred_type)` — the caller assembles the
+/// `ReplTurn` around this pair. On early failure (parse error, HM
+/// error), `inferred_type` is `None` and `result` carries the
+/// stage-prefixed diagnostic; on happy path both fields are populated
+/// per the R225.M4 / R226.M9 contracts documented on the enum arms of
+/// `execute`.
+fn eval_turn_stages(
+    state: &mut ReplState,
+    source: &str,
+) -> (TurnResult, Option<MonoType>) {
     // Stage 1: parse.
-    let node = match ast_parser::parse(&source) {
+    let node = match ast_parser::parse(source) {
         Ok(n) => n,
         Err(err) => {
-            return ReplTurn {
-                source,
-                result: TurnResult::Error(format!("parse: {:?}", err)),
-                fingerprint,
-                inferred_type: None,
-            };
+            return (
+                TurnResult::Error(format!("parse: {:?}", err)),
+                None,
+            );
         }
     };
 
@@ -246,12 +301,10 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
             Ok(mono) => Some(mono),
             Err(TypeStageError::UnsupportedNode(_)) => None,
             Err(err) => {
-                return ReplTurn {
-                    source,
-                    result: TurnResult::Error(format!("type: {err}")),
-                    fingerprint,
-                    inferred_type: None,
-                };
+                return (
+                    TurnResult::Error(format!("type: {err}")),
+                    None,
+                );
             }
         }
     };
@@ -263,7 +316,7 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
     // Stage 4: execute — dispatch by variant.
     let result = execute(state, elaborated);
 
-    ReplTurn { source, result, fingerprint, inferred_type }
+    (result, inferred_type)
 }
 
 /// Dispatch the executor by AST root variant. R229.M2's four real
@@ -743,4 +796,50 @@ pub(crate) fn render_value(v: &Value) -> String {
         Value::Unit => "()".into(),
         Value::Fn(_) => "<closure>".into(),
     }
+}
+
+/// R229.M9 — re-drive the source of a recorded turn through the full
+/// [`eval_turn`] pipeline.
+///
+/// # Contract
+///
+/// * Reads `state.history.get(index)` for the recorded source. Returns
+///   `None` if the index is outside the buffer's live window (either
+///   never occupied, or evicted after the buffer filled past its
+///   capacity). The caller distinguishes "index too large" from "index
+///   evicted" by consulting `state.history.len()` before the call — the
+///   surface deliberately does not encode that distinction because a
+///   replay caller who has just held a fingerprint from turn N can
+///   simply try `get(k)` and either replay or report "no longer in
+///   history" without a second lookup.
+/// * Clones the recorded `source` string before threading it back
+///   through `eval_turn`. The clone is necessary because `eval_turn`
+///   takes an owned `String` (it moves the source into the produced
+///   `ReplTurn`) and the history entry we borrowed from must stay in
+///   place — replaying `get(k)` twice must not disturb the buffer.
+/// * Bumps `state.turn_counter` (via `eval_turn`) and appends the
+///   *new* replayed turn to `state.history`. A replay is a real turn
+///   in every accounting sense — the fingerprint sequence advances,
+///   the history grows, and if the source references session state
+///   installed by intervening turns (a `let` binding, a `SessionEdb`
+///   assertion) the replay sees that state, not the state at record
+///   time. The fixture corpus (`r229m9-hist-05`) pins this "replay is
+///   a fresh turn" behaviour.
+/// * Returns `Some(replayed_turn)` — the *new* `ReplTurn` produced by
+///   the second run, not the historical entry that was read. The
+///   caller can compare `replayed.result` against
+///   `state.history.get(index).unwrap().result` to detect divergence
+///   (the source is a `String` and re-driving it under a mutated
+///   session may naturally produce a different outcome).
+///
+/// # Not a deterministic replay
+///
+/// R229.M9 lands the substrate: `replay_turn` re-executes the source
+/// under the *current* session state. A follow-on milestone that adds
+/// a per-turn state snapshot to `ReplTurn` can layer a "restore state
+/// to turn N-1, then replay N" surface on top of this primitive without
+/// changing the `record` / `get` shape below.
+pub fn replay_turn(state: &mut ReplState, index: usize) -> Option<ReplTurn> {
+    let source = state.history.get(index)?.source.clone();
+    Some(eval_turn(state, source))
 }

@@ -53,11 +53,15 @@ pub mod lambda_eval;
 pub mod lower;
 pub mod pipeline;
 pub mod turn;
+pub mod turn_history;
 pub mod type_stage;
 
 pub use cmd_dispatch::{execute_cmd, CmdDispatchRegistry, CmdError};
 pub use lambda_eval::{eval_lambda, Closure, LambdaError, Value};
 pub use lower::{lower_datalog, LowerError};
 pub use pipeline::{execute_pipeline, PipelineResult};
-pub use turn::{eval_let_binding, eval_turn, execute_let, ReplState, ReplTurn, TurnResult};
+pub use turn::{
+    eval_let_binding, eval_turn, execute_let, replay_turn, ReplState, ReplTurn, TurnResult,
+};
+pub use turn_history::TurnHistory;
 pub use type_stage::{type_check, TypeStageError};

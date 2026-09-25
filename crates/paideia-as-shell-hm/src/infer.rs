@@ -180,6 +180,22 @@ fn collect_free_in_order(
                 }
             }
         }
+        MonoType::Typed(tv) => {
+            // R225.M5: value-row first (matching Record's walker
+            // shape), then the effect-row half in its BTreeMap key
+            // order. The union preserves left-to-right determinism
+            // for generalisation reproducibility.
+            collect_free_in_order_row(&tv.value_row, env_fv, out, seen);
+            for ty in tv.effect_row.present.values() {
+                collect_free_in_order(ty, env_fv, out, seen);
+            }
+            if let Some(v) = tv.effect_row.tail {
+                if !env_fv.contains(&v) && !seen.contains(&v) {
+                    seen.insert(v);
+                    out.push(v);
+                }
+            }
+        }
     }
 }
 
