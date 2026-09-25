@@ -51,6 +51,7 @@ use paideia_as_shell_datalog::{
 use paideia_as_shell_hm::{MonoType, TypeEnv};
 
 use crate::cmd_dispatch::{self, CmdDispatchRegistry};
+use crate::lambda_eval::{self, Value};
 use crate::lower;
 use crate::pipeline;
 use crate::type_stage::{self, TypeStageError};
@@ -95,6 +96,14 @@ pub struct ReplState {
     /// (R225.M5+ let-persistence at the REPL surface) will grow the
     /// mutation path here.
     pub type_env: TypeEnv,
+    /// R229.M5 term-value environment threaded through the lambda
+    /// executor. Empty at session start; the M5 executor reads it (via
+    /// [`lambda_eval::eval_lambda`]) but does not persist top-level
+    /// bindings across turns — that lands with the follow-on milestone
+    /// that wires `let` at the REPL surface. Kept as a public field so
+    /// a driver can seed prelude values (mirroring how `type_env` is
+    /// seeded) without going through a builder.
+    pub value_env: std::collections::HashMap<String, Value>,
 }
 
 impl ReplState {
@@ -309,7 +318,27 @@ fn execute(state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
             }
         }
         SyntaxNode::Lambda { .. } => {
-            TurnResult::Value("lambda: <not yet implemented>".into())
+            // R229.M5: real lambda execution via
+            // [`lambda_eval::eval_lambda`]. The M1..M4 stub returned
+            // the literal `lambda: <not yet implemented>` string; M5
+            // walks the AST under `state.value_env` and renders the
+            // resulting [`Value`] on the same `TurnResult::Value`
+            // surface. Each variant renders in the same shape the
+            // user's own program would produce on the RHS of a binding
+            // (`42`, `"hello"`, `true`, `()`, `<closure>`) — no `lambda:`
+            // prefix on the happy path, matching the general "the
+            // executor renders one line of user output" convention.
+            // Errors keep the `lambda:` stage tag so a driver can
+            // attribute a runtime lambda failure without inspecting
+            // the AST.
+            match lambda_eval::eval_lambda(node, &state.value_env) {
+                Ok(Value::Int(n)) => TurnResult::Value(format!("{n}")),
+                Ok(Value::Str(s)) => TurnResult::Value(s),
+                Ok(Value::Bool(b)) => TurnResult::Value(format!("{b}")),
+                Ok(Value::Unit) => TurnResult::Value("()".into()),
+                Ok(Value::Fn(_)) => TurnResult::Value("<closure>".into()),
+                Err(e) => TurnResult::Error(format!("lambda: {e}")),
+            }
         }
         // Everything else — Seq, Group, Redirect, RecordExpr, literals,
         // Atom/Rule outside a block, App/Var/Let/Match, BinOp/UnaryOp,

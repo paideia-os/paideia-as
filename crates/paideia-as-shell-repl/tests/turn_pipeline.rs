@@ -118,7 +118,13 @@ fn r229m1_turn_04_pipeline_stub() {
 }
 
 /// `r229m1-turn-05`: `{ |x| x }` — a lambda literal — dispatches to
-/// the Lambda stub branch.
+/// the Lambda branch. Under R229.M1..M4 this rendered the placeholder
+/// `lambda: <not yet implemented>`; R229.M5 makes the branch really
+/// evaluate the lambda, so the identity closure renders as the value
+/// literal `<closure>` (see [`paideia_as_shell_repl::Value::Fn`] and
+/// the Lambda arm of `turn::execute`). The fixture id stays
+/// `r229m1-turn-05` because the architectural fact — a Lambda node
+/// routes to the Lambda arm — has not changed.
 #[test]
 fn r229m1_turn_05_lambda_stub() {
     const FP: &str = "r229m1-turn-05";
@@ -126,9 +132,9 @@ fn r229m1_turn_05_lambda_stub() {
     let turn = eval_turn(&mut state, "{ |x| x }".to_owned());
 
     match turn.result {
-        TurnResult::Value(v) => assert!(
-            v.starts_with("lambda:") && v.contains("not yet implemented"),
-            "{FP}: lambda stub must be prefixed 'lambda:' and mention 'not yet implemented', got: {v:?}"
+        TurnResult::Value(v) => assert_eq!(
+            v, "<closure>",
+            "{FP}: identity lambda must render `<closure>` under M5, got: {v:?}"
         ),
         TurnResult::Error(e) => panic!("{FP}: lambda parse errored: {e}"),
     }

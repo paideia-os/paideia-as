@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.36.32 — 2026-09-25 — R229.M5 lambda evaluation + R228.M1 tab-completion substrate
+
+**R229.M5** — Replace the M1/M2/M3/M4 Lambda stub in `eval_turn` with a
+real tree-walking interpreter:
+
+- **New module** `paideia-as-shell-repl/src/lambda_eval.rs` —
+  `Value { Int(i64), Str(String), Bool(bool), Unit, Fn(Closure) }`,
+  `Closure { params, body, captured }`, `LambdaError { UnboundVar,
+  ArityMismatch, TypeError, NotSupported }`, `eval_lambda(node, env)`.
+- Walk supports LitInt/LitStr/LitBool/Var/Ident, Group, BinOp
+  (`+ - * / == != < <= > >=` for Int and String; `+` for Str concat),
+  UnaryOp (`-` for Int, `not` for Bool), Lambda → Closure, Cmd/App as
+  application (arity checked, captured extended with params), Let bind.
+- Empty-params Lambda auto-forces the body ({ 42 } thunk pattern).
+- Wrapping arithmetic + explicit division-by-zero guard.
+- **ReplState.value_env: HashMap<String, Value>** field.
+- **turn.rs** Lambda arm renders Int/Str/Bool/Unit/Fn as string /
+  literal / `<closure>` / `()`, errors as `lambda: <err>`.
+- 8-test corpus `r229m5-lam-01`..`r229m5-lam-08`.
+- Prior Lambda stubs updated: `r229m1-turn-05`, `r229m2-turn-07`,
+  `r229m3-cmd-05` now assert `<closure>`.
+
+**R228.M1** — New workspace crate `paideia-as-shell-completion` — tab
+completion substrate:
+
+- `CompletionRequest { source, cursor_byte }`,
+  `CompletionResponse { candidates, prefix_start, prefix_end }`,
+  `Candidate { text, kind, display }`,
+  `CandidateKind { Command, Var, Field, Keyword, Path, Argument }`,
+  `CompletionEngine { commands, known_vars }`,
+  `complete(engine, req)`.
+- Algorithm: NFC-normalize source[..cursor], tokenize via
+  shell-lex, find active token, dispatch on (TokenKind, Context):
+  Pipeline+Ident+command-position → Command; Lambda+Ident → Var;
+  Datalog+Ident → Keyword (`not`, `?`, `$`); insertion at cursor for
+  post-`|` command position.
+- Case-sensitive `starts_with` matching.
+- No dep on shell-cmd/shell-repl (engine takes Vec<String>).
+- 8-test corpus `r228m1-cmp-01`..`r228m1-cmp-08`.
+
+SYSTEM_VERSION const bumped 0.36.31 → 0.36.32.
+
+Closes paideia-as#1467. Closes paideia-as#1468.
+
 ## 0.36.31 — 2026-09-25 — R229.M4 pipeline value threading + R225.M4 per-turn HM typecheck
 
 **R229.M4** — Real value threading through pipe stages, replacing the M3

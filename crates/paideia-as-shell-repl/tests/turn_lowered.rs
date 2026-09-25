@@ -229,18 +229,21 @@ fn r229m2_turn_06_pipeline_stub_unchanged() {
     }
 }
 
-/// `r229m2-turn-07`: the M1 lambda stub is untouched by M2. `{ |x| x }`
-/// still lands in the Lambda stub branch and returns a Value prefixed
-/// `lambda:` with "not yet implemented".
+/// `r229m2-turn-07`: R229.M2 did not touch the Lambda arm, so under M2
+/// this asserted the `lambda: <not yet implemented>` stub. R229.M5
+/// lands the executor: `{ |x| x }` now evaluates to a closure and the
+/// arm renders `<closure>`. The fixture id stays because the fact
+/// under test — the Datalog / Cmd / Pipe wiring of M2 does not
+/// perturb the Lambda arm's dispatch — is unchanged.
 #[test]
 fn r229m2_turn_07_lambda_stub_unchanged() {
     const FP: &str = "r229m2-turn-07";
     let mut state = ReplState::new();
     let turn = eval_turn(&mut state, "{ |x| x }".to_owned());
     match turn.result {
-        TurnResult::Value(v) => assert!(
-            v.starts_with("lambda:") && v.contains("not yet implemented"),
-            "{FP}: lambda stub must be `lambda: ... not yet implemented`, got: {v:?}"
+        TurnResult::Value(v) => assert_eq!(
+            v, "<closure>",
+            "{FP}: identity lambda must render `<closure>` under M5, got: {v:?}"
         ),
         TurnResult::Error(e) => panic!("{FP}: lambda should not error, got: {e}"),
     }

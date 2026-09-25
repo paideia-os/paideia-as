@@ -192,9 +192,12 @@ fn r229m3_cmd_04_pipeline_stub_upgraded() {
     }
 }
 
-/// `r229m3-cmd-05`: the lambda stub message is unchanged from M1/M2.
-/// M3 only touched the `Cmd` and `Pipe` arms; the Lambda arm remains
-/// `lambda: <not yet implemented>` (R229.M4's lambda JIT lands there).
+/// `r229m3-cmd-05`: R229.M3 did not touch the Lambda arm — this
+/// asserted the stub `lambda: <not yet implemented>` under M3. R229.M5
+/// lands the executor: `{ |x| x }` now evaluates to a closure and the
+/// arm renders `<closure>`. The fixture id stays because the fact
+/// under test — the `Cmd` and `Pipe` wiring of M3 does not perturb
+/// the Lambda arm's dispatch — is unchanged.
 #[test]
 fn r229m3_cmd_05_lambda_stub_unchanged() {
     const FP: &str = "r229m3-cmd-05";
@@ -202,9 +205,9 @@ fn r229m3_cmd_05_lambda_stub_unchanged() {
 
     let turn = eval_turn(&mut state, "{ |x| x }".to_owned());
     match turn.result {
-        TurnResult::Value(v) => assert!(
-            v.starts_with("lambda:") && v.contains("not yet implemented"),
-            "{FP}: lambda stub message must be untouched by M3, got: {v:?}"
+        TurnResult::Value(v) => assert_eq!(
+            v, "<closure>",
+            "{FP}: identity lambda must render `<closure>` under M5, got: {v:?}"
         ),
         TurnResult::Error(e) => panic!("{FP}: lambda parse errored under M3: {e}"),
     }

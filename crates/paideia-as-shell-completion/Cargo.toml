@@ -1,0 +1,77 @@
+[package]
+name = "paideia-as-shell-completion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_completion"
+
+# R228.M1 — tab-completion substrate for the semantic shell.
+#
+# This crate owns the pure, side-effect-free surface the R229 REPL
+# (paideia-as-shell-repl) will call on every TAB keystroke:
+#   * `CompletionRequest`  — an immutable snapshot of the user's edit
+#                            buffer plus a byte-offset cursor. Owned so
+#                            the engine never borrows into an editor
+#                            buffer that the caller may mutate next tick.
+#   * `Candidate` / `CandidateKind` — one completion suggestion and the
+#                            surface category (Command / Var / Field /
+#                            Keyword / Path / Argument). `display` is
+#                            the human-facing render; `text` is the
+#                            string that will replace `[prefix_start,
+#                            prefix_end)`.
+#   * `CompletionResponse` — the candidate list plus the byte range that
+#                            candidates are meant to overwrite. The REPL
+#                            uses `prefix_start`/`prefix_end` to align
+#                            the completion popup and to compute what to
+#                            delete before inserting the chosen text.
+#   * `CompletionEngine`   — the stateful lookup catalogue: command
+#                            names + known variable names. Kept as
+#                            `Vec<String>` in M1 so this crate stays
+#                            isolated from `paideia-as-shell-cmd`
+#                            (functor registry) and `paideia-as-shell-repl`
+#                            (dispatch registry) — R229 seeds the engine
+#                            with names harvested from either at REPL
+#                            start-up. M2 will introduce a
+#                            `CompletionSource` trait so the engine can
+#                            pull fresh names on each request without
+#                            the REPL rebuilding the engine each time.
+#
+# Kept in its own workspace crate — separate from shell-lex / shell-ast /
+# shell-repl — because tab-completion at the R228 layer is a pure
+# `Request -> Response` function that any consumer (REPL, LSP, script
+# linter) may call without dragging in the REPL's TTY layer or the
+# ast crate's parser. The dependency arrow stays one-way: this crate
+# imports the lexer + NFC normalizer, and NOTHING imports it yet
+# (R229.M4-onward will).
+#
+# What this crate does NOT own:
+#   * Ranking / fuzzy matching — R228.M2 (`CompletionRanker`).
+#   * Argument-position completion (path expansion, flag hints) — R228.M3.
+#   * Field-name completion off a schema — R228.M4.
+#   * Async candidate providers (fs walk, network catalog) — R228.M5.
+#   * REPL TTY glue / popup rendering — R229.M6.
+
+[dependencies]
+# The context-tagged token stream. Completion decides which candidate
+# kind to produce by inspecting the last token's `context` field
+# (Pipeline -> Command, Lambda -> Var, Datalog -> Keyword), so the
+# lexer is a direct dependency rather than a re-parse.
+paideia-as-shell-lex = { path = "../paideia-as-shell-lex" }
+# NFC-normalize the pre-cursor slice before tokenizing so identifiers
+# spelled with combining marks (`é` as U+0065 U+0301) match candidate
+# lists keyed on the composed form (U+00E9). Mirrors the R220.M4
+# `Str::eq` NFC discipline for command-name lookup.
+paideia-as-unicode = { path = "../paideia-as-unicode" }
+# Shell-ast is listed here as a dependency (per the M1 crate contract)
+# for the follow-on milestones (M4 field-completion consumes
+# `SyntaxNode` to resolve the record type behind a `.` cursor). At
+# M1 no `use` of it appears in the code — dropping it now and re-
+# adding at M4 would churn the top-level Cargo.toml lockfile
+# unnecessarily. See the crate's `_ast_placeholder` module for the
+# single reference that keeps the dep from being flagged unused.
+paideia-as-shell-ast = { path = "../paideia-as-shell-ast" }

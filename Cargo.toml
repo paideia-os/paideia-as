@@ -31,6 +31,7 @@ members = [
     "crates/paideia-as-shell-pds",
     "crates/paideia-as-shell-hm",
     "crates/paideia-as-shell-repl",
+    "crates/paideia-as-shell-completion",
     "crates/paideia-as-test",
     "crates/paideia-as-doc",
     "crates/paideia-lsp",
@@ -73,7 +74,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.31"
+version = "0.36.32"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
