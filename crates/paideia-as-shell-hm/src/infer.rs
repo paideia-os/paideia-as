@@ -21,7 +21,7 @@ use std::fmt;
 
 use crate::expr::{Expr, Lit};
 use crate::subst::Substitution;
-use crate::ty::{MonoType, TypeScheme, TypeVar};
+use crate::ty::{MonoType, RowType, TypeScheme, TypeVar};
 use crate::unify::{self, UnifyError};
 
 /// A term-variable environment — mapping identifiers to type schemes.
@@ -162,6 +162,30 @@ fn collect_free_in_order(
             collect_free_in_order(a, env_fv, out, seen);
             collect_free_in_order(b, env_fv, out, seen);
         }
+        MonoType::Record(row) => {
+            collect_free_in_order_row(row, env_fv, out, seen);
+        }
+    }
+}
+
+fn collect_free_in_order_row(
+    row: &RowType,
+    env_fv: &HashSet<TypeVar>,
+    out: &mut Vec<TypeVar>,
+    seen: &mut HashSet<TypeVar>,
+) {
+    match row {
+        RowType::Empty => {}
+        RowType::RowVar(v) => {
+            if !env_fv.contains(v) && !seen.contains(v) {
+                seen.insert(*v);
+                out.push(*v);
+            }
+        }
+        RowType::Extend { ty, rest, .. } => {
+            collect_free_in_order(ty, env_fv, out, seen);
+            collect_free_in_order_row(rest, env_fv, out, seen);
+        }
     }
 }
 
@@ -263,9 +287,10 @@ pub fn infer(
             let env1 = s1.apply_env(env);
             let (s2, ta) = infer(&env1, arg, fresh)?;
             let r = fresh.fresh();
-            let s3 = unify::unify(
+            let s3 = unify::unify_with_fresh(
                 &s2.apply(&tf),
                 &MonoType::Arrow(Box::new(ta), Box::new(MonoType::Var(r))),
+                fresh,
             )?;
             let composed = s3.compose(&s2.compose(&s1));
             let result = s3.apply(&MonoType::Var(r));
@@ -285,6 +310,61 @@ pub fn infer(
             let (s2, tb) = infer(&env2, body, fresh)?;
             let composed = s2.compose(&s1);
             Ok((composed, tb))
+        }
+
+        // ── RecordLit ──────────────────────────────────────────
+        //
+        // Infer each field's expression under the running
+        // substitution, apply the substitution to previously-inferred
+        // field types as we go (so a later field can constrain an
+        // earlier one), then package them into a closed row.
+        //
+        // Iteration follows sorted field-name order so the running
+        // substitution / environment updates are deterministic
+        // between runs.
+        Expr::RecordLit(fields) => {
+            let mut names: Vec<&String> = fields.keys().collect();
+            names.sort();
+
+            let mut subst = Substitution::empty();
+            let mut env_cur = env.clone();
+            let mut typed_fields: HashMap<String, MonoType> = HashMap::new();
+            for name in names {
+                let e = &fields[name];
+                let (s, t) = infer(&env_cur, e, fresh)?;
+                subst = s.compose(&subst);
+                env_cur = s.apply_env(&env_cur);
+                for prev in typed_fields.values_mut() {
+                    *prev = s.apply(prev);
+                }
+                typed_fields.insert(name.clone(), t);
+            }
+            let row = RowType::from_map(typed_fields, None);
+            Ok((subst, MonoType::Record(row)))
+        }
+
+        // ── Field ──────────────────────────────────────────────
+        //
+        // Infer the receiver, then unify its refined type with a
+        // record shape `{name: fresh_field | fresh_tail}`. The row
+        // variable `fresh_tail` makes the projection accept any
+        // record that at least carries `name` (row-polymorphic
+        // access), and `fresh_field` names the field's type — the
+        // substitution learned from unification refines it into the
+        // access's result type.
+        Expr::Field(receiver, name) => {
+            let (s1, tr) = infer(env, receiver, fresh)?;
+            let field_ty = MonoType::Var(fresh.fresh());
+            let rest_row = fresh.fresh();
+            let expected = MonoType::Record(RowType::Extend {
+                field: name.clone(),
+                ty: Box::new(field_ty.clone()),
+                rest: Box::new(RowType::RowVar(rest_row)),
+            });
+            let s2 = unify::unify_with_fresh(&s1.apply(&tr), &expected, fresh)?;
+            let composed = s2.compose(&s1);
+            let result = s2.apply(&field_ty);
+            Ok((composed, result))
         }
     }
 }

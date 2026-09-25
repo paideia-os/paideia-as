@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use crate::infer::TypeEnv;
-use crate::ty::{MonoType, TypeScheme, TypeVar};
+use crate::ty::{MonoType, RowType, TypeScheme, TypeVar};
 
 /// A finite mapping from type variables to monotypes.
 ///
@@ -64,6 +64,10 @@ impl Substitution {
     /// Variables not in the domain are returned unchanged. Because
     /// substitutions are idempotent by construction, a single pass
     /// suffices — no fixed-point iteration is needed.
+    ///
+    /// R225.M2 recurses into [`MonoType::Record`] via
+    /// [`Substitution::apply_row`], which spliced-inlines any row
+    /// variable that is bound to a further record.
     pub fn apply(&self, ty: &MonoType) -> MonoType {
         match ty {
             MonoType::Var(v) => self
@@ -76,6 +80,41 @@ impl Substitution {
                 Box::new(self.apply(a)),
                 Box::new(self.apply(b)),
             ),
+            MonoType::Record(row) => MonoType::Record(self.apply_row(row)),
+        }
+    }
+
+    /// Apply this substitution to a row.
+    ///
+    /// The walker propagates through every [`RowType::Extend`] node,
+    /// substituting the field's monotype and recursing into `rest`.
+    /// When it reaches a [`RowType::RowVar`], it looks the variable
+    /// up in the substitution's domain:
+    ///
+    /// * If the variable maps to a `MonoType::Record(next)`, splice
+    ///   `next` in place (recursing to further substitute through it —
+    ///   safe because substitutions are idempotent).
+    /// * If it maps to another `MonoType::Var(w)`, replace with
+    ///   `RowVar(w)` — the row-var slot walks in lockstep with the
+    ///   type-var slot when Rémy-style unification links them.
+    /// * If it maps to anything else (should not occur under
+    ///   [`crate::unify`]'s invariants), leave the row var untouched
+    ///   so the caller can notice the stuck term.
+    /// * If it is not in the domain, leave the row var untouched.
+    pub fn apply_row(&self, row: &RowType) -> RowType {
+        match row {
+            RowType::Empty => RowType::Empty,
+            RowType::Extend { field, ty, rest } => RowType::Extend {
+                field: field.clone(),
+                ty: Box::new(self.apply(ty)),
+                rest: Box::new(self.apply_row(rest)),
+            },
+            RowType::RowVar(v) => match self.0.get(v) {
+                Some(MonoType::Record(next)) => self.apply_row(next),
+                Some(MonoType::Var(w)) => RowType::RowVar(*w),
+                Some(_) => RowType::RowVar(*v),
+                None => RowType::RowVar(*v),
+            },
         }
     }
 

@@ -1,8 +1,12 @@
-//! Pure lambda expression AST.
+//! Pure lambda expression AST, extended in R225.M2 with record
+//! literals and field access.
 //!
-//! Five constructors — variable, literal, lambda, application, let —
-//! is the entire M1 surface. Helper builders `v`, `i`, `s`, `lam`,
-//! `app`, `let_` keep test corpora readable without a parser.
+//! Seven constructors — variable, literal, lambda, application, let,
+//! record literal, field access — cover the M2 surface. Helper
+//! builders `v`, `i`, `s`, `lam`, `app`, `let_`, `record`, `field`
+//! keep test corpora readable without a parser.
+
+use std::collections::HashMap;
 
 /// The two constant shapes M1 recognises.
 ///
@@ -18,11 +22,12 @@ pub enum Lit {
     Str,
 }
 
-/// The pure lambda expression grammar.
+/// The pure lambda expression grammar (M1) plus record literals and
+/// field access (M2).
 ///
 /// This is the untyped syntactic surface consumed by
 /// [`crate::infer::infer`]; type annotations are absent by design
-/// (M1 does Algorithm W, not bidirectional checking).
+/// (M2 still does Algorithm W, not bidirectional checking).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
     /// A term variable — looked up in the [`crate::infer::TypeEnv`].
@@ -36,6 +41,14 @@ pub enum Expr {
     /// A `let x = val in body` binding — the site of Damas-Milner
     /// generalisation.
     Let(String, Box<Expr>, Box<Expr>),
+    /// A record literal `{name1 = e1, name2 = e2, ...}`. The
+    /// [`HashMap`] key is the field name; the value is the
+    /// sub-expression that computes the field's value. The empty map
+    /// is the empty record `{}`.
+    RecordLit(HashMap<String, Expr>),
+    /// A field access `e.field` — projects `field` out of the record
+    /// value produced by `e`.
+    Field(Box<Expr>, String),
 }
 
 /// Build a variable reference — `v("x")` ≡ `Expr::Var("x".into())`.
@@ -70,4 +83,28 @@ pub fn app(f: Expr, a: Expr) -> Expr {
 /// for expression-builders whose names would otherwise collide.
 pub fn let_(name: &str, val: Expr, body: Expr) -> Expr {
     Expr::Let(name.to_owned(), Box::new(val), Box::new(body))
+}
+
+/// Build a record literal — `record([("a", i()), ("b", s())])` ≡
+/// `{a = 42, b = "hello"}`.
+///
+/// Accepts an iterable of `(name, expression)` pairs (any type that
+/// coerces to `&str` for the name) so test call sites can use array
+/// literals without allocating a [`HashMap`] by hand. If the same
+/// field name appears twice, the later occurrence wins.
+pub fn record<I, N>(fields: I) -> Expr
+where
+    I: IntoIterator<Item = (N, Expr)>,
+    N: Into<String>,
+{
+    let mut map = HashMap::new();
+    for (name, e) in fields {
+        map.insert(name.into(), e);
+    }
+    Expr::RecordLit(map)
+}
+
+/// Build a field-access expression — `field(v("r"), "a")` ≡ `r.a`.
+pub fn field(e: Expr, name: &str) -> Expr {
+    Expr::Field(Box::new(e), name.to_owned())
 }

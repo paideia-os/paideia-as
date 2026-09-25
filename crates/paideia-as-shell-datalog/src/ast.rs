@@ -9,11 +9,37 @@
 //! # Value universe
 //!
 //! Values are one of `Ident` (bare symbols like `alice`, `bob`), `Str`
-//! (quoted strings), or `Num` (integer literals — floats are deferred
-//! until the schema registry pins numeric column types at R226.M9).
-//! The narrow universe is deliberate: at M1/M2 the evaluator's job is
-//! to demonstrate fixpoint correctness, not to be a full expression
-//! runtime. R226.M6 will widen the universe for aggregation operands.
+//! (quoted strings), `Num` (integer literals), or `Float` (IEEE 754
+//! double-precision literals). Floats were folded in as an R226.M6
+//! follow-up (issue #1460) so `sum`/`avg` can reduce over a
+//! non-integer numeric column.
+//!
+//! # `Value::Float` equality and hashing
+//!
+//! Rust's `f64` deliberately does not implement `Eq` or `Hash` — NaN
+//! violates reflexivity under IEEE 754 equality and floats have no
+//! natural total order. The Datalog engine, however, keeps ground
+//! tuples in `HashSet<Vec<Value>>` (see [`crate::eval::Database`] and
+//! [`crate::session_edb::SessionEdb`]) and reserves the right to
+//! compare bindings by exact equality. So we bracket the whole
+//! variant behind bit-pattern equality: two `Float(a)` and `Float(b)`
+//! values are considered equal iff `a.to_bits() == b.to_bits()`, and
+//! `Hash` mixes in `to_bits()` too. Consequences:
+//!
+//! * A canonical `Value::Float(f64::NAN)` compares equal to another
+//!   `Value::Float(f64::NAN)` produced the same way (same bit
+//!   pattern), so a substitution carrying NaN round-trips through the
+//!   fact table. This is the pragmatic choice; the alternative (NaN
+//!   != NaN, matching raw IEEE 754) would make NaN-bearing tuples
+//!   disappear from the DB and silently break downstream aggregation.
+//! * A NaN with a different payload bit pattern (rare — comes from
+//!   specific FMA/quiet-signaling paths, not arithmetic on
+//!   `Value::Float`) compares unequal even to itself in that other
+//!   payload, but that inequality is still reflexive per bit-pattern,
+//!   so `Eq` holds.
+//! * `+0.0` and `-0.0` have distinct bit patterns and therefore
+//!   compare unequal as `Value::Float`. If a caller wants numeric
+//!   equality they normalise before wrapping (`f.abs() + 0.0`).
 //!
 //! # `Term::Bound` — pipeline interpolation stub
 //!
@@ -27,11 +53,14 @@
 //! finally arrives.
 
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// Concrete, ground values a predicate slot can hold. Comparison by
 /// exact equality — no unification-time coercion (per the schema
-/// registry's principle that predicate slots are typed).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// registry's principle that predicate slots are typed). See the
+/// module doc for the `Value::Float` equality / hashing contract
+/// (bit-pattern based, so `HashSet<Vec<Value>>` works with NaN).
+#[derive(Clone, Debug)]
 pub enum Value {
     /// Bare symbol like `alice`, `bob`. The most common shape at M1/M2
     /// where predicates read like Prolog fixtures.
@@ -40,8 +69,47 @@ pub enum Value {
     /// text through unchanged (escape resolution is deferred to
     /// R226.M2 in the published plan — the crates.io grammar layer).
     Str(String),
-    /// Integer literal. Floats are deferred; see module doc.
+    /// Integer literal.
     Num(i64),
+    /// IEEE 754 double-precision literal. Equality and hashing use
+    /// `to_bits()` so the variant is safe inside `HashSet<Vec<Value>>`
+    /// — see the module doc for the NaN and signed-zero caveats.
+    Float(f64),
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Ident(a), Value::Ident(b)) => a == b,
+            (Value::Str(a), Value::Str(b)) => a == b,
+            (Value::Num(a), Value::Num(b)) => a == b,
+            // Bit-pattern equality — see module doc. Reflexive
+            // (`x.to_bits() == x.to_bits()` always), symmetric, and
+            // transitive, so `Eq` below is sound.
+            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Discriminant first so hashes never accidentally collide
+        // across variants (a `Num(0)` and a `Float(0.0)` must not
+        // land in the same bucket even if both hashed their inner as
+        // `u64`).
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Ident(s) => s.hash(state),
+            Value::Str(s) => s.hash(state),
+            Value::Num(n) => n.hash(state),
+            // `to_bits` gives us a hashable representation compatible
+            // with the `PartialEq` impl above. Same NaN caveat.
+            Value::Float(f) => f.to_bits().hash(state),
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -50,6 +118,10 @@ impl fmt::Display for Value {
             Value::Ident(s) => f.write_str(s),
             Value::Str(s) => write!(f, "{:?}", s),
             Value::Num(n) => write!(f, "{}", n),
+            // `{}` on an `f64` renders `3.14`, `-0.5`, `inf`, `NaN`.
+            // Adequate for REPL output; a schema-registry-driven
+            // formatter (R226.M9) can override per column.
+            Value::Float(x) => write!(f, "{}", x),
         }
     }
 }

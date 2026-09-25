@@ -71,9 +71,13 @@ use std::fmt;
 /// undeclared arg slots when a caller wants a partially-typed sig
 /// (e.g. `p(Ident, Any, Num)` — position 1 is a wildcard).
 ///
-/// The three concrete variants correspond exactly to the three
-/// [`Value`] variants ([`Value::Ident`], [`Value::Str`],
-/// [`Value::Num`]) — there is no lossy narrowing across kinds.
+/// The concrete variants correspond one-for-one with the [`Value`]
+/// variants ([`Value::Ident`], [`Value::Str`], [`Value::Num`],
+/// [`Value::Float`]) — there is no lossy narrowing across kinds.
+/// `Num` and `Float` are kept distinct even though both are numeric:
+/// the schema registry pins per-slot types, and mixing widths inside
+/// one column is an error the R226.M6 aggregator already surfaces
+/// (`AggregationError::NonHomogeneousNumeric`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ValueType {
     /// Bare identifier ([`Value::Ident`]).
@@ -82,6 +86,8 @@ pub enum ValueType {
     Str,
     /// Integer literal ([`Value::Num`]).
     Num,
+    /// IEEE 754 double-precision literal ([`Value::Float`]).
+    Float,
     /// Wildcard — accepts any concrete value. Serves as the default
     /// for undeclared arg slots.
     Any,
@@ -97,6 +103,7 @@ impl ValueType {
             Value::Ident(_) => ValueType::Ident,
             Value::Str(_) => ValueType::Str,
             Value::Num(_) => ValueType::Num,
+            Value::Float(_) => ValueType::Float,
         }
     }
 
@@ -116,6 +123,7 @@ impl fmt::Display for ValueType {
             ValueType::Ident => "Ident",
             ValueType::Str => "Str",
             ValueType::Num => "Num",
+            ValueType::Float => "Float",
             ValueType::Any => "Any",
         })
     }

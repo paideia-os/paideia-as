@@ -1,9 +1,10 @@
-//! paideia-as-shell-hm — R225.M1 (Hindley-Milner Algorithm W core).
+//! paideia-as-shell-hm — R225.M1 (Hindley-Milner Algorithm W core) +
+//! R225.M2 (Rémy-style row types for records).
 //!
 //! A textbook Damas-Milner type inference engine over a pure lambda
-//! subset. This is the algorithmic substrate the later R225 milestones
-//! extend (rows, effects, rank-restricted let-polymorphism, pipeline
-//! and Datalog surface).
+//! subset extended with row-polymorphic records. This is the
+//! algorithmic substrate the later R225 milestones extend (effects,
+//! rank-restricted let-polymorphism, pipeline and Datalog surface).
 //!
 //! # Lineage
 //!
@@ -14,9 +15,10 @@
 //! * Robinson 1965, *A Machine-Oriented Logic Based on the Resolution
 //!   Principle* (the unification algorithm at the heart of W).
 //!
-//! # Scope at M1
+//! # Scope at M2
 //!
-//! The expression language is the pure lambda calculus plus `let`:
+//! The expression language is the pure lambda calculus plus `let`,
+//! record literals, and field access:
 //!
 //! ```text
 //!     e ::= x                       -- variable
@@ -24,25 +26,32 @@
 //!         | \x. e                   -- abstraction
 //!         | e1 e2                   -- application
 //!         | let x = e1 in e2        -- let-generalisation
+//!         | { l1 = e1, ..., ln = en }  -- record literal
+//!         | e.l                     -- field access
 //! ```
 //!
-//! The type language is monotypes and rank-1 schemes:
+//! The type language is monotypes and rank-1 schemes, with rows for
+//! records:
 //!
 //! ```text
 //!     τ ::= a                       -- type variable
 //!         | C                       -- type constant (Int | Str)
 //!         | τ1 -> τ2                -- function type
+//!         | { ρ }                   -- record over row ρ
+//!     ρ ::= ∅                       -- empty (closed) row
+//!         | r                       -- row variable (tail)
+//!         | l: τ ; ρ                -- row extension
 //!     σ ::= ∀α. τ                   -- (rank-1) type scheme
 //! ```
 //!
-//! # Restrictions (M1)
+//! # Restrictions
 //!
 //! * No recursion (no `letrec` / no fixpoint combinator).
-//! * No product / sum / record / row types.
+//! * No sum types.
 //! * No effects.
 //! * No rank-2+ polymorphism — this is Damas-Milner, not System F.
 //! * The rank-restriction spec at `design/toolchain/rank-restricted-hm.md`
-//!   is a downstream check (R225.M6); at M1 no policy is enforced beyond
+//!   is a downstream check (R225.M6); no policy is enforced here beyond
 //!   the intrinsic rank-1 shape of `TypeScheme`.
 //!
 //! # Pipeline position
@@ -73,10 +82,10 @@ pub mod subst;
 pub mod ty;
 pub mod unify;
 
-pub use expr::{app, i, lam, let_, s, v, Expr, Lit};
+pub use expr::{app, field, i, lam, let_, record, s, v, Expr, Lit};
 pub use infer::{
     generalize, infer, instantiate, FreshVarGen, InferError, TypeEnv,
 };
 pub use subst::Substitution;
-pub use ty::{MonoType, TypeScheme, TypeVar};
-pub use unify::{unify, UnifyError};
+pub use ty::{MonoType, RowType, TypeScheme, TypeVar};
+pub use unify::{unify, unify_with_fresh, UnifyError};

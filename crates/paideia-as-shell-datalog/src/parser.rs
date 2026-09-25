@@ -612,19 +612,39 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(name) => Ok(Term::Const(Value::Ident(name.clone()))),
             TokenKind::Str(s) => Ok(Term::Const(Value::Str(s.clone()))),
             TokenKind::Number(raw) => {
-                // Integer subset at M1/M2 — reject floats and `_`
-                // separators for now (accept plain digits only). A
-                // suffix or dot -> silent parse failure -> "expected
-                // integer literal".
-                match raw.parse::<i64>() {
-                    Ok(n) => Ok(Term::Const(Value::Num(n))),
-                    Err(_) => Err(ParseError {
-                        span: tok.span,
-                        kind: ParseErrorKind::Expected {
-                            expected: "integer literal (floats deferred to R226.M6)",
-                            found: format!("Number({raw:?})"),
-                        },
-                    }),
+                // R226.M6-followup (issue #1460): floats are folded
+                // in. The lexer already emits `3.14` as one `Number`
+                // token (it consumes an optional `.digit+` fractional
+                // part, see `paideia_as_shell_lex::lexer::consume_number`),
+                // so the split here is purely on presence of `.`:
+                //   * has `.` → parse as `f64` → `Value::Float`.
+                //   * otherwise → parse as `i64` → `Value::Num`.
+                // A suffix or `_` separator still falls through to the
+                // Err arm — the underscore support and typed suffixes
+                // are R226.M9 territory once the schema registry
+                // pins numeric column types.
+                if raw.contains('.') {
+                    match raw.parse::<f64>() {
+                        Ok(x) => Ok(Term::Const(Value::Float(x))),
+                        Err(_) => Err(ParseError {
+                            span: tok.span,
+                            kind: ParseErrorKind::Expected {
+                                expected: "float literal",
+                                found: format!("Number({raw:?})"),
+                            },
+                        }),
+                    }
+                } else {
+                    match raw.parse::<i64>() {
+                        Ok(n) => Ok(Term::Const(Value::Num(n))),
+                        Err(_) => Err(ParseError {
+                            span: tok.span,
+                            kind: ParseErrorKind::Expected {
+                                expected: "integer literal",
+                                found: format!("Number({raw:?})"),
+                            },
+                        }),
+                    }
                 }
             }
             _ => Err(ParseError {

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.36.27 — 2026-09-25 — R225.M2 row types + R226.M6-float aggregation
+
+**R225.M2** — Pipeline-record row types (Rémy-style) in `paideia-as-shell-hm`:
+- New `RowType { Empty, RowVar(TypeVar), Extend { field, ty, rest } }`; canonical
+  `to_map/from_map` (name-sorted).
+- `MonoType::Record(RowType)` variant. Display renders `{}`, `{a: T}`, or `{a: T | rowVar}`.
+- `Substitution::apply_row` walks Extend and follows RowVar substitutions.
+- `unify_with_fresh(a, b, fresh)` — new M2 API; original `unify(a, b)` preserved as
+  M1-compatible wrapper.
+- Rémy row unification with fresh witness for both-tails case.
+- `UnifyError::{MissingField { field, side }, RowMismatch { reason }}` new variants.
+- `Expr` grew `RecordLit(HashMap<String, Expr>)` and `Field(Box<Expr>, String)` +
+  builders `record()` / `field()`.
+- `infer` handles RecordLit (sorted-name inference under running subst) and Field
+  (row-polymorphic projection via unify against `Record({name: fresh | fresh_tail})`).
+- `generalize` recurses into rows so tail row-vars become quantifiable.
+- 20-test corpus (`r225m2-row-01`..`r225m2-row-20`) covering empty/single/multi
+  literals, order-invariant unification, missing-field, row-polymorphism, let-poly
+  across shapes, nested records, Rémy witness verification.
+
+**R226.M6-followup** — Float support for sum/avg aggregation in `paideia-as-shell-datalog`:
+- `Value::Float(f64)` variant with bit-pattern `PartialEq`/`Eq`/`Hash` (NaN + signed-zero
+  caveats documented).
+- Parser splits `Number(raw)` token: `Float` for float-shaped, `Num(i64)` otherwise
+  (lexer emits `3.14` as one Number token — no lex change needed).
+- `AggregateResult::{SumF(f64), AvgF(f64)}` companion variants.
+- `sum_reduce`/`avg_reduce` refactored around `NumericKind::{Empty, Int, Float}` pin
+  driven by first observation.
+- `AggregationError::NonHomogeneousNumeric { first_type, got }` for mixed Int+Float
+  in same group.
+- `compare_values` extended for Float via `f64::partial_cmp` with `Ordering::Equal`
+  NaN fallback. Total order: `Float < Num < Str < Ident`.
+- `type_check::ValueType::Float` companion variant.
+- 10-test corpus (`r226m6f-01`..`r226m6f-10`).
+
+Closes paideia-as#1459 (R225.M2). Closes paideia-as#1460 (R226.M6-followup).
+
 ## 0.36.26 — 2026-09-25 — R222.M5 registry client + R227.M5 script functor + R225.M1 HM Algorithm W
 
 Three parallel-safe milestones landed together, including a new workspace crate.

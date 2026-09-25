@@ -11,32 +11,39 @@ repository.workspace = true
 name = "paideia_as_shell_hm"
 
 # R225.M1 — Hindley-Milner Algorithm W core (Damas-Milner 1982).
+# R225.M2 — Rémy-style row polymorphism for records.
 #
-# The first of the R225 milestones. Introduces a standalone
+# The first two of the R225 milestones. Provide a standalone
 # type-inference substrate for the semantic shell's three sub-languages
-# (pipeline / Datalog / lambda). This crate implements only the pure
-# lambda subset needed by every later R225 milestone; it never touches
-# the existing `paideia-as-elaborator` module.
+# (pipeline / Datalog / lambda). This crate implements the pure lambda
+# subset plus record row-types; it never touches the existing
+# `paideia-as-elaborator` module.
 #
-# What this crate contains at M1:
+# What this crate contains at M2:
 #
-#   * `ty`       — monotypes, type variables, type schemes.
-#   * `subst`    — substitutions and their composition.
-#   * `unify`    — Robinson unification (with occurs-check).
-#   * `expr`     — pure lambda expression AST (Var / Lit / Lam / App / Let).
+#   * `ty`       — monotypes (Var / Con / Arrow / Record), type
+#                  variables, row types (Empty / RowVar / Extend),
+#                  type schemes.
+#   * `subst`    — substitutions and their composition; `apply_row`
+#                  walks and splices row-var bindings.
+#   * `unify`    — Robinson unification (with occurs-check); `unify`
+#                  is the M1 signature, `unify_with_fresh` threads a
+#                  caller's `FreshVarGen` for Rémy row-tails.
+#   * `expr`     — lambda + record surface (Var / Lit / Lam / App /
+#                  Let / RecordLit / Field).
 #   * `infer`    — Algorithm W (`instantiate`, `generalize`, `infer`).
 #
-# What this crate does NOT do at M1 (deferred):
+# What this crate does NOT do (deferred):
 #
 #   * Rank-restricted let-polymorphism enforcement — R225.M6, per
 #     `design/toolchain/rank-restricted-hm.md`.
-#   * Row polymorphism / records / effects — R225.M2+.
+#   * Effects / sum types — R225.M3+.
 #   * Pipeline / Datalog surface — R225.M4+.
 #   * Integration with `paideia-as-elaborator` — the existing crate
 #     stays untouched; R225.Mn will decide the merge / bridge.
 #
-# Pure std, no external deps. The Damas-Milner core is small and
-# self-contained enough that adding a dependency would obscure it.
+# Pure std, no external deps. The Damas-Milner + row core is small
+# and self-contained enough that adding a dependency would obscure it.
 
 [dependencies]
 
