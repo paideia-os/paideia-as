@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.36.37 — 2026-09-25 — R225.M6 effect-row pipeline composition + R228.M5 flag completion
+
+**R225.M6** — Effect-row propagation through pipeline stages:
+
+- **New in typed_value.rs**:
+  - `union_effect_rows(a, b)` — merge presents (LEFT wins on collisions);
+    tail is `a.tail.or(b.tail)` (LEFT's tail wins if Some, else RIGHT).
+  - `compose_pipeline_effects(rows)` — left-associative fold of union
+    across all rows. Deterministic via BTreeMap.
+  - `typed_value_pipe(stages)` — value_row = last stage's; effect_row =
+    compose_pipeline_effects across all stages. Empty → TypedValue::empty();
+    single-stage → clone.
+- Union (not unification) — no fresh vars, no Substitution. Pipeline
+  composition is set-union of effect signatures. Non-commutative
+  (pipelines are ordered).
+- 8-test corpus `r225m6-piped-01`..`r225m6-piped-08` (78 shell-hm total).
+
+**R228.M5** — Multi-token flag completion:
+
+- **New module** `src/flags.rs` — `CommandFlags { short, long, descriptions }`
+  with `new`/`with_short`/`with_long` builders.
+- **CandidateKind::Flag** variant.
+- **CompletionEngine.command_flags: HashMap<String, CommandFlags>** field;
+  new builder `with_command_flags(m)`.
+- **New `try_flag_completion`** branch in `complete()` — runs before
+  `try_field_completion`. Detects `-`/`--`/`-<partial>`/`--<partial>`
+  patterns, walks back to first Ident in Pipeline context to find command
+  name, looks up flags, emits Flag candidates.
+- Bare names in catalogue; dashes reintroduced at emit time so ranker
+  scores against the bare letters.
+- Two-`Op("-")` handling — matches shell-lex's actual emission (no
+  glued `--` token). `is_dash_op` predicate hides this behind one site.
+- **Claim policy**: missing per-command entry claims (empty response) so
+  future arg-position branches aren't misrouted; missing command name
+  no-claims to preserve future arithmetic subtraction fallthrough.
+- 8-test corpus `r228m5-cmp-01`..`r228m5-cmp-08` (40 shell-completion total).
+
+SYSTEM_VERSION const bumped 0.36.36 → 0.36.37.
+
+Closes paideia-as#1477. Closes paideia-as#1478.
+
 ## 0.36.36 — 2026-09-25 — R229.M9 turn history + replay + R225.M5 cross-context TypedValue
 
 **R229.M9** — Persist last N ReplTurn results + replay:

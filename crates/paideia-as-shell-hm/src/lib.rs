@@ -92,5 +92,8 @@ pub use infer::{
 };
 pub use subst::Substitution;
 pub use ty::{MonoType, RowType, TypeScheme, TypeVar};
-pub use typed_value::{unify_typed_values, unify_typed_values_with_fresh, TypedValue};
+pub use typed_value::{
+    compose_pipeline_effects, typed_value_pipe, unify_typed_values,
+    unify_typed_values_with_fresh, union_effect_rows, TypedValue,
+};
 pub use unify::{unify, unify_with_fresh, UnifyError};

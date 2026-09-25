@@ -60,9 +60,11 @@ use std::collections::HashMap;
 use paideia_as_shell_lex::{Context, Lexer, Span, Token, TokenKind};
 use paideia_as_unicode::nfc_normalize;
 
+pub mod flags;
 pub mod history;
 pub mod matching;
 
+pub use flags::CommandFlags;
 use history::UsageHistory;
 use matching::score_match;
 
@@ -121,6 +123,12 @@ pub enum CandidateKind {
     /// An argument value the running command declared. Reserved for
     /// R228.M3. Not emitted at M1.
     Argument,
+    /// A command-line flag (short `-a` or long `--all`). Emitted from
+    /// R228.M5 onward when the token neighbourhood right of a command
+    /// name shapes as a dash-in-progress (`-`, `--`, `-<prefix>`,
+    /// `--<prefix>`) and the engine's [`CompletionEngine::command_flags`]
+    /// map carries a [`CommandFlags`] entry for that command.
+    Flag,
 }
 
 /// One completion suggestion.
@@ -225,6 +233,17 @@ pub struct CompletionEngine {
     /// [`record_selection`] rather than a `mut` reference on `complete`
     /// so the ranker stays a pure `&engine, &req -> response` function.
     pub history: UsageHistory,
+    /// Command name → [`CommandFlags`] catalogue. Consulted by the
+    /// R228.M5 flag-completion branch when the token neighbourhood
+    /// right of a command name shapes as a dash-in-progress. A missing
+    /// entry leaves the branch inert (0 candidates); adding the entry
+    /// later never changes the M1..M4 branch behaviour because flag
+    /// detection short-circuits the argument-position empty branch
+    /// only when the dash pattern matches. Kept flat (per-command
+    /// map) rather than nested (per-subcommand tree) at M5 because
+    /// the R229 REPL registers commands, not subcommands; nested
+    /// subcommand catalogues are a follow-on milestone.
+    pub command_flags: HashMap<String, CommandFlags>,
 }
 
 impl CompletionEngine {
@@ -238,6 +257,7 @@ impl CompletionEngine {
             commands_with_types: HashMap::new(),
             records: HashMap::new(),
             history: UsageHistory::default(),
+            command_flags: HashMap::new(),
         }
     }
 
@@ -253,6 +273,7 @@ impl CompletionEngine {
             commands_with_types: HashMap::new(),
             records: HashMap::new(),
             history: UsageHistory::default(),
+            command_flags: HashMap::new(),
         }
     }
 
@@ -281,6 +302,21 @@ impl CompletionEngine {
     /// the default construction stays a nullary call.
     pub fn with_history_capacity(mut self, cap: usize) -> Self {
         self.history = UsageHistory::new(cap);
+        self
+    }
+
+    /// Layer a command → [`CommandFlags`] map on top of an existing
+    /// engine. Overwrites any prior map wholesale for the same reason
+    /// as [`Self::with_command_types`]. Kept as a fluent builder so
+    /// the R229 REPL start-up chain reads:
+    ///
+    /// ```ignore
+    /// CompletionEngine::with_lists(cmds, vars)
+    ///     .with_command_types(types)
+    ///     .with_command_flags(flags)
+    /// ```
+    pub fn with_command_flags(mut self, flags: HashMap<String, CommandFlags>) -> Self {
+        self.command_flags = flags;
         self
     }
 }
@@ -405,6 +441,17 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
         }
         // ---- 4b. Active token: dispatch on (kind, context). --------
         Some(idx) => {
+            // R228.M5 -- flag completion also short-circuits the token-
+            // kind dispatch when the trailing tokens form a dash-in-
+            // progress right of a command name. Runs BEFORE field
+            // completion because a `-` token cannot participate in
+            // either field shape (`Ident Dot ^` / `Ident Dot Ident^`)
+            // but the field helper would otherwise fall through and
+            // let the argument-position branch return empty — losing
+            // the flag hit.
+            if let Some(resp) = try_flag_completion(engine, &tokens, idx, cursor) {
+                return resp;
+            }
             // R228.M2 -- field completion short-circuits the token-
             // kind dispatch: a `Record.<cursor>` or `Record.pre<cursor>`
             // shape is recognized purely from the token neighbourhood,
@@ -632,6 +679,214 @@ fn try_field_completion(
         }
     }
     None
+}
+
+/// R228.M5 -- attempt Flag completion off the token neighbourhood.
+///
+/// Recognized shapes (`^` marks the cursor, `-` is the [`TokenKind::Op`]
+/// glyph the shell-lex layer emits one dash at a time):
+///
+/// | Shape                        | Mode  | Prefix (bare) | Overwrite span            |
+/// |------------------------------|-------|---------------|---------------------------|
+/// | `Op("-") ^`                  | short | `""`          | Op span                   |
+/// | `Op("-") Op("-") ^`          | long  | `""`          | first Op start .. cursor  |
+/// | `Op("-") Ident(name)^`       | short | `name`        | Op start .. Ident end     |
+/// | `Op("-") Op("-") Ident^`     | long  | `name`        | first Op start .. Ident end |
+///
+/// The helper requires a resolvable command name to the left of the
+/// dash pattern (an [`Ident`] at command position — first token, or
+/// preceded by [`TokenKind::Pipe`] / [`TokenKind::Semi`] /
+/// [`TokenKind::Newline`]) AND that name to carry a
+/// [`CommandFlags`] entry in [`CompletionEngine::command_flags`]. When
+/// either lookup fails the helper still *claims* the request with an
+/// empty response — the alternative (falling through to the M1 argument-
+/// position empty branch) is identical in candidate count today but
+/// would misroute a future argument-position handler through a token
+/// stream whose active token is clearly a flag.
+///
+/// The dash-first shape is checked with the raw token kinds rather
+/// than by re-slicing `req.source` because the tokenizer already
+/// normalized the byte range (NFC + boundary check) and re-slicing
+/// would duplicate that work.
+///
+/// Returns `None` when the neighbourhood does not shape as a dash-in-
+/// progress at all; then the caller continues the M1/M2 dispatch.
+fn try_flag_completion(
+    engine: &CompletionEngine,
+    tokens: &[Token],
+    active_idx: usize,
+    cursor: usize,
+) -> Option<CompletionResponse> {
+    // Classify the trailing pattern; `cmd_scan_upto` names the token
+    // index BEFORE the flag pattern so [`find_command_at_position`]
+    // can walk back from there.
+    let shape = classify_flag_shape(tokens, active_idx)?;
+
+    // Command must resolve, else there is no per-command catalogue to
+    // consult. A missing catalogue is still a claim (empty response)
+    // per the doc-header rationale, but a missing command name is a
+    // no-claim (the bare `-` at start-of-line reads as a subtraction
+    // operator the future arithmetic-expression branch might want).
+    let cmd_name = find_command_at_position(tokens, shape.cmd_scan_upto)?;
+
+    let cands = match engine.command_flags.get(cmd_name) {
+        Some(cf) => flag_candidates(engine, cf, shape.is_long, &shape.bare_prefix),
+        None => Vec::new(),
+    };
+    Some(CompletionResponse {
+        candidates: cands,
+        prefix_start: shape.overwrite_start,
+        prefix_end: cursor,
+    })
+}
+
+/// Tuple result of [`classify_flag_shape`]. Kept as a named struct so a
+/// future case ("cursor sits mid-flag with an escape glyph") can grow
+/// a field without every call-site's tuple destructure churning.
+struct FlagShape {
+    is_long: bool,
+    bare_prefix: String,
+    overwrite_start: usize,
+    cmd_scan_upto: usize,
+}
+
+/// Match the trailing token pattern against the four flag shapes.
+/// Returns `None` when no shape applies.
+fn classify_flag_shape(tokens: &[Token], active_idx: usize) -> Option<FlagShape> {
+    let active = &tokens[active_idx];
+
+    // Case A/B -- active is `Op("-")`. Distinguish short vs. long by
+    // whether the immediately-preceding token is another `Op("-")`.
+    if is_dash_op(&active.kind) {
+        // A single `-` at token index 0 could be a subtraction operator
+        // typed at command position; the "command name to the left"
+        // requirement below then fails and no flag candidates fire,
+        // which is the correct fallback. So we do not gate on
+        // `active_idx > 0` here.
+        let prev_dash = active_idx > 0 && is_dash_op(&tokens[active_idx - 1].kind);
+        if prev_dash {
+            // Long, empty prefix: first Op is at active_idx - 1.
+            let first_dash = &tokens[active_idx - 1];
+            return Some(FlagShape {
+                is_long: true,
+                bare_prefix: String::new(),
+                overwrite_start: first_dash.span.start,
+                cmd_scan_upto: active_idx - 1,
+            });
+        }
+        // Short, empty prefix.
+        return Some(FlagShape {
+            is_long: false,
+            bare_prefix: String::new(),
+            overwrite_start: active.span.start,
+            cmd_scan_upto: active_idx,
+        });
+    }
+
+    // Case C/D -- active is `Ident(name)` preceded by one or two dash
+    // Ops. Long mode requires TWO preceding dashes; short mode requires
+    // exactly one (and the token before that is NOT another dash — a
+    // triple-dash typed by mistake reads as long-mode empty and drops
+    // the ident, which we defer to the caller's argument-position
+    // handler).
+    if let TokenKind::Ident(name) = &active.kind {
+        if active_idx >= 2
+            && is_dash_op(&tokens[active_idx - 1].kind)
+            && is_dash_op(&tokens[active_idx - 2].kind)
+        {
+            let first_dash = &tokens[active_idx - 2];
+            // Guard against `Op Op Op Ident` (triple-dash + ident): the
+            // three-dash prefix is ill-formed so we do not claim it.
+            if active_idx >= 3 && is_dash_op(&tokens[active_idx - 3].kind) {
+                return None;
+            }
+            return Some(FlagShape {
+                is_long: true,
+                bare_prefix: name.clone(),
+                overwrite_start: first_dash.span.start,
+                cmd_scan_upto: active_idx - 2,
+            });
+        }
+        if active_idx >= 1 && is_dash_op(&tokens[active_idx - 1].kind) {
+            // Ensure we are not the middle of a long-mode shape whose
+            // second dash was actually the same token as ours (impossible
+            // by kind, but a guard against a future `Op("--")` glued
+            // variant). Ident-with-one-preceding-dash is short mode.
+            let first_dash = &tokens[active_idx - 1];
+            return Some(FlagShape {
+                is_long: false,
+                bare_prefix: name.clone(),
+                overwrite_start: first_dash.span.start,
+                cmd_scan_upto: active_idx - 1,
+            });
+        }
+    }
+    None
+}
+
+/// Whether a token kind is a single-dash `Op("-")`. Kept as its own
+/// helper so a future shell-lex glue that emits `Op("--")` (two-char
+/// dash) can be added at one site rather than open-coded across the
+/// flag helpers.
+fn is_dash_op(kind: &TokenKind) -> bool {
+    matches!(kind, TokenKind::Op(s) if s == "-")
+}
+
+/// Walk backwards through `tokens[..upto]` and return the text of the
+/// first [`TokenKind::Ident`] that sits at command position (per
+/// [`is_command_position`]). Returns `None` when no such ident exists —
+/// e.g. a bare `-` typed at the very start of a fresh REPL line.
+fn find_command_at_position(tokens: &[Token], upto: usize) -> Option<&str> {
+    for i in (0..upto).rev() {
+        if let TokenKind::Ident(name) = &tokens[i].kind {
+            if is_command_position(tokens, i) {
+                return Some(name.as_str());
+            }
+        }
+    }
+    None
+}
+
+/// Score-filter a [`CommandFlags`] against `bare_prefix` and wrap each
+/// hit as a `Flag` candidate. Only the flag list matching `is_long` is
+/// consulted; the emitter reintroduces the leading dash(es) so the
+/// candidate `text` is the on-screen form (`-a`, `--long`).
+///
+/// Score comes from [`score_match`] applied to `(bare_prefix, bare_name)`
+/// — matching on the bare name (not the dash-prefixed form) so the
+/// score reflects the ranker's tier judgement about the letters the
+/// user actually typed after the dashes. The candidate's `score`
+/// still receives the standard recency boost keyed on the final
+/// `text` (`-a` / `--long`), so a repeat selection floats.
+fn flag_candidates(
+    engine: &CompletionEngine,
+    cf: &CommandFlags,
+    is_long: bool,
+    bare_prefix: &str,
+) -> Vec<Candidate> {
+    let (source_list, prefix_glyph) = if is_long {
+        (&cf.long, "--")
+    } else {
+        (&cf.short, "-")
+    };
+    let mut out: Vec<Candidate> = source_list
+        .iter()
+        .filter_map(|name| {
+            score_match(bare_prefix, name).map(|base_score| {
+                let text = format!("{prefix_glyph}{name}");
+                let recency = engine.history.recency_boost(&text);
+                Candidate {
+                    text,
+                    kind: CandidateKind::Flag,
+                    display: None,
+                    type_hint: cf.descriptions.get(name).cloned(),
+                    score: base_score + recency,
+                }
+            })
+        })
+        .collect();
+    sort_by_score_then_text(&mut out);
+    out
 }
 
 /// Build a `CompletionResponse` whose overwrite span is `tok_span`.

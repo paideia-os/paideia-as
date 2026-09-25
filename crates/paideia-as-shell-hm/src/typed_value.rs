@@ -42,6 +42,8 @@
 //! ([`crate::unify::unify_with_fresh`]) dispatches through the
 //! `_with_fresh` route.
 
+use std::collections::BTreeMap;
+
 use crate::effect_row::{unify_effect_rows, EffectRow};
 use crate::infer::FreshVarGen;
 use crate::subst::Substitution;
@@ -170,5 +172,128 @@ pub fn unify_typed_values_with_fresh(
                 effect_err: effect_err.map(Box::new),
             })
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+// R225.M6: pipeline composition of typed values.
+//
+// A shell pipeline is a left-to-right sequence of stages. The composed
+// *value* is the last stage's value (the tail of the pipe is what a
+// consumer sees); the composed *effect* is the union of every stage's
+// effect signature (a pipeline is at least as effectful as any of its
+// stages). This is the R225.M4 pipeline lowerer's typing rule expressed
+// at the type-language level, and the entry point the M6 propagator
+// will call to fold a chain of stages into a single [`TypedValue`].
+//
+// The union operation here is *not* the unifier — no substitution is
+// produced, no fresh variables are minted. It composes two already-
+// well-formed rows into a new one under a fixed policy:
+//
+//   Presents merge: LEFT wins on collisions. The earliest stage's
+//     labelled type is retained. This mirrors the standard fold
+//     semantics of "prior + current" and matches the SQL-relational
+//     "first non-null" convention. It also captures the pipe-shape
+//     intuition: an effect surfaced early in the pipeline keeps its
+//     original signature even if a later stage rediscovers it under
+//     a different (still-unifiable-in-principle) type.
+//
+//   Tail policy: LEFT's tail wins if [`Some`]; else RIGHT's; else
+//     [`None`]. Preserves the M3 open-row shape when either input
+//     is open, and biases towards the earliest stage that opened
+//     the row — again, the "prior + current" fold intuition.
+//
+// The union is *not* commutative under these rules — swapping `a` and
+// `b` swaps which side wins collisions and which tail is preserved.
+// The pipeline fold applies it left-associatively so the leftmost
+// stage's decisions propagate rightward.
+
+/// Merge two effect rows into a union under the R225.M6 pipeline policy.
+///
+/// # Policy
+///
+/// * **Presents**: LEFT wins on label collisions — the entry from `a`
+///   is kept, `b`'s entry for the same label is discarded. Labels
+///   present in only one side pass through unchanged.
+/// * **Tail**: `a.tail` if [`Some`]; else `b.tail`; else [`None`].
+///
+/// # Non-unification
+///
+/// This function never unifies — it never mints fresh variables and
+/// never produces a substitution. Callers that need to *reconcile*
+/// two typed values should call [`unify_typed_values`] instead. Union
+/// is the correct operation for pipeline composition: a pipeline's
+/// effect signature is the *set union* of its stages' signatures, not
+/// a fixed-point solved by unification.
+///
+/// # Determinism
+///
+/// [`BTreeMap`] iteration is sorted, so the output row's `present`
+/// order is stable across runs — the resulting row is byte-for-byte
+/// reproducible given identical inputs.
+pub fn union_effect_rows(a: &EffectRow, b: &EffectRow) -> EffectRow {
+    let mut present: BTreeMap<String, crate::ty::MonoType> = a.present.clone();
+    for (name, ty) in &b.present {
+        // LEFT wins: only insert from `b` when the label is absent
+        // in `a`. `BTreeMap::entry` expresses this without an extra
+        // lookup.
+        present.entry(name.clone()).or_insert_with(|| ty.clone());
+    }
+    let tail = a.tail.or(b.tail);
+    EffectRow { present, tail }
+}
+
+/// Fold [`union_effect_rows`] left-to-right across a slice of rows.
+///
+/// An empty slice yields [`EffectRow::empty`] — the monoidal identity
+/// under this union. A single-element slice returns a clone of that
+/// element. Two or more elements are combined pairwise from the left
+/// so the earliest stage's collisions and tail dominate.
+pub fn compose_pipeline_effects(rows: &[EffectRow]) -> EffectRow {
+    let mut acc = EffectRow::empty();
+    // Handle the empty case by early return so we do not incur a
+    // trivial `union_effect_rows(empty, empty)` call that would be
+    // correct but wasteful.
+    if rows.is_empty() {
+        return acc;
+    }
+    // Seed the accumulator with the first row so the fold's very
+    // first union preserves the LEFT-wins semantics on rows[0].
+    acc = rows[0].clone();
+    for row in &rows[1..] {
+        acc = union_effect_rows(&acc, row);
+    }
+    acc
+}
+
+/// Compose a pipeline of typed values into a single [`TypedValue`].
+///
+/// # Rule
+///
+/// * `value_row` = the *last* stage's value row (a pipeline's output
+///   is its tail's output), or [`RowType::Empty`] when `stages` is
+///   empty.
+/// * `effect_row` = [`compose_pipeline_effects`] across every stage,
+///   under the LEFT-wins policy documented on [`union_effect_rows`].
+///
+/// # Edge cases
+///
+/// * Empty slice → [`TypedValue::empty`] (the monoidal identity).
+/// * Single stage → an exact clone of that stage; no rewriting of
+///   either half.
+pub fn typed_value_pipe(stages: &[TypedValue]) -> TypedValue {
+    if stages.is_empty() {
+        return TypedValue::empty();
+    }
+    if stages.len() == 1 {
+        return stages[0].clone();
+    }
+    let effect_rows: Vec<EffectRow> = stages.iter().map(|s| s.effect_row.clone()).collect();
+    let effect_row = compose_pipeline_effects(&effect_rows);
+    // Safe: length checked above.
+    let value_row = stages[stages.len() - 1].value_row.clone();
+    TypedValue {
+        value_row,
+        effect_row,
     }
 }
