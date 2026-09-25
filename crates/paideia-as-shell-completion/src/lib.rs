@@ -63,10 +63,12 @@ use paideia_as_unicode::nfc_normalize;
 pub mod flags;
 pub mod history;
 pub mod matching;
+pub mod path;
 
 pub use flags::CommandFlags;
 use history::UsageHistory;
 use matching::score_match;
+pub use path::PathProvider;
 
 // R228.M4 will consume `paideia_as_shell_ast::SyntaxNode` to resolve
 // the *nested* record type behind a chained `.` cursor. R228.M2 only
@@ -117,8 +119,12 @@ pub enum CandidateKind {
     /// A reserved word of the sub-language grammar. Emitted for the
     /// Datalog keyword catalogue in `Context::Datalog`.
     Keyword,
-    /// A filesystem path element. Reserved for R228.M3 (argument-
-    /// position path expansion). Not emitted at M1.
+    /// A filesystem path element. Emitted from R228.M6 onward when
+    /// the raw pre-cursor bytes form a `/`-anchored path-in-progress
+    /// and the engine's [`CompletionEngine::path_provider`] has an
+    /// entry for the enclosing directory. See `try_path_completion`
+    /// for the detection algorithm and [`PathProvider`] for the seed
+    /// shape.
     Path,
     /// An argument value the running command declared. Reserved for
     /// R228.M3. Not emitted at M1.
@@ -244,6 +250,16 @@ pub struct CompletionEngine {
     /// the R229 REPL registers commands, not subcommands; nested
     /// subcommand catalogues are a follow-on milestone.
     pub command_flags: HashMap<String, CommandFlags>,
+    /// Directory -> child-name catalogue consulted by the R228.M6
+    /// path-completion branch. Seeded by the R229 REPL from a
+    /// directory walk on chdir (and refreshed on mtime change);
+    /// defaults to an empty provider so pre-M6 seed paths that never
+    /// touched a `PathProvider` continue to emit zero path
+    /// candidates without a shape churn. Missing directory keys
+    /// yield zero candidates rather than an error -- see
+    /// [`PathProvider`]'s module header for the normalization
+    /// convention (`"/"` for the root, bare paths otherwise).
+    pub path_provider: PathProvider,
 }
 
 impl CompletionEngine {
@@ -258,6 +274,7 @@ impl CompletionEngine {
             records: HashMap::new(),
             history: UsageHistory::default(),
             command_flags: HashMap::new(),
+            path_provider: PathProvider::default(),
         }
     }
 
@@ -274,6 +291,7 @@ impl CompletionEngine {
             records: HashMap::new(),
             history: UsageHistory::default(),
             command_flags: HashMap::new(),
+            path_provider: PathProvider::default(),
         }
     }
 
@@ -317,6 +335,25 @@ impl CompletionEngine {
     /// ```
     pub fn with_command_flags(mut self, flags: HashMap<String, CommandFlags>) -> Self {
         self.command_flags = flags;
+        self
+    }
+
+    /// Layer a [`PathProvider`] on top of an existing engine.
+    /// Overwrites any prior provider wholesale for the same reason as
+    /// [`Self::with_command_types`]. The default is an empty
+    /// `PathProvider`, so pre-M6 seed paths that never call this
+    /// keep behaving as they did (zero path candidates rather than
+    /// a shape error). Kept as a fluent builder so the R229 REPL
+    /// start-up chain reads:
+    ///
+    /// ```ignore
+    /// CompletionEngine::with_lists(cmds, vars)
+    ///     .with_command_types(types)
+    ///     .with_command_flags(flags)
+    ///     .with_path_provider(paths)
+    /// ```
+    pub fn with_path_provider(mut self, p: PathProvider) -> Self {
+        self.path_provider = p;
         self
     }
 }
@@ -450,6 +487,20 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
             // let the argument-position branch return empty — losing
             // the flag hit.
             if let Some(resp) = try_flag_completion(engine, &tokens, idx, cursor) {
+                return resp;
+            }
+            // R228.M6 -- path completion short-circuits when the raw
+            // pre-cursor bytes form a `/`-anchored path-in-progress.
+            // Runs BEFORE field completion because a `Record.<cursor>`
+            // shape never carries a leading `/` (the path detector
+            // requires `bytes[start] == b'/'`) and the field detector
+            // never triggers on an active `Op("/")` -- so ordering is
+            // only load-bearing for a hypothetical future field shape
+            // that would confuse the two. Runs AFTER flag completion
+            // because a `-` typed inside a path is unusual enough that
+            // a `command --path/segment` cursor should still classify
+            // as a flag when the immediately-active token is the dash.
+            if let Some(resp) = try_path_completion(engine, &prefix, cursor) {
                 return resp;
             }
             // R228.M2 -- field completion short-circuits the token-
@@ -679,6 +730,143 @@ fn try_field_completion(
         }
     }
     None
+}
+
+/// R228.M6 -- attempt Path completion off the raw pre-cursor bytes.
+///
+/// # Detection
+///
+/// Walk `prefix` backwards from `cursor`, consuming characters that
+/// can legally appear inside a filesystem path segment (ASCII
+/// alphanumerics plus `/ . - _ ~`). Stop at the first non-path char
+/// (typically whitespace or a shell metacharacter) or at the buffer
+/// start. If the resulting range `prefix[start..cursor]` is non-
+/// empty AND begins with `/`, it is a path-in-progress and this
+/// helper claims the request.
+///
+/// The byte-scan is deliberately independent of the token stream:
+/// the shell lexer emits `/` as `Op("/")` and splits `/usr/local`
+/// into `Op("/"), Ident("usr"), Op("/"), Ident("local")`, so a
+/// token-neighbourhood match would need one arm per shape (leading
+/// slash, trailing slash, mid-segment). The raw-byte scan captures
+/// all four M6 fixture shapes in one pass and stays right when the
+/// tokenizer's segmentation rules evolve.
+///
+/// # Path split + lookup
+///
+/// The path text is split on its last `/`: everything up to (and
+/// including) that slash names the directory; everything after is
+/// the name prefix the popup filters by. The directory string is
+/// then normalized -- the root stays `"/"`, every other directory
+/// drops its trailing slash -- and passed to
+/// [`PathProvider::list`]. The provider's returned names are score-
+/// filtered via [`score_match`] against the name prefix (with the
+/// same recency boost every other candidate emitter applies), then
+/// wrapped as [`CandidateKind::Path`].
+///
+/// # Missing directory
+///
+/// A path prefix whose directory is absent from the provider still
+/// causes the helper to claim the request -- it returns
+/// `Some(response)` with an empty candidate list. Falling through
+/// to the M1 argument-position empty branch would yield the same
+/// empty result today, but claiming here keeps the "cursor is
+/// inside a path" signal available to a future
+/// argument-position enrichment pass that might otherwise misroute.
+///
+/// # Overwrite span
+///
+/// `prefix_start` names the byte immediately after the last `/` in
+/// the path text (so the completion overwrites just the name
+/// prefix, never the directory portion the user already typed);
+/// `prefix_end` is the cursor. For a bare trailing slash
+/// (`/usr/^`), `prefix_start == prefix_end == cursor` -- the
+/// completion is an insertion.
+///
+/// Returns `None` when the pre-cursor bytes do not shape as a
+/// `/`-anchored path; the caller then falls through to the M2 field
+/// dispatch.
+fn try_path_completion(
+    engine: &CompletionEngine,
+    prefix: &str,
+    cursor: usize,
+) -> Option<CompletionResponse> {
+    // Walk backwards through the raw bytes; every byte we accept is
+    // ASCII by construction (the path-legal set is a strict subset of
+    // ASCII), so a byte-level cursor never lands mid-code-point.
+    let bytes = prefix.as_bytes();
+    let mut start = cursor;
+    while start > 0 && is_path_char(bytes[start - 1]) {
+        start -= 1;
+    }
+    // Path-in-progress must be non-empty AND anchored at `/`.
+    if start >= cursor || bytes[start] != b'/' {
+        return None;
+    }
+    let path_text = &prefix[start..cursor];
+
+    // Split on the last `/`. `path_text` starts with `/`, so `rfind`
+    // always succeeds.
+    let last_slash = path_text.rfind('/').expect("path text starts with `/`");
+    let raw_dir = &path_text[..=last_slash]; // includes trailing `/`
+    let name_prefix = &path_text[last_slash + 1..];
+
+    // Normalize directory: the root stays `"/"`; every other path
+    // drops its trailing slash so the seed shape and query shape
+    // agree with [`PathProvider`]'s stored key convention.
+    let dir = if raw_dir == "/" {
+        "/"
+    } else {
+        &raw_dir[..raw_dir.len() - 1]
+    };
+
+    let entries = engine.path_provider.list(dir);
+    let mut cands: Vec<Candidate> = entries
+        .iter()
+        .filter_map(|name| {
+            score_match(name_prefix, name).map(|base_score| Candidate {
+                text: name.clone(),
+                kind: CandidateKind::Path,
+                display: None,
+                type_hint: None,
+                // Recency boost is keyed on the bare child name, not
+                // the joined full path -- the M6 REPL wire-up records
+                // selection texts as the emitter shipped them, and the
+                // emitter ships bare names.
+                score: base_score + engine.history.recency_boost(name),
+            })
+        })
+        .collect();
+    sort_by_score_then_text(&mut cands);
+    Some(CompletionResponse {
+        candidates: cands,
+        prefix_start: start + last_slash + 1,
+        prefix_end: cursor,
+    })
+}
+
+/// Whether an ASCII byte can legally appear inside a filesystem path
+/// segment for M6's detection purposes. Includes the separator `/`
+/// itself so the scan crosses segment boundaries; a caller reading
+/// `raw` after this has to re-split on `/` to recover segments.
+///
+/// The set is deliberately conservative -- shell metacharacters
+/// (`$`, `*`, `?`, `[`, `~` after position 0) that a real filesystem
+/// accepts inside a filename are excluded so the detector does not
+/// grab a glob or a pipeline-value interpolation whose bytes happen
+/// to abut a path-like prefix. A shell-metacharacter-aware split
+/// belongs at the R228.M7+ argument-position layer.
+fn is_path_char(b: u8) -> bool {
+    matches!(
+        b,
+        b'/' | b'.'
+            | b'-'
+            | b'_'
+            | b'~'
+            | b'0'..=b'9'
+            | b'A'..=b'Z'
+            | b'a'..=b'z'
+    )
 }
 
 /// R228.M5 -- attempt Flag completion off the token neighbourhood.

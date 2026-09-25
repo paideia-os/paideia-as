@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.36.38 — 2026-09-25 — R225.M7 HM diagnostic surface + R228.M6 path completion
+
+**R225.M7** — Rich HM error reporting with span attribution + context:
+
+- **New module** `crates/paideia-as-shell-hm/src/diagnostic.rs` —
+  `TypeSpan { start, end }`, `TypeDiagnostic { error: InferError, span:
+  Option<TypeSpan>, context: String }`, `render_diagnostic(&diag)`.
+- **Render grammar** (4 cases): span+ctx → `"at S..E: CTX: ERR"`;
+  span-only → `"at S..E: ERR"`; ctx-only → `"CTX: ERR"`; neither → `"ERR"`.
+- **Adapter** `infer_with_diagnostic(env, expr, gen, span, context)`
+  wraps `infer` and pins caller-supplied span/context onto failures.
+- Strictly additive M7 layer over M1-M6 algebra — no existing module
+  touched; 78 pre-existing tests remain valid unmodified.
+- 8-test corpus `r225m7-diag-01`..`r225m7-diag-08` (+2 supporting) —
+  88 shell-hm total.
+
+**R228.M6** — Filesystem-shaped Path completion:
+
+- **New module** `src/path.rs` — `PathProvider { entries: HashMap<String,
+  Vec<String>> }` with `new()`, `insert(dir, children)`, `list(dir)`.
+- **CompletionEngine.path_provider: PathProvider** field; new builder
+  `with_path_provider(p)`.
+- **New `try_path_completion`** branch, inserted between
+  `try_flag_completion` and `try_field_completion`.
+- **Detection**: raw-byte scan back from cursor over path-legal char set
+  (`/ . - _ ~ 0-9 A-Z a-z`) — robust to future tokenizer segmentation
+  changes (lexer currently splits `/usr/local` into four `Op("/")` +
+  `Ident(...)` tokens).
+- **Directory-key normalization**: root is `"/"`; every other dir drops
+  trailing slash (matches `std::fs::canonicalize` output for future
+  live-walker migration).
+- **Missing-directory policy**: claims the request with 0 candidates
+  (mirrors R228.M5's flag "claim on missing catalogue" discipline).
+- **Recency boost** keyed on bare child name (matches R228.M5 parity).
+- 8-test corpus `r228m6-cmp-01`..`r228m6-cmp-08` (48 shell-completion total).
+
+SYSTEM_VERSION const bumped 0.36.37 → 0.36.38.
+
+Closes paideia-as#1479. Closes paideia-as#1480.
+
 ## 0.36.37 — 2026-09-25 — R225.M6 effect-row pipeline composition + R228.M5 flag completion
 
 **R225.M6** — Effect-row propagation through pipeline stages:

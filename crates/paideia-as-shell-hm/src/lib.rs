@@ -77,6 +77,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod diagnostic;
 pub mod effect_row;
 pub mod expr;
 pub mod infer;
@@ -85,6 +86,9 @@ pub mod ty;
 pub mod typed_value;
 pub mod unify;
 
+pub use diagnostic::{
+    infer_with_diagnostic, render_diagnostic, TypeDiagnostic, TypeSpan,
+};
 pub use effect_row::{unify_effect_rows, EffectRow};
 pub use expr::{app, field, i, lam, let_, record, s, v, Expr, Lit};
 pub use infer::{
