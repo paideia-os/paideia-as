@@ -35,7 +35,7 @@
 //! error-recovery machinery when it wires the schema-registry type
 //! diagnostics into the loop.
 
-use crate::ast::{Atom, Program, Query, Rule, Term, Value};
+use crate::ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
 use paideia_as_shell_lex::{Span, Token, TokenKind};
 
 /// Discriminated parse-failure modes.
@@ -243,14 +243,14 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.skip_whitespace();
                 let mut body = Vec::new();
-                body.push(self.parse_atom()?);
+                body.push(self.parse_body_goal()?);
                 loop {
                     self.skip_whitespace();
                     match self.peek_kind() {
                         Some(TokenKind::Comma) => {
                             self.advance();
                             self.skip_whitespace();
-                            body.push(self.parse_atom()?);
+                            body.push(self.parse_body_goal()?);
                         }
                         Some(TokenKind::Dot) => {
                             self.advance();
@@ -267,6 +267,43 @@ impl<'a> Parser<'a> {
             }
             _ => Err(self.expected("`.` (fact) or `=>` (rule)")),
         }
+    }
+
+    /// Parse a single body conjunct: either a plain atom (positive
+    /// goal) or `not <atom>` (negative goal). The `not` keyword arrives
+    /// from the lexer as `TokenKind::Op("not")` (see the shell-lex
+    /// `finish_ident` classifier — keyword-operators `and`/`or`/`not`
+    /// all fold to `Op`). We tolerate whitespace between `not` and the
+    /// atom so multi-line rule bodies stay readable.
+    ///
+    /// R226.M5 grammar addition; a lone `not` followed by anything
+    /// other than a predicate name is a parse error (same as an atom
+    /// missing its opening `(`). Repeated `not not p(...)` is refused
+    /// deliberately — double negation elimination is a semantic
+    /// transformation, not a lexical one, and no shell corpus needs it.
+    fn parse_body_goal(&mut self) -> Result<BodyGoal, ParseError> {
+        self.skip_whitespace();
+        let negated = matches!(
+            self.peek_kind(),
+            Some(TokenKind::Op(s)) if s.as_str() == "not"
+        );
+        if negated {
+            self.advance();
+            self.skip_whitespace();
+            // Refuse double negation: `not not p(...)` — see docstring.
+            if matches!(
+                self.peek_kind(),
+                Some(TokenKind::Op(s)) if s.as_str() == "not"
+            ) {
+                return Err(self.expected("predicate name after `not` (double negation disallowed)"));
+            }
+        }
+        let atom = self.parse_atom()?;
+        Ok(if negated {
+            BodyGoal::Negative(atom)
+        } else {
+            BodyGoal::Positive(atom)
+        })
     }
 
     fn parse_atom(&mut self) -> Result<Atom, ParseError> {

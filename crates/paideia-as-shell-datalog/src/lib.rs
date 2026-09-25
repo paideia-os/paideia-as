@@ -78,7 +78,9 @@ pub mod ast;
 pub mod eval;
 pub mod magic_sets;
 pub mod parser;
+pub mod stratification;
 
-pub use ast::{Atom, Program, Query, Rule, Term, Value};
+pub use ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
 pub use eval::{query, Binding, Database, EvalError, Evaluator};
 pub use parser::{parse_block, parse_query, ParseError, ParseErrorKind};
+pub use stratification::{compute_strata, StratificationError};

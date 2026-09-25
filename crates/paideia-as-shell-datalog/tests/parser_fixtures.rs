@@ -8,7 +8,7 @@ mod common;
 
 use common::dlg_tokens;
 use paideia_as_shell_datalog::{
-    parse_block, parse_query, Atom, ParseErrorKind, Program, Rule, Term, Value,
+    parse_block, parse_query, Atom, BodyGoal, ParseErrorKind, Program, Rule, Term, Value,
 };
 
 fn c_ident(s: &str) -> Term {
@@ -64,7 +64,7 @@ fn r226_m1_04_simple_rule() {
     assert_eq!(r.body.len(), 1);
     assert_eq!(
         r.body[0],
-        Atom::new("parent", vec![var("X"), var("Y")])
+        BodyGoal::Positive(Atom::new("parent", vec![var("X"), var("Y")]))
     );
 }
 
@@ -78,11 +78,11 @@ fn r226_m1_05_recursive_rule_with_multi_atom_body() {
     assert_eq!(r.body.len(), 2);
     assert_eq!(
         r.body[0],
-        Atom::new("parent", vec![var("X"), var("Y")])
+        BodyGoal::Positive(Atom::new("parent", vec![var("X"), var("Y")]))
     );
     assert_eq!(
         r.body[1],
-        Atom::new("ancestor", vec![var("Y"), var("Z")])
+        BodyGoal::Positive(Atom::new("ancestor", vec![var("Y"), var("Z")]))
     );
 }
 

@@ -51,9 +51,10 @@
 //! emission) will add a cooperative-cancel token so a runaway magic-
 //! set rewrite cannot hang the REPL.
 
-use crate::ast::{Atom, Program, Query, Rule, Term, Value};
+use crate::ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
 use crate::magic_sets;
-use std::collections::{HashMap, HashSet};
+use crate::stratification::{self, StratificationError};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Concrete per-predicate table. `predicate` name + `arity` are the
 /// composite key so `p/2` and `p/3` are distinct relations (the R229
@@ -82,67 +83,17 @@ impl Database {
     /// Returns `Err(EvalError)` if the program mentions a `Term::Bound`
     /// (pipeline interpolation), which is not resolvable without a
     /// running shell — see the `ast::Term` module doc.
+    ///
+    /// R226.M5: if the program mentions `not p(...)` in any rule body,
+    /// it is evaluated under stratified negation
+    /// (Apt-Blair-Walker 1988); an unstratifiable program (a cycle in
+    /// the predicate dependency graph carrying a negated edge) is
+    /// rejected with `EvalError::UnstratifiedNegation` **before** the
+    /// fixpoint runs — so no half-derived tuples leak out. A program
+    /// with no negation collapses to a single stratum and evaluates
+    /// exactly as the R226.M2 seminaïve loop did.
     pub fn from_program(program: &Program) -> Result<Self, EvalError> {
-        // Refuse programs that mention pipeline interpolation — the
-        // shell round that resolves `$expr` (R226.M8 + R229) is not
-        // landed yet.
-        for atom in &program.facts {
-            reject_bound(atom)?;
-        }
-        for rule in &program.rules {
-            reject_bound(&rule.head)?;
-            for body in &rule.body {
-                reject_bound(body)?;
-            }
-        }
-
-        // Seed the EDB.
-        let mut db = Database::default();
-        for atom in &program.facts {
-            let tuple = atom
-                .as_ground()
-                .expect("parser guaranteed fact atom is ground");
-            db.insert(atom.predicate.clone(), tuple);
-        }
-
-        // Empty program with no rules — nothing further to derive.
-        if program.rules.is_empty() {
-            return Ok(db);
-        }
-
-        // First-round Δ is the EDB itself (every base tuple is "new").
-        let mut delta_prev: HashMap<Key, TupleSet> = db.tables.clone();
-
-        loop {
-            let mut delta_new: HashMap<Key, TupleSet> = HashMap::new();
-            for rule in &program.rules {
-                derive_round(rule, &db, &delta_prev, &mut delta_new);
-            }
-            // Remove tuples already present in db so we do not "grow"
-            // Δ with re-derivations.
-            let mut had_new = false;
-            for (key, set) in delta_new.iter_mut() {
-                if let Some(existing) = db.tables.get(key) {
-                    set.retain(|t| !existing.contains(t));
-                }
-                if !set.is_empty() {
-                    had_new = true;
-                }
-            }
-            if !had_new {
-                break;
-            }
-            // Merge Δ into db, and Δ becomes the next round's Δ_prev.
-            for (key, set) in &delta_new {
-                let table = db.tables.entry(key.clone()).or_default();
-                for t in set {
-                    table.insert(t.clone());
-                }
-            }
-            delta_prev = delta_new;
-        }
-
-        Ok(db)
+        evaluate_stratified(program)
     }
 
     /// Read the ground tuples of a `predicate/arity` relation, if any.
@@ -264,6 +215,27 @@ impl Evaluator {
         crate::eval::query(&db, query)
     }
 
+    /// Materialize `program` under stratified negation (R226.M5) and
+    /// return the resulting database — no query. The caller then runs
+    /// [`query`] against the DB directly.
+    ///
+    /// This is the entry point for programs that mention `not p(...)`
+    /// in any rule body: the evaluator groups rules by their head
+    /// predicate's stratum (see [`crate::stratification`]) and runs
+    /// seminaïve fixpoint stratum by stratum, so every negated goal is
+    /// resolved against a completed relation from a strictly lower
+    /// stratum. An unstratifiable program (a cycle in the predicate
+    /// dependency graph that carries any negated edge) is rejected
+    /// with [`EvalError::UnstratifiedNegation`] **before** the fixpoint
+    /// runs, so no partial derivations survive.
+    ///
+    /// Positive-only programs collapse to a single stratum containing
+    /// every rule and evaluate exactly as
+    /// [`Database::from_program`] does — no observable difference.
+    pub fn run_stratified(&self, program: &Program) -> Result<Database, EvalError> {
+        evaluate_stratified(program)
+    }
+
     /// Rewrite `program` via magic-set rewriting for `query`, then
     /// materialize the rewritten program's seminaïve fixpoint and
     /// answer `query` against the resulting DB.
@@ -307,6 +279,17 @@ pub enum EvalError {
         /// Owning atom for diagnostics.
         atom: String,
     },
+    /// The program's rule dependency graph contains a cycle that
+    /// crosses at least one `not p(...)` edge — negation through
+    /// recursion, which stratified semantics cannot assign a fixpoint
+    /// to. Raised by [`Evaluator::run_stratified`] (and by
+    /// [`Database::from_program`] on such a program) **before** any
+    /// fixpoint iteration, so no half-derived tuples leak out.
+    UnstratifiedNegation {
+        /// The predicates that form the offending cycle, in the order
+        /// the stratifier discovered them. Non-empty on construction.
+        cycle: Vec<String>,
+    },
 }
 
 // --------------------------------------------------------------------
@@ -325,9 +308,117 @@ fn reject_bound(atom: &Atom) -> Result<(), EvalError> {
     Ok(())
 }
 
-/// One seminaïve round for one rule: for each body-atom pivot position
-/// `i`, match `body[i]` against `delta_prev` and every `body[j != i]`
-/// against `db`, collecting derived head tuples into `delta_new`.
+/// End-to-end stratified evaluation: reject-bound, stratify, group
+/// rules by their head predicate's stratum, then run a fresh seminaïve
+/// fixpoint per stratum using the accumulated DB from lower strata as
+/// its EDB. Called by both [`Database::from_program`] and
+/// [`Evaluator::run_stratified`] — the two entry points are the same
+/// pipeline, only their names differ so callers can name the shape of
+/// their intent (constructor vs. explicit-negation-aware evaluation).
+fn evaluate_stratified(program: &Program) -> Result<Database, EvalError> {
+    // Refuse programs that mention pipeline interpolation — the shell
+    // round that resolves `$expr` (R226.M8 + R229) is not landed yet.
+    for atom in &program.facts {
+        reject_bound(atom)?;
+    }
+    for rule in &program.rules {
+        reject_bound(&rule.head)?;
+        for body in &rule.body {
+            reject_bound(body.atom())?;
+        }
+    }
+
+    // Stratify — refuse negation through recursion before any tuple is
+    // derived. On success `strata[p]` is the stratum index of predicate
+    // `p` (0-based, densely packed).
+    let strata = stratification::compute_strata(program).map_err(|e| match e {
+        StratificationError::CycleThroughNegation { cycle } => {
+            EvalError::UnstratifiedNegation { cycle }
+        }
+    })?;
+
+    // Seed the EDB — the base of every stratum's fixpoint.
+    let mut db = Database::default();
+    for atom in &program.facts {
+        let tuple = atom
+            .as_ground()
+            .expect("parser guaranteed fact atom is ground");
+        db.insert(atom.predicate.clone(), tuple);
+    }
+
+    if program.rules.is_empty() {
+        return Ok(db);
+    }
+
+    // Group rules by head-predicate stratum. `BTreeMap` gives an
+    // ascending-order walk without a manual max-index compute step.
+    let mut rules_by_stratum: BTreeMap<usize, Vec<&Rule>> = BTreeMap::new();
+    for rule in &program.rules {
+        let s = strata.get(&rule.head.predicate).copied().unwrap_or(0);
+        rules_by_stratum.entry(s).or_default().push(rule);
+    }
+
+    // Run seminaïve stratum by stratum in ascending order. Each
+    // stratum's fixpoint sees the previous strata as extensional (fully
+    // materialised) input — the standard Apt-Blair-Walker construction.
+    for (_stratum, rules) in &rules_by_stratum {
+        seminaive_fixpoint(rules, &mut db);
+    }
+
+    Ok(db)
+}
+
+/// One seminaïve fixpoint over `rules` starting from `db`'s current
+/// contents. Extracted so [`evaluate_stratified`] can call it once per
+/// stratum, giving negation stratified semantics for free — a negated
+/// body atom in stratum `k` always resolves against the completed
+/// `db` of strata `< k` (its predicate is guaranteed by the stratifier
+/// to sit strictly below `k`).
+fn seminaive_fixpoint(rules: &[&Rule], db: &mut Database) {
+    // First-round Δ is the base DB — every existing tuple is "new"
+    // from this stratum's perspective (its rules have never fired
+    // before). Subsequent rounds only see the strictly-fresh tuples
+    // from the previous round.
+    let mut delta_prev: HashMap<Key, TupleSet> = db.tables.clone();
+    loop {
+        let mut delta_new: HashMap<Key, TupleSet> = HashMap::new();
+        for rule in rules {
+            derive_round(rule, db, &delta_prev, &mut delta_new);
+        }
+        let mut had_new = false;
+        for (key, set) in delta_new.iter_mut() {
+            if let Some(existing) = db.tables.get(key) {
+                set.retain(|t| !existing.contains(t));
+            }
+            if !set.is_empty() {
+                had_new = true;
+            }
+        }
+        if !had_new {
+            break;
+        }
+        for (key, set) in &delta_new {
+            let table = db.tables.entry(key.clone()).or_default();
+            for t in set {
+                table.insert(t.clone());
+            }
+        }
+        delta_prev = delta_new;
+    }
+}
+
+/// One seminaïve round for one rule: for each positive body-atom
+/// pivot position `i`, match `body[i]` against `delta_prev` and every
+/// other positive body atom against `db`; then filter the resulting
+/// bindings by every negated body atom (retain a binding iff the
+/// substituted negated atom does NOT match any tuple in `db`).
+/// Collected derivations land in `delta_new`.
+///
+/// R226.M5 addition: negated goals never serve as pivots (a `not p`
+/// conjunct doesn't produce new bindings — it only filters existing
+/// ones) and are applied after the positive extension pass so every
+/// variable in the negated atom is guaranteed to be bound before
+/// membership is checked (safety condition).
 fn derive_round(
     rule: &Rule,
     db: &Database,
@@ -339,30 +430,66 @@ fn derive_round(
         // no-op keeps a future refactor from surprise-recursing.
         return;
     }
-    for pivot in 0..rule.body.len() {
+
+    // Only positive body atoms can be pivots — a negated goal does not
+    // enumerate tuples (it filters). A rule with no positive goal is
+    // range-unsafe (no variable can ever be bound); silently skip it
+    // — R226.M9 will make it a compile-time diagnostic.
+    let positive_positions: Vec<usize> = (0..rule.body.len())
+        .filter(|&i| rule.body[i].is_positive())
+        .collect();
+    if positive_positions.is_empty() {
+        return;
+    }
+
+    for &pivot in &positive_positions {
+        let pivot_atom = rule.body[pivot].atom();
         let empty: TupleSet = HashSet::new();
         let pivot_tuples = delta_prev
-            .get(&(rule.body[pivot].predicate.clone(), rule.body[pivot].arity()))
+            .get(&(pivot_atom.predicate.clone(), pivot_atom.arity()))
             .unwrap_or(&empty);
         for tuple in pivot_tuples {
-            let Some(base_binding) = unify_atom(&rule.body[pivot], tuple, &Binding::new()) else {
+            let Some(base_binding) = unify_atom(pivot_atom, tuple, &Binding::new()) else {
                 continue;
             };
             let mut bindings = vec![base_binding];
+
+            // Positive extension pass: iterate positive non-pivot body
+            // atoms and join with the full DB.
             let mut ok = true;
-            for (j, body_atom) in rule.body.iter().enumerate() {
+            for (j, goal) in rule.body.iter().enumerate() {
                 if j == pivot {
                     continue;
                 }
-                bindings = extend_with_db(body_atom, db, bindings);
-                if bindings.is_empty() {
-                    ok = false;
-                    break;
+                if let BodyGoal::Positive(a) = goal {
+                    bindings = extend_with_db(a, db, bindings);
+                    if bindings.is_empty() {
+                        ok = false;
+                        break;
+                    }
                 }
             }
             if !ok {
                 continue;
             }
+
+            // Negation filter pass: for every `not p(...)` conjunct,
+            // retain only bindings whose substitution finds NO matching
+            // tuple in `db`. Because the stratifier guarantees `p` sits
+            // in a strictly lower stratum, `db` is complete for `p`
+            // when this filter runs — closed-world negation is sound.
+            for goal in &rule.body {
+                if let BodyGoal::Negative(a) = goal {
+                    bindings.retain(|b| !negation_matches(a, db, b));
+                    if bindings.is_empty() {
+                        break;
+                    }
+                }
+            }
+            if bindings.is_empty() {
+                continue;
+            }
+
             for binding in bindings {
                 let head_tuple = ground_atom(&rule.head, &binding);
                 let Some(head_tuple) = head_tuple else {
@@ -382,6 +509,30 @@ fn derive_round(
             }
         }
     }
+}
+
+/// Check whether a negated body atom's relation contains any tuple
+/// that unifies with the atom under the current binding. Returns
+/// `true` when a match exists (i.e. the negation FAILS — the rule
+/// must not fire for this binding). Returns `false` when no tuple
+/// matches (the negation SUCCEEDS — the rule may fire).
+///
+/// If the atom has unbound variables at this point (a safety
+/// violation), any match on the bound positions is enough to answer
+/// "match found" — a conservative approach that preserves soundness
+/// even when a caller writes a range-unsafe rule.
+fn negation_matches(atom: &Atom, db: &Database, binding: &Binding) -> bool {
+    let empty: TupleSet = HashSet::new();
+    let candidates = db
+        .tables
+        .get(&(atom.predicate.clone(), atom.arity()))
+        .unwrap_or(&empty);
+    for tuple in candidates {
+        if unify_atom(atom, tuple, binding).is_some() {
+            return true;
+        }
+    }
+    false
 }
 
 /// Extend a set of partial bindings by matching `atom` against every

@@ -98,7 +98,7 @@
 //! R220.M10 `@fingerprint` correlator can attribute pass/fail without
 //! re-parsing the test name.
 
-use crate::ast::{Atom, Program, Query, Rule, Term, Value};
+use crate::ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
 use std::collections::{HashSet, VecDeque};
 
 /// Adornment on a predicate occurrence: `true` per position that the
@@ -200,10 +200,12 @@ pub fn rewrite(program: &Program, query: &Query) -> Program {
         for adr in head_adornments {
             let magic_guard = build_magic_atom(&rule.head, adr);
 
-            // Guarded rewrite of the original rule.
-            let mut new_body: Vec<Atom> = Vec::new();
+            // Guarded rewrite of the original rule — the magic guard
+            // is a fresh positive body goal; the original body's
+            // polarities (positive OR negative) pass through unchanged.
+            let mut new_body: Vec<BodyGoal> = Vec::new();
             if let Some(g) = &magic_guard {
-                new_body.push(g.clone());
+                new_body.push(BodyGoal::Positive(g.clone()));
             }
             new_body.extend(rule.body.iter().cloned());
             new_rules.push(Rule {
@@ -211,8 +213,12 @@ pub fn rewrite(program: &Program, query: &Query) -> Program {
                 body: new_body,
             });
 
-            // Supplementary magic rules — one per IDB body atom whose
-            // adornment has at least one bound position.
+            // Supplementary magic rules — one per IDB *positive* body
+            // atom whose adornment has at least one bound position.
+            // Negated body atoms are skipped here: they cannot adorn
+            // (a `not p(...)` conjunct doesn't bind variables) and
+            // their filter role belongs to the guarded rule above,
+            // not to any supplementary magic rule.
             let mut bound_vars: HashSet<String> = HashSet::new();
             for (i, term) in rule.head.terms.iter().enumerate() {
                 if adr[i] {
@@ -223,16 +229,23 @@ pub fn rewrite(program: &Program, query: &Query) -> Program {
             }
             let mut prev_body: Vec<Atom> = Vec::new();
             for bi in &rule.body {
-                let beta_i = compute_adornment(bi, &bound_vars);
-                if idb.contains(&bi.predicate)
-                    && adorned.contains(&(bi.predicate.clone(), beta_i.clone()))
+                if !bi.is_positive() {
+                    // Negated atoms don't adorn and don't bind — skip.
+                    continue;
+                }
+                let bi_atom = bi.atom();
+                let beta_i = compute_adornment(bi_atom, &bound_vars);
+                if idb.contains(&bi_atom.predicate)
+                    && adorned.contains(&(bi_atom.predicate.clone(), beta_i.clone()))
                 {
-                    if let Some(bi_magic) = build_magic_atom(bi, &beta_i) {
-                        let mut mrule_body: Vec<Atom> = Vec::new();
+                    if let Some(bi_magic) = build_magic_atom(bi_atom, &beta_i) {
+                        let mut mrule_body: Vec<BodyGoal> = Vec::new();
                         if let Some(g) = &magic_guard {
-                            mrule_body.push(g.clone());
+                            mrule_body.push(BodyGoal::Positive(g.clone()));
                         }
-                        mrule_body.extend(prev_body.iter().cloned());
+                        mrule_body.extend(
+                            prev_body.iter().cloned().map(BodyGoal::Positive),
+                        );
                         // A supplementary rule must have at least one
                         // body atom (Datalog rules cannot have empty
                         // bodies — parser convention). If no guard and
@@ -255,8 +268,8 @@ pub fn rewrite(program: &Program, query: &Query) -> Program {
                         }
                     }
                 }
-                prev_body.push(bi.clone());
-                for t in &bi.terms {
+                prev_body.push(bi_atom.clone());
+                for t in &bi_atom.terms {
                     if let Term::Var(name) = t {
                         bound_vars.insert(name.clone());
                     }
@@ -314,12 +327,19 @@ where
             }
         }
     }
+    // Only positive body atoms adorn IDB predicates and contribute to
+    // `bound_vars` — a `not p(...)` goal is a filter over already-bound
+    // variables, per stratified-negation safety.
     for bi in &rule.body {
-        let beta_i = compute_adornment(bi, &bound_vars);
-        if idb.contains(&bi.predicate) {
-            on_idb_body(bi.predicate.clone(), beta_i);
+        if !bi.is_positive() {
+            continue;
         }
-        for t in &bi.terms {
+        let bi_atom = bi.atom();
+        let beta_i = compute_adornment(bi_atom, &bound_vars);
+        if idb.contains(&bi_atom.predicate) {
+            on_idb_body(bi_atom.predicate.clone(), beta_i);
+        }
+        for t in &bi_atom.terms {
             if let Term::Var(name) = t {
                 bound_vars.insert(name.clone());
             }

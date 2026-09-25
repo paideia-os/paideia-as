@@ -135,6 +135,67 @@ impl fmt::Display for Atom {
     }
 }
 
+/// A single conjunct in a rule body: either a positive goal
+/// (`p(?X, ?Y)`) that must match a tuple in the DB, or a negative
+/// goal (`not p(?X, ?Y)`) that must NOT match any tuple in the DB
+/// (closed-world negation, stratified per R226.M5).
+///
+/// The wrapper is preferred over adding a `Negated(Atom)` variant to
+/// `Term` or `Atom` — it keeps `Atom` (and its ground-tuple, arity,
+/// display machinery) polarity-free, and localises the polarity flag
+/// on the body-conjunct axis where the evaluator's stratification and
+/// safety checks actually live.
+///
+/// The R226.M5 evaluator refuses a program that requires negation
+/// through recursion (a cycle in the predicate dependency graph that
+/// carries any negated edge); it accepts a program whose negations
+/// can be stratified — evaluated bottom-up, one stratum at a time —
+/// so every negated goal is checked against a completed relation
+/// from a strictly lower stratum. See `crate::stratification`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BodyGoal {
+    /// A positive body atom: must match a tuple in the DB.
+    Positive(Atom),
+    /// A negative body atom (`not p(...)` in surface syntax): must
+    /// NOT match any tuple in the DB under the current substitution.
+    /// Safety condition: every variable that appears in the atom must
+    /// also appear positively earlier in the same rule body.
+    Negative(Atom),
+}
+
+impl BodyGoal {
+    /// The inner atom, regardless of polarity. Handy when a caller
+    /// only cares about the predicate name / arity / term shape (e.g.
+    /// the stratification dependency walk).
+    #[inline]
+    pub fn atom(&self) -> &Atom {
+        match self {
+            BodyGoal::Positive(a) | BodyGoal::Negative(a) => a,
+        }
+    }
+
+    /// True iff this goal is a `not p(...)` conjunct.
+    #[inline]
+    pub fn is_negated(&self) -> bool {
+        matches!(self, BodyGoal::Negative(_))
+    }
+
+    /// True iff this goal is a plain positive atom.
+    #[inline]
+    pub fn is_positive(&self) -> bool {
+        matches!(self, BodyGoal::Positive(_))
+    }
+}
+
+impl fmt::Display for BodyGoal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BodyGoal::Positive(a) => write!(f, "{}", a),
+            BodyGoal::Negative(a) => write!(f, "not {}", a),
+        }
+    }
+}
+
 /// A rule: `head` is derivable whenever every atom in `body` is
 /// derivable under a consistent substitution.
 ///
@@ -147,12 +208,17 @@ impl fmt::Display for Atom {
 /// A rule with `body.is_empty()` is stored as a `Program::facts` entry
 /// during parsing (not as a `Rule`), so a `Rule` here always has at
 /// least one body atom.
+///
+/// Each body conjunct is a `BodyGoal`, so `not p(...)` conjuncts (the
+/// R226.M5 stratified-negation surface) can sit alongside positive
+/// atoms without disturbing the `Atom` type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
     /// Head atom — the conclusion the rule derives.
     pub head: Atom,
-    /// Body conjunction — one or more atoms that must all hold.
-    pub body: Vec<Atom>,
+    /// Body conjunction — one or more goals (positive or negative)
+    /// that must all hold under a consistent substitution.
+    pub body: Vec<BodyGoal>,
 }
 
 /// A Datalog program: rules (with non-empty bodies) plus ground facts.

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.36.17 — 2026-09-24 — R226.M5 stratified negation
+
+Extends the Datalog evaluator with stratified negation per Abiteboul-Hull-Vianu §15.
+
+**R226.M5** — Stratified negation:
+- **AST extension** (`src/ast.rs`): new `BodyGoal { Positive(Atom), Negative(Atom) }`;
+  `Rule::body` widened from `Vec<Atom>` to `Vec<BodyGoal>`.
+- **Parser extension** (`src/parser.rs`): `parse_body_goal()` accepts optional `not`
+  prefix; `not not atom` rejected.
+- **New module** `src/stratification.rs`:
+  - Iterative Tarjan SCC + topological stratum lift.
+  - `compute_strata(program) -> Result<HashMap<PredicateName, usize>, StratificationError>`.
+  - `StratificationError::CycleThroughNegation { cycle }` when any SCC contains an
+    edge marked Negated.
+- **Evaluator** (`src/eval.rs`):
+  - `Evaluator::run_stratified(program) -> Result<Database, EvalError>` — evaluates
+    strata in ascending order; negative goals resolve against the accumulated
+    lower-stratum database.
+  - `Database::from_program` refactored to delegate through shared
+    `evaluate_stratified` pipeline.
+  - `derive_round` uses only positive body atoms as seminaïve pivots; negated
+    conjuncts applied as post-extension filters via `negation_matches`.
+  - `EvalError::UnstratifiedNegation { cycle }` new variant.
+- **Magic-set adjustment** (`src/magic_sets.rs`): SIP + supplementary magic rules
+  skip negated conjuncts (they cannot adorn); guarded rewrites keep negation intact.
+- **Test corpus** (`tests/stratified_negation.rs`) — 16 tests fingerprinted
+  `r226m5-strat-01`..`r226m5-strat-15` + regression smoke:
+  - 8 stratifiable acceptors (transitive closure with negation, shared/orphaned,
+    two-level negation, chain-of-4 layered, reachability-with-exclusion, positive-
+    stratum-0, subset via `not excluded`, mutual-non-negation with recursion).
+  - 7 unstratifiable rejectors (`p :- not p`, mutual `p/q` negation cycle,
+    recursion-through-negation, 3-way + 4-way nested cycles, back-into-lower-
+    stratum, all-negated cycle).
+  - Rejectors verify no tuples are derived before `UnstratifiedNegation` fires.
+- All prior 41 datalog tests still green (10 parser + 10 eval + 21 magic-set).
+
+Closes paideia-as#1442.
+
 ## 0.36.16 — 2026-09-24 — R222.M4 argparse + R222.M8 wire-format + R226.M4 magic-sets
 
 Three parallel-safe semantic-shell milestones landed together on top of v0.36.15.
