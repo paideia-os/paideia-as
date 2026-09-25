@@ -54,9 +54,78 @@
 //!   `execute` under the port.
 
 use crate::schema::SchemaRef;
+use paideia_as_types::Type;
 
-/// A positional argument spec (R222.M2 shape; R222.M4 will grow the
-/// `type_name` string into a real `paideia-as-types::Type` handle).
+/// Resolve a shell type-name literal (`"Int"`, `"String"`, `"Bool"`,
+/// …) into a monomorphic `paideia_as_types::Type` — the R222.M4
+/// bridge from the `ArgSpec::type_name` / `FlagSpec::type_name`
+/// placeholder strings to the elaborator's HM type substrate.
+///
+/// # Vocabulary
+///
+/// The five R222 light commands (`find`, `where`, `sort`, `head`,
+/// `count`) exercise these type-name literals:
+///
+/// | shell literal     | HM type            | parses argv as |
+/// |-------------------|--------------------|----------------|
+/// | `Int`, `I64`      | `Type::SInt(64)`   | signed int     |
+/// | `U32`             | `Type::UInt(32)`   | non-neg int    |
+/// | `U64`             | `Type::UInt(64)`   | non-neg int    |
+/// | `Bool`            | `Type::Bool`       | `true`/`false` |
+/// | `String`, `Path`, | `Type::Str`        | raw string     |
+/// |  `FileType`,      |                    |                |
+/// |  `ByteSize`,      |                    |                |
+/// |  `Lambda`,        |                    |                |
+/// |  `FieldRef\|Lambda` |                  |                |
+///
+/// Unknown type-name literals resolve to `Type::Str` — the safe
+/// fallback until the elaborator gains a shell-user-facing type
+/// resolver (R225.M4). Callers who need "unresolved" telemetry
+/// should compare on the original `type_name` string, which stays
+/// on the spec.
+///
+/// The subset covered here matches what the R222.M4 `argparse` module
+/// can actually parse a `Value` for (`Int` / `Str` / `Bool`); richer
+/// types (`ByteSize`, `Lambda`, …) fall back to `Str` and are
+/// interpreted downstream by the command's `execute` op.
+///
+/// # Why `Type` rather than `TypeScheme`
+///
+/// `paideia_as_types` exposes `Type` as a monomorphic enum; the
+/// generalisation/instantiation shape of an HM `TypeScheme` has not
+/// yet been surfaced publicly. ArgSpec/FlagSpec are always
+/// monomorphic (no `forall a. …` bindings in a shell argument slot),
+/// so `Type` is the exact fit. When the elaborator publishes a
+/// public `TypeScheme` (R225.M4 close-out), this function's return
+/// type widens without changing any existing caller — a
+/// `Type` is a degenerate `TypeScheme` (`forall.` with an empty
+/// binder).
+pub fn resolve_type_name(type_name: &str) -> Type {
+    match type_name {
+        "Int" | "I64" => Type::SInt(64),
+        "I8" => Type::SInt(8),
+        "I16" => Type::SInt(16),
+        "I32" => Type::SInt(32),
+        "U8" => Type::UInt(8),
+        "U16" => Type::UInt(16),
+        "U32" => Type::UInt(32),
+        "U64" => Type::UInt(64),
+        "Bool" => Type::Bool,
+        // Everything else — the shell-facing composite type names
+        // (`FileType`, `ByteSize`, `Lambda`, `FieldRef|Lambda`, …)
+        // and the plain `String` / `Path` bytes — surface as
+        // `Type::Str`. The command's `execute` op refines from there.
+        _ => Type::Str,
+    }
+}
+
+/// A positional argument spec.
+///
+/// R222.M4 landed: `type_name` retains its `String` shape (the
+/// on-the-wire representation the R222.M5 commands.toml loader
+/// reads), and [`Self::resolve_type`] elaborates it into a real
+/// [`paideia_as_types::Type`] via [`resolve_type_name`] at parse
+/// time.
 ///
 /// `required = false` means the argument may be omitted from the shell
 /// line; the elaborator supplies `default` if present, else `None`.
@@ -64,7 +133,10 @@ use crate::schema::SchemaRef;
 pub struct ArgSpec {
     /// Argument name (for `describe` output and error diagnostics).
     pub name: String,
-    /// Type name — placeholder until R222.M4 (`Type` handle).
+    /// Type-name literal. Elaborated to a `paideia_as_types::Type` on
+    /// demand via [`Self::resolve_type`] — the on-the-wire string
+    /// stays so the R222.M5 commands.toml loader can round-trip it
+    /// unchanged from disk to registry to shell.
     pub type_name: String,
     /// Whether the shell line MUST supply this argument.
     pub required: bool,
@@ -72,6 +144,18 @@ pub struct ArgSpec {
     pub default: Option<String>,
     /// Human-readable one-line description.
     pub help: String,
+}
+
+impl ArgSpec {
+    /// Elaborate [`Self::type_name`] into the HM `Type` handle the
+    /// R222.M4 argparse layer parses against.
+    ///
+    /// Delegates to [`resolve_type_name`]; kept as an inherent method
+    /// so a caller with a spec in hand can write `spec.resolve_type()`
+    /// without pulling the free function into scope.
+    pub fn resolve_type(&self) -> Type {
+        resolve_type_name(&self.type_name)
+    }
 }
 
 /// A named flag spec.
@@ -85,12 +169,44 @@ pub struct FlagSpec {
     pub name: String,
     /// Short-form single-char, when present.
     pub short: Option<char>,
-    /// Type name — placeholder until R222.M4 (`Type` handle).
+    /// Type-name literal. See [`ArgSpec::type_name`] for the
+    /// on-the-wire vs elaborated-`Type` split; elaborated via
+    /// [`Self::resolve_type`].
     pub type_name: String,
     /// Default value literal (interpreted per `type_name`).
     pub default: Option<String>,
     /// Human-readable one-line description.
     pub help: String,
+}
+
+impl FlagSpec {
+    /// Elaborate [`Self::type_name`] into an HM `Type`. See
+    /// [`ArgSpec::resolve_type`] for the reasoning.
+    pub fn resolve_type(&self) -> Type {
+        resolve_type_name(&self.type_name)
+    }
+
+    /// Whether the parsed flag-name literal (stripped of the leading
+    /// `--` or `-`) matches this spec's long-form name or its
+    /// optional short-form single-char.
+    ///
+    /// The `parsed` argument is what [`crate::argparse`] hands over
+    /// after stripping the leading dash(es) from an argv token; a
+    /// caller with a raw `--foo` should strip first (see
+    /// [`crate::argparse::parse_flags`] for the driver loop).
+    pub fn matches_name(&self, parsed: &str) -> bool {
+        if parsed == self.name {
+            return true;
+        }
+        if let Some(short) = self.short {
+            let mut chars = parsed.chars();
+            let first = chars.next();
+            if first == Some(short) && chars.next().is_none() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// R220.M8-shaped placeholder — a list of effect names.

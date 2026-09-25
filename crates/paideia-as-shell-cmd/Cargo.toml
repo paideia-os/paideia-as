@@ -63,8 +63,14 @@ name = "paideia_as_shell_cmd"
 # adapter lands at R222.M5 when the commands.toml loader appears.
 
 [dependencies]
-# No workspace deps yet — R222.M1..M3 is a pure-shape landing (types +
-# stub executes). R222.M4 (ArgSpec/FlagSpec typing) will pull in
-# `paideia-as-types` for HM type-check of user input against the
-# ArgSpec at parse time; R222.M5 (registry client) pulls in `miette`
-# for the commands.toml load-time diagnostics.
+# R222.M4 pulls in `paideia-as-types` for HM type-check of user input
+# against the ArgSpec at parse time. `paideia-as-types` exposes the
+# monomorphic `Type` enum — no `TypeScheme` shape exists yet, but
+# ArgSpec/FlagSpec are always monomorphic (no free type variables to
+# generalize over) so `Type` is the right handle for now. When the
+# elaborator surfaces a public `TypeScheme` on the R225 landing, the
+# ArgSpec type-name → Type map here widens without a shape change.
+#
+# R222.M5 (registry client) will additionally pull in `miette` for
+# commands.toml load-time diagnostics.
+paideia-as-types = { path = "../paideia-as-types" }

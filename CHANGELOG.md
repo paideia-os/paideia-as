@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.36.16 — 2026-09-24 — R222.M4 argparse + R222.M8 wire-format + R226.M4 magic-sets
+
+Three parallel-safe semantic-shell milestones landed together on top of v0.36.15.
+
+**R222.M4** — ArgSpec + FlagSpec HM typing (`paideia-as-shell-cmd`):
+- New crate dep on `paideia-as-types` for real HM `Type` (not just `String` type_name).
+- `argparse.rs` with `Value { Int, Str, Bool }`, `ArgParseError`, `FlagParseError`,
+  `ArgSpec::parse_from`, `FlagSpec::parse_from`, `parse_argv`, `parse_flags`.
+- Long `--flag=value` + separated `--flag value` + `-x=value` + bare Bool switch.
+- 20-test corpus (`r222m4-argspec-01`..`r222m4-argspec-20`): 10 accept + 10 reject
+  covering missing required, extra positional, type mismatch, unknown flag, malformed int.
+- Adaptation: brief said `TypeScheme`/`MonoType` — actual `paideia-as-types` public
+  surface is `Type`; ArgSpec slots are always monomorphic so `Type` fits; widening
+  to `TypeScheme` deferred to R225.M4 when it publishes that shape.
+
+**R222.M8** — CommandSig wire-format (`paideia-as-shell-cmd::wire`):
+- Little-endian byte format: `u16 magic=0xCC01` + `u16 version=1` + length-prefixed name +
+  SchemaRefs + Option-tagged ArgSpec/FlagSpec arrays + EffectRow/CapSpec arrays.
+- Option tags are explicit `u8` (0/1) — distinguishes `None` from `Some("")` per acceptance criterion.
+- `execute` fn-ptr never serialized; `from_wire` plants a panicking `placeholder_execute`.
+- `CommandRegistry::describe(name) -> Option<Vec<u8>>` — the REPL builtin's data source.
+- 8-test corpus (`r222m8-wire-01`..`r222m8-wire-08`): 5 per-command round-trips +
+  describe smoke + BadMagic reject + ShortRead reject.
+
+**R226.M4** — Magic-set rewriting per Beeri-Ramakrishnan 1991 (`paideia-as-shell-datalog::magic_sets`):
+- Stub replaced with full §4.3 supplementary-magic implementation (~350 lines).
+- Adornment BFS from query root, SIP left-to-right propagation, guarded rules + supplementary magic rules + query seed.
+- `Evaluator` façade with `run_query` and `run_query_via_magic_sets`.
+- `Database::total_tuple_count()` + `Database::predicate_keys()` helpers.
+- 20-test corpus (`r226m4-magic-01`..`r226m4-magic-20`) + 1 regression smoke.
+  Covers: classic transitive closure, same-generation, mixed bound/free, all-bound
+  membership, all-free no-op, cycles, deep recursion, empty answer, structural checks.
+- 5 parity fixtures (magic-set answer == naive answer) + 2 speedup fixtures
+  (numerically assert magic-set intermediate tuple count < naive count).
+
+**Fixes uncovered**: none. All three landed clean.
+
+Closes paideia-as#1439 (R222.M4). Closes paideia-as#1440 (R226.M4). Closes paideia-as#1441 (R222.M8).
+
 ## 0.36.15 — 2026-09-24 — R221.M5-M7 AST + R222.M1-M3 CommandSig + R226.M1-M2 Datalog eval
 
 Massive semantic-shell surface bundle: three new workspace crates

@@ -46,12 +46,15 @@
 //!   the caller invokes `execute` on. Per-turn fingerprint tag
 //!   follows the R220.M10 `@fingerprint("...")` shape.
 //!
-//! # What R222.M1..M3 deliberately does NOT do
+//! * **R222.M4** — [`argparse`] parses raw argv + flag-argv against
+//!   the spec's [`ArgSpec`] / [`FlagSpec`] with HM type-check via
+//!   [`sig::resolve_type_name`] into `paideia_as_types::Type`.
+//!   Returns [`argparse::Value`] (`Int | Str | Bool`) plus structured
+//!   [`argparse::ArgParseError`] / [`argparse::FlagParseError`] with
+//!   argv byte-spans for a downstream diagnostics layer.
 //!
-//! * **HM type-check of user input against ArgSpec** — R222.M4. The
-//!   present [`ArgSpec::type_name`] carries a `String` placeholder
-//!   until `paideia-as-types` grows a public `Type` handle we can
-//!   quote inline.
+//! # What R222.M1..M4 deliberately does NOT do
+//!
 //! * **On-disk registry manifest** — R222.M5 loads
 //!   `/system/shell/commands.toml` and per-user overrides at
 //!   `/users/<u>/shell/commands.toml`. R222.M3 seeds the registry
@@ -70,16 +73,23 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod argparse;
 pub mod commands;
 pub mod dispatch;
 pub mod fingerprint;
 pub mod registry;
 pub mod schema;
 pub mod sig;
+pub mod wire;
 
+pub use argparse::{parse_argv, parse_flags, ArgParseError, FlagParseError, Value};
 pub use commands::CommandFunctor;
 pub use dispatch::{dispatch as dispatch_line, DispatchError, Invocation};
 pub use fingerprint::fnv1a_64;
 pub use registry::CommandRegistry;
 pub use schema::{SchemaFingerprint, SchemaRef, SchemasSig};
-pub use sig::{ArgSpec, CapSpec, CommandSig, EffectRow, ExecuteResult, FlagSpec, InvocationCtx};
+pub use sig::{
+    resolve_type_name, ArgSpec, CapSpec, CommandSig, EffectRow, ExecuteResult, FlagSpec,
+    InvocationCtx,
+};
+pub use wire::{from_wire, to_wire, WireError, WIRE_MAGIC, WIRE_VERSION};

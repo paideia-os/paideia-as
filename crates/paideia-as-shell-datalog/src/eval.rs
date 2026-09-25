@@ -52,6 +52,7 @@
 //! set rewrite cannot hang the REPL.
 
 use crate::ast::{Atom, Program, Query, Rule, Term, Value};
+use crate::magic_sets;
 use std::collections::{HashMap, HashSet};
 
 /// Concrete per-predicate table. `predicate` name + `arity` are the
@@ -151,6 +152,26 @@ impl Database {
         self.tables.get(&(predicate.to_owned(), arity))
     }
 
+    /// Sum of tuple counts across every `(predicate, arity)` relation
+    /// materialized in this database. Introduced for R226.M4 magic-set
+    /// selectivity fixtures — they compare the total DB size of the
+    /// naïve fixpoint against the total DB size of the magic-set
+    /// fixpoint, and require an accessor that does not depend on the
+    /// caller enumerating every predicate name it might have created
+    /// (magic-set rewriting invents fresh predicate names the caller
+    /// cannot easily enumerate).
+    pub fn total_tuple_count(&self) -> usize {
+        self.tables.values().map(|s| s.len()).sum()
+    }
+
+    /// Enumerate every `(predicate, arity)` key currently populated.
+    /// Primarily for tests that need a full-DB walk without
+    /// re-discovering predicate names. Order is unspecified — callers
+    /// that need a stable order sort the result themselves.
+    pub fn predicate_keys(&self) -> Vec<(String, usize)> {
+        self.tables.keys().cloned().collect()
+    }
+
     /// Insert one tuple into the relation for `predicate` (used by
     /// `from_program` while seeding the EDB; kept `pub(crate)` because
     /// mutation from outside is R226.M8's territory).
@@ -203,6 +224,76 @@ pub fn query(db: &Database, q: &Query) -> Result<Vec<Binding>, EvalError> {
         }
     }
     Ok(results)
+}
+
+/// Zero-state façade over the module's free functions plus the
+/// R226.M4 magic-set path. Kept as a unit struct rather than a
+/// stateful engine: the underlying evaluator does not carry
+/// configuration yet — R226.M10 (progress emission) and R226.M11
+/// (fingerprint stream) will be the first to grow real fields, at
+/// which point `Evaluator` becomes the natural place to hold them.
+///
+/// Present today so downstream crates can name a stable entry point
+/// for the magic-set path (`Evaluator::run_query_via_magic_sets`)
+/// rather than importing a free function that would migrate in a
+/// later milestone.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Evaluator;
+
+impl Evaluator {
+    /// Convenience constructor. Identical to `Evaluator::default()`;
+    /// preserved because `Evaluator::new()` reads more naturally in
+    /// caller code where "new evaluator, then use it" is the mental
+    /// model.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Materialize `program` under the standard seminaïve fixpoint
+    /// and return every substitution that satisfies `query`. Wraps
+    /// `Database::from_program` + `query` in one call — kept for
+    /// symmetry with `run_query_via_magic_sets`, so a caller
+    /// benchmarking one path against the other reads left-to-right
+    /// without swapping call shapes.
+    pub fn run_query(
+        &self,
+        program: &Program,
+        query: &Query,
+    ) -> Result<Vec<Binding>, EvalError> {
+        let db = Database::from_program(program)?;
+        crate::eval::query(&db, query)
+    }
+
+    /// Rewrite `program` via magic-set rewriting for `query`, then
+    /// materialize the rewritten program's seminaïve fixpoint and
+    /// answer `query` against the resulting DB.
+    ///
+    /// # Semantics
+    ///
+    /// The answer set is identical to
+    /// [`run_query`](Self::run_query) — magic-set rewriting is
+    /// answer-preserving (Beeri & Ramakrishnan 1991, §4.3). What
+    /// differs is the intermediate DB size: fewer IDB tuples are
+    /// materialized when the query has bound arguments, so the
+    /// fixpoint terminates sooner and uses less memory.
+    ///
+    /// # Rewritten-DB inspection
+    ///
+    /// Callers that want to introspect the magic-set DB directly
+    /// (e.g. count intermediate tuples for a speedup assertion) can
+    /// call `magic_sets::rewrite` + `Database::from_program`
+    /// themselves — this helper does not expose the intermediate
+    /// `Database` because most consumers only care about the
+    /// bindings.
+    pub fn run_query_via_magic_sets(
+        &self,
+        program: &Program,
+        query: &Query,
+    ) -> Result<Vec<Binding>, EvalError> {
+        let rewritten = magic_sets::rewrite(program, query);
+        let db = Database::from_program(&rewritten)?;
+        crate::eval::query(&db, query)
+    }
 }
 
 /// Discriminated evaluation-time failure modes.

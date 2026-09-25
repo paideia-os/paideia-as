@@ -32,6 +32,8 @@
 use std::collections::HashMap;
 
 use crate::commands::{count, find, head, sort, where_, CommandFunctor};
+use crate::schema::SchemasSig;
+use crate::wire;
 
 /// Str→functor lookup. `resolve` returns the functor; the caller
 /// then invokes it against the session's [`crate::SchemasSig`] to
@@ -81,6 +83,30 @@ impl CommandRegistry {
     /// Iterator over registered names (unordered).
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.functors.keys().map(String::as_str)
+    }
+
+    /// R222.M8 — return the `CommandSig` wire-format bytes for the
+    /// functor registered under `name`, or `None` if no such command
+    /// exists.
+    ///
+    /// The functor is instantiated against the R220 seed
+    /// [`SchemasSig`] — the two-schema starter session the R222.M3
+    /// canary uses — so `describe find` at bring-up time returns a
+    /// signature bound against `FileSchema@0.1` and `RawByteChunk@0.1`
+    /// rather than an unbound placeholder. When R222.M5 wires the
+    /// session-real `SchemasSig` off the on-disk manifest, this
+    /// method grows a `describe_with(&self, name, &SchemasSig)`
+    /// variant; keeping the shorthand here means the REPL bring-up
+    /// path (`describe <cmd>` on a fresh session) needs no extra
+    /// plumbing.
+    ///
+    /// The returned bytes are `wire::to_wire(functor(&SchemasSig::r220_seed()))`
+    /// — see [`crate::wire`] for the layout and the deliberate
+    /// exclusion of the `execute` fn-ptr.
+    pub fn describe(&self, name: &str) -> Option<Vec<u8>> {
+        self.functors
+            .get(name)
+            .map(|functor| wire::to_wire(&functor(&SchemasSig::r220_seed())))
     }
 
     /// Seed the registry with the R222.M3 five reference light

@@ -80,5 +80,5 @@ pub mod magic_sets;
 pub mod parser;
 
 pub use ast::{Atom, Program, Query, Rule, Term, Value};
-pub use eval::{query, Binding, Database, EvalError};
+pub use eval::{query, Binding, Database, EvalError, Evaluator};
 pub use parser::{parse_block, parse_query, ParseError, ParseErrorKind};
