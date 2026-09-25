@@ -35,7 +35,7 @@
 //! error-recovery machinery when it wires the schema-registry type
 //! diagnostics into the loop.
 
-use crate::ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
+use crate::ast::{Aggregate, AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
 use paideia_as_shell_lex::{Span, Token, TokenKind};
 
 /// Discriminated parse-failure modes.
@@ -111,6 +111,237 @@ pub fn parse_block(tokens: &[Token]) -> Result<Program, ParseError> {
         p.skip_whitespace();
     }
     Ok(program)
+}
+
+/// Parse a stand-alone R226.M6 aggregation query.
+///
+/// # Grammar
+///
+/// ```text
+///   aggregate_query := agg_expr [ group_by_clause ] where_clause
+///   agg_expr        := AGG_IDENT '(' QVAR ')'
+///   AGG_IDENT       ∈ { count, sum, min, max, avg }
+///   group_by_clause := 'group' 'by' QVAR ( ',' QVAR )*
+///   where_clause    := 'where' body_goal ( ',' body_goal )*
+///   body_goal       := atom                              // positive
+///                   |  'not' atom                        // negative
+/// ```
+///
+/// `group`, `by`, `where` arrive from the lexer as
+/// [`TokenKind::Ident`] (only `and` / `or` / `not` are folded to
+/// [`TokenKind::Op`]); the parser matches on the identifier text.
+///
+/// # Body separator
+///
+/// The lexer has no `:` token, so we spell the body separator as
+/// `where` — SQL-familiar and unambiguous with Datalog's `=>` rule
+/// separator (which stays reserved for rule definitions inside a
+/// `datalog { … }` block).
+///
+/// # Examples
+///
+/// ```text
+///   count(?x) where person(?x)
+///   count(?c) group by ?p where child(?p, ?c)
+///   sum(?amount) group by ?dept, ?quarter where sale(?dept, ?quarter, ?amount)
+///   avg(?a) where val(?x, ?a), not excluded(?x)
+/// ```
+///
+/// # Errors
+///
+/// Every failure mode routes through [`ParseError`] with a
+/// [`ParseErrorKind::Expected`] payload naming what the grammar
+/// wanted — a misspelled aggregate name, a missing `where`, an
+/// unexpected token in the body — each carries the offending span
+/// for editor overlays.
+pub fn parse_aggregate_query(tokens: &[Token]) -> Result<AggregateQuery, ParseError> {
+    let mut p = Parser::new(tokens);
+    p.skip_whitespace();
+
+    // Aggregate name — must be one of the five reserved identifiers.
+    let agg = match p.advance() {
+        Some(tok) => match &tok.kind {
+            TokenKind::Ident(name) => match name.as_str() {
+                "count" => Aggregate::Count,
+                "sum" => Aggregate::Sum,
+                "min" => Aggregate::Min,
+                "max" => Aggregate::Max,
+                "avg" => Aggregate::Avg,
+                other => {
+                    return Err(ParseError {
+                        span: tok.span,
+                        kind: ParseErrorKind::Expected {
+                            expected: "aggregate name (count, sum, min, max, avg)",
+                            found: format!("Ident({other:?})"),
+                        },
+                    });
+                }
+            },
+            _ => {
+                return Err(ParseError {
+                    span: tok.span,
+                    kind: ParseErrorKind::Expected {
+                        expected: "aggregate name (count, sum, min, max, avg)",
+                        found: format!("{:?}", tok.kind),
+                    },
+                });
+            }
+        },
+        None => {
+            return Err(ParseError {
+                span: p.last_span(),
+                kind: ParseErrorKind::UnexpectedEof,
+            });
+        }
+    };
+
+    // '(' target_var ')'
+    match p.peek_kind() {
+        Some(TokenKind::LParen) => {
+            p.advance();
+        }
+        _ => return Err(p.expected("`(` after aggregate name")),
+    }
+    let target_var = match p.advance() {
+        Some(tok) => match &tok.kind {
+            TokenKind::QVar(name) => name.clone(),
+            _ => {
+                return Err(ParseError {
+                    span: tok.span,
+                    kind: ParseErrorKind::Expected {
+                        expected: "logic variable (?var) as aggregate target",
+                        found: format!("{:?}", tok.kind),
+                    },
+                });
+            }
+        },
+        None => {
+            return Err(ParseError {
+                span: p.last_span(),
+                kind: ParseErrorKind::UnexpectedEof,
+            });
+        }
+    };
+    match p.peek_kind() {
+        Some(TokenKind::RParen) => {
+            p.advance();
+        }
+        _ => return Err(p.expected("`)` to close aggregate target")),
+    }
+
+    // Optional `group by ?v (, ?v)*`
+    p.skip_whitespace();
+    let mut group_by: Vec<String> = Vec::new();
+    if matches!(
+        p.peek_kind(),
+        Some(TokenKind::Ident(s)) if s == "group"
+    ) {
+        p.advance();
+        p.skip_whitespace();
+        match p.peek_kind() {
+            Some(TokenKind::Ident(s)) if s == "by" => {
+                p.advance();
+            }
+            _ => return Err(p.expected("`by` after `group`")),
+        }
+        p.skip_whitespace();
+        // First group-by var.
+        match p.advance() {
+            Some(tok) => match &tok.kind {
+                TokenKind::QVar(name) => group_by.push(name.clone()),
+                _ => {
+                    return Err(ParseError {
+                        span: tok.span,
+                        kind: ParseErrorKind::Expected {
+                            expected: "logic variable (?var) after `group by`",
+                            found: format!("{:?}", tok.kind),
+                        },
+                    });
+                }
+            },
+            None => {
+                return Err(ParseError {
+                    span: p.last_span(),
+                    kind: ParseErrorKind::UnexpectedEof,
+                });
+            }
+        }
+        // Additional `, ?var` pairs.
+        loop {
+            p.skip_whitespace();
+            match p.peek_kind() {
+                Some(TokenKind::Comma) => {
+                    p.advance();
+                    p.skip_whitespace();
+                    match p.advance() {
+                        Some(tok) => match &tok.kind {
+                            TokenKind::QVar(name) => group_by.push(name.clone()),
+                            _ => {
+                                return Err(ParseError {
+                                    span: tok.span,
+                                    kind: ParseErrorKind::Expected {
+                                        expected: "logic variable (?var) after `,` in group-by list",
+                                        found: format!("{:?}", tok.kind),
+                                    },
+                                });
+                            }
+                        },
+                        None => {
+                            return Err(ParseError {
+                                span: p.last_span(),
+                                kind: ParseErrorKind::UnexpectedEof,
+                            });
+                        }
+                    }
+                }
+                _ => break,
+            }
+        }
+    }
+
+    // Required `where` body_goal (',' body_goal)*
+    p.skip_whitespace();
+    match p.peek_kind() {
+        Some(TokenKind::Ident(s)) if s == "where" => {
+            p.advance();
+        }
+        _ => return Err(p.expected("`where` to introduce aggregate body")),
+    }
+    p.skip_whitespace();
+    let mut goals: Vec<BodyGoal> = Vec::new();
+    goals.push(p.parse_body_goal()?);
+    loop {
+        p.skip_whitespace();
+        if p.at_end() {
+            break;
+        }
+        match p.peek_kind() {
+            Some(TokenKind::Comma) => {
+                p.advance();
+                p.skip_whitespace();
+                goals.push(p.parse_body_goal()?);
+            }
+            Some(TokenKind::Dot) => {
+                // Tolerate a trailing `.` as `parse_query` does — a
+                // REPL user pasting a rule-shaped tail should not be
+                // surprised.
+                p.advance();
+                p.skip_whitespace();
+                if !p.at_end() {
+                    return Err(p.expected("end of aggregate query after `.`"));
+                }
+                break;
+            }
+            _ => return Err(p.expected("`,` between body goals or end of aggregate query")),
+        }
+    }
+
+    Ok(AggregateQuery {
+        agg,
+        target_var,
+        goals,
+        group_by,
+    })
 }
 
 /// Parse a stand-alone query — comma-separated goal atoms, no trailing

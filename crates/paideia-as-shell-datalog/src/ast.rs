@@ -254,3 +254,95 @@ pub struct Query {
     /// Conjunctive goal list.
     pub goals: Vec<Atom>,
 }
+
+/// R226.M6 aggregation function selector.
+///
+/// The five SQL classics. Every aggregate takes a single target
+/// variable (bound by some positive body goal) and optionally a
+/// group-by tuple. Numeric coercion for [`Aggregate::Sum`] and
+/// [`Aggregate::Avg`] is checked at evaluation time
+/// ([`crate::aggregation::AggregationError::NonNumericTarget`]) — the
+/// AST does not attempt static typing until R226.M9 pins predicate
+/// slot types via the schema registry.
+///
+/// Kept as a `Copy` enum (never a `String`) so a caller can pattern-
+/// match the selector without a heap allocation, and so a
+/// misspelled selector is a parse-time error rather than an
+/// evaluate-time surprise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Aggregate {
+    /// `count(?x)` — number of substitutions whose `?x` slot is bound.
+    /// Always emits an `AggregateResult::Count(u64)`; on zero input
+    /// (ungrouped) emits `Count(0)` — the identity, not `Empty`.
+    Count,
+    /// `sum(?x)` — integer sum of `?x` across substitutions. Non-
+    /// numeric `?x` values produce `AggregationError::NonNumericTarget`.
+    /// On zero input (ungrouped) emits `Sum(0)` — the additive identity.
+    Sum,
+    /// `min(?x)` — minimum `?x` under the total order defined by
+    /// [`crate::aggregation`] (Num < Str < Ident; natural order within
+    /// a kind). On zero input emits `AggregateResult::Empty` — there
+    /// is no meaningful minimum of an empty set.
+    Min,
+    /// `max(?x)` — dual of `Min`.
+    Max,
+    /// `avg(?x)` — arithmetic mean of `?x` as an `f64`. Non-numeric
+    /// `?x` values produce `AggregationError::NonNumericTarget`. On
+    /// zero input emits `AggregateResult::Empty` — `0/0` has no value.
+    Avg,
+}
+
+impl fmt::Display for Aggregate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Aggregate::Count => "count",
+            Aggregate::Sum => "sum",
+            Aggregate::Min => "min",
+            Aggregate::Max => "max",
+            Aggregate::Avg => "avg",
+        })
+    }
+}
+
+/// R226.M6 aggregation query — an aggregate applied to the bindings
+/// produced by a body of goal atoms, optionally partitioned by a
+/// group-by tuple.
+///
+/// Kept distinct from [`Query`] (which returns raw bindings) so a
+/// caller dispatches on the *shape of intent*: `Query` for
+/// enumeration, `AggregateQuery` for reduction. A REPL that offers
+/// both surfaces routes through two entry points on
+/// [`crate::eval::Evaluator`] — no runtime discrimination inside
+/// either path.
+///
+/// # Body shape
+///
+/// `goals` is a `Vec<BodyGoal>` — identical to `Rule::body` — so
+/// stratified negation (`not p(...)`, R226.M5) works transparently in
+/// aggregation queries. The evaluator enumerates every substitution
+/// that satisfies the conjunction, honouring the same
+/// positive-then-negative pass order the fixpoint uses, and hands the
+/// resulting substitution set to [`crate::aggregation::evaluate`].
+///
+/// # Safety condition
+///
+/// `target_var` must appear in some positive body goal — otherwise no
+/// substitution ever binds it, and the aggregation collapses to the
+/// ungrouped zero-input case. Every name in `group_by` is subject to
+/// the same rule. R226.M9 will make either violation a compile-time
+/// diagnostic; at M6 the aggregator silently drops any substitution
+/// whose group-by tuple is not fully bound (mirroring the
+/// range-restriction skip in [`crate::eval`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AggregateQuery {
+    /// Which aggregate to compute.
+    pub agg: Aggregate,
+    /// Free variable to reduce over.
+    pub target_var: String,
+    /// Body of goals producing the substitution set. Same grammar as
+    /// a rule body, including `not p(...)` conjuncts.
+    pub goals: Vec<BodyGoal>,
+    /// Zero or more variables to partition by. Empty means one
+    /// ungrouped output row.
+    pub group_by: Vec<String>,
+}

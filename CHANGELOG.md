@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.36.18 — 2026-09-24 — R226.M6 aggregation library (closes DLG-O1)
+
+Extends the Datalog evaluator with aggregation queries.
+
+**R226.M6** — Aggregation library:
+- **AST** (`src/ast.rs`): `Aggregate { Count, Sum, Min, Max, Avg }` + `AggregateQuery { agg, target_var, goals, group_by }`.
+- **Parser** (`src/parser.rs`): `parse_aggregate_query` grammar
+  `agg_name '(' ?var ')' [ 'group' 'by' ?var (',' ?var)* ] 'where' body_goal (',' body_goal)*`.
+  Uses `where` as body separator — the lexer has no `:` token; `=>` stays reserved for rules.
+- **New module** `src/aggregation.rs`:
+  - `AggregateResult { Count(u64), Sum(i64), Min(Value), Max(Value), Avg(f64), Empty }`.
+  - `AggregationError::NonNumericTarget { got }` for sum/avg on non-numeric.
+  - Pure `evaluate(agg, target, group_by, substitutions)` reducer with total-order min/max
+    (`Num < Str < Ident`) and saturating-sum.
+- **Evaluator** (`src/eval.rs`):
+  - `Evaluator::run_aggregate_query(program, query) -> Result<HashMap<Vec<Value>, AggregateResult>, EvalError>`.
+  - Runs stratified fixpoint (transparent negation support), collects satisfying
+    substitutions, delegates to `aggregation::evaluate`.
+  - `EvalError::AggregationError(AggregationError)` wraps aggregation-specific errors.
+  - `pub(crate) fn enumerate_body` refactored out of `derive_round` so aggregation +
+    derivation share body semantics.
+- **Test corpus** `tests/aggregation_fixtures.rs` — 20 tests fingerprinted
+  `r226m6-agg-01`..`r226m6-agg-20`: 5 count + 4 sum + 4 min + 4 max + 3 avg.
+  Cover ungrouped + grouped (1-var + 2-var), empty-input contracts (count/sum→0;
+  min/max/avg→Empty), non-numeric rejection.
+- All prior 57 datalog tests still green.
+
+**Empty-input contract**: ungrouped `Count`/`Sum` return identity (0);
+`Min`/`Max`/`Avg` return `AggregateResult::Empty` sentinel. Grouped queries never
+emit `Empty` values (a group is only present when a substitution lands in it).
+
+Closes DLG-O1. Closes paideia-as#1443.
+
 ## 0.36.17 — 2026-09-24 — R226.M5 stratified negation
 
 Extends the Datalog evaluator with stratified negation per Abiteboul-Hull-Vianu §15.

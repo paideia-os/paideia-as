@@ -74,13 +74,15 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod aggregation;
 pub mod ast;
 pub mod eval;
 pub mod magic_sets;
 pub mod parser;
 pub mod stratification;
 
-pub use ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
+pub use aggregation::{AggregateResult, AggregationError};
+pub use ast::{Aggregate, AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
 pub use eval::{query, Binding, Database, EvalError, Evaluator};
-pub use parser::{parse_block, parse_query, ParseError, ParseErrorKind};
+pub use parser::{parse_aggregate_query, parse_block, parse_query, ParseError, ParseErrorKind};
 pub use stratification::{compute_strata, StratificationError};

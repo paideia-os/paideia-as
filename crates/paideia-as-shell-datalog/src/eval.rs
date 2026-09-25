@@ -51,7 +51,8 @@
 //! emission) will add a cooperative-cancel token so a runaway magic-
 //! set rewrite cannot hang the REPL.
 
-use crate::ast::{Atom, BodyGoal, Program, Query, Rule, Term, Value};
+use crate::aggregation::{self, AggregateResult, AggregationError};
+use crate::ast::{AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
 use crate::magic_sets;
 use crate::stratification::{self, StratificationError};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -266,6 +267,53 @@ impl Evaluator {
         let db = Database::from_program(&rewritten)?;
         crate::eval::query(&db, query)
     }
+
+    /// Materialize `program` (under stratified negation if needed),
+    /// enumerate every substitution that satisfies `query.goals`, and
+    /// reduce the substitution set under `query.agg` on
+    /// `query.target_var`, partitioned by `query.group_by`.
+    ///
+    /// The returned map keys on the group-by tuple (empty for
+    /// ungrouped queries) and values on the per-group
+    /// [`AggregateResult`]. See [`crate::aggregation`] for empty-
+    /// input, grouping, and numeric-coercion rules.
+    ///
+    /// # Error routes
+    ///
+    /// * [`EvalError::UnresolvedPipelineValue`] — a body atom or the
+    ///   program itself mentions `$name` (pipeline interpolation);
+    ///   the R229 resolver is not landed yet.
+    /// * [`EvalError::UnstratifiedNegation`] — the program's
+    ///   dependency graph carries a cycle through negation; the
+    ///   stratifier rejects it before any tuple is derived.
+    /// * [`EvalError::AggregationError`] — a non-numeric target value
+    ///   was observed while running `sum` or `avg`.
+    pub fn run_aggregate_query(
+        &self,
+        program: &Program,
+        query: &AggregateQuery,
+    ) -> Result<HashMap<Vec<Value>, AggregateResult>, EvalError> {
+        // Refuse pipeline interpolation up front — mirrors the query
+        // path, so both entry points agree on the deferral.
+        for goal in &query.goals {
+            reject_bound(goal.atom())?;
+        }
+        // Materialize the fixpoint (stratified path handles both the
+        // negation-free and the negation-bearing cases).
+        let db = Database::from_program(program)?;
+        // Enumerate every substitution satisfying the body — same
+        // positive-then-negative pass order the fixpoint uses inside
+        // `derive_round`, so aggregation and derivation agree on
+        // which bindings are "valid" for a given body.
+        let substitutions = enumerate_body(&db, &query.goals);
+        aggregation::evaluate(
+            query.agg,
+            &query.target_var,
+            &query.group_by,
+            &substitutions,
+        )
+        .map_err(EvalError::AggregationError)
+    }
 }
 
 /// Discriminated evaluation-time failure modes.
@@ -290,6 +338,17 @@ pub enum EvalError {
         /// the stratifier discovered them. Non-empty on construction.
         cycle: Vec<String>,
     },
+    /// R226.M6 aggregation failure — carries the underlying
+    /// [`AggregationError`] (currently only
+    /// [`AggregationError::NonNumericTarget`]) so a REPL can render
+    /// the offending value without unwrapping a boxed error.
+    ///
+    /// Wrapping (rather than flattening the inner variants into
+    /// `EvalError` directly) keeps the aggregation-only failure modes
+    /// namespaced under their own module — a future non-numeric-avg
+    /// distinct-from-non-numeric-sum split, for instance, does not
+    /// reshape `EvalError`.
+    AggregationError(AggregationError),
 }
 
 // --------------------------------------------------------------------
@@ -585,6 +644,48 @@ fn unify_atom(atom: &Atom, tuple: &[Value], base: &Binding) -> Option<Binding> {
         }
     }
     Some(b)
+}
+
+/// Enumerate every substitution that satisfies a rule-body-shaped
+/// conjunction against `db`. Same positive-then-negative pass order
+/// as [`derive_round`] so aggregation and derivation agree on which
+/// bindings a given body admits.
+///
+/// * Start with a single empty binding.
+/// * For each positive body goal in source order, extend by matching
+///   against the tuples in the corresponding relation.
+/// * For each negative body goal (applied *after* the positive pass,
+///   so every variable in the negated atom is bound), retain only
+///   bindings whose substitution finds NO matching tuple.
+///
+/// A body with no positive goals produces the singleton empty
+/// binding vector (there is no way to bind any variable, so the
+/// negative-only filter is a range-restriction violation — the
+/// aggregator's group-by check subsequently drops such bindings).
+///
+/// R226.M6-only helper; the fixpoint pivot loop uses its own per-
+/// pivot enumeration inside [`derive_round`] and cannot re-use this
+/// function directly (the pivot pins one body atom to `delta_prev`
+/// instead of `db`).
+pub(crate) fn enumerate_body(db: &Database, goals: &[BodyGoal]) -> Vec<Binding> {
+    let mut bindings = vec![Binding::new()];
+    for goal in goals {
+        if let BodyGoal::Positive(a) = goal {
+            bindings = extend_with_db(a, db, bindings);
+            if bindings.is_empty() {
+                return bindings;
+            }
+        }
+    }
+    for goal in goals {
+        if let BodyGoal::Negative(a) = goal {
+            bindings.retain(|b| !negation_matches(a, db, b));
+            if bindings.is_empty() {
+                break;
+            }
+        }
+    }
+    bindings
 }
 
 /// Apply a binding to an atom, producing a ground tuple. Returns
