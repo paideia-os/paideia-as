@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.36.23 — 2026-09-25 — R226.M9 Datalog type-check + R227.M8 .pds load fingerprint
+
+**R226.M9** — Query-time type check for Datalog goals:
+- New `type_check` module: `ValueType { Ident, Str, Num, Any }`, `PredicateSignature`,
+  `SchemaRegistry { HashMap<(String, usize), PredicateSignature> }`.
+- `check_program(program, registry) -> Result<(), Vec<TypeCheckError>>` walks each
+  rule (head + positive body goals) + each fact; accumulates all errors.
+- `Evaluator::run_query_typed(program, query, registry)` type-checks first
+  (program + query goals in one error vector), then dispatches to `run_query`.
+  Fingerprint + progress emission unchanged on the type-clean path.
+- `TypeCheckError::{UnknownPredicate, ArityMismatch, TypeMismatch { position }}`
+  (E1020-family diagnostics). `EvalError::TypeCheckErrors(Vec<TypeCheckError>)`
+  new variant.
+- **Design note**: `Any` is a constraint (only appears on expected side), never a
+  classification. `UnknownPredicate` covers arity mismatch because lookup keys on
+  `(name, arity)`. Var/Bound terms always pass (types set by fixpoint unification).
+- 15-test corpus (`r226m9-tc-01`..`r226m9-tc-15`) + 7 in-crate unit tests.
+
+**R227.M8** — `.pds` script load fingerprint:
+- New `load_fingerprint` module in `paideia-as-shell-pds`.
+- `LoadSink` trait + `NullLoadSink` + `CollectingLoadSink { collected: Mutex<Vec<String>> }`.
+- `emit_load(sink, script_bytes)` computes FNV-1a-64 hash and emits
+  `pds.load.{fnv1a_64:016x}`.
+- Fixtures assert shape (`pds.load.` + 16 lower-case hex), determinism, dispersion,
+  per-sink isolation — not a hard-coded FNV output (future BLAKE3-64 swap won't
+  touch corpus).
+- 5-test corpus (`r227m8-load-01`..`r227m8-load-05`).
+
+Closes paideia-as#1450 (R226.M9). Closes paideia-as#1451 (R227.M8).
+
 ## 0.36.22 — 2026-09-25 — R226.M10 progress emission for long Datalog queries
 
 **R226.M10** — per-iteration progress emission in `paideia-as-shell-datalog`:

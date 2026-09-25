@@ -58,6 +58,7 @@ use crate::magic_sets;
 use crate::progress::{NullProgressSink, ProgressSink};
 use crate::session_edb::SessionEdb;
 use crate::stratification::{self, StratificationError};
+use crate::type_check::{self, SchemaRegistry, TypeCheckError};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -369,6 +370,58 @@ impl Evaluator {
         Ok(bindings)
     }
 
+    /// R226.M9 — [`run_query`](Self::run_query) preceded by a
+    /// schema-driven type check of both `program` and `query.goals`
+    /// against `registry`.
+    ///
+    /// # Contract
+    ///
+    /// 1. Call [`crate::type_check::check_program`] on `program`.
+    /// 2. Call [`crate::type_check::check_atom`] on every
+    ///    `query.goals` atom, into the same error collector, so
+    ///    program-side and query-side diagnostics land in one
+    ///    [`EvalError::TypeCheckErrors`] batch — no drip-feed.
+    /// 3. If any errors accumulated, return
+    ///    `Err(EvalError::TypeCheckErrors(errors))` *before* any
+    ///    fixpoint iteration runs. Neither the fingerprint sink nor
+    ///    the progress sink is touched on this path — a rejected
+    ///    program is not a "completed query".
+    /// 4. Otherwise dispatch to [`Self::run_query`]. Its fingerprint
+    ///    and progress emission run exactly as they would on a
+    ///    direct call — the type check is a strict prefix, not a
+    ///    wrapping shell.
+    ///
+    /// # Why a distinct method (not a flag on `run_query`)?
+    ///
+    /// A `run_query` caller pays no cost for the type check pass;
+    /// the R229 schema-registry surface is opt-in per FS §7.2. A
+    /// caller who *has* a registry uses this method; every other
+    /// caller reaches unchanged behaviour.
+    pub fn run_query_typed(
+        &self,
+        program: &Program,
+        query: &Query,
+        registry: &SchemaRegistry,
+    ) -> Result<Vec<Binding>, EvalError> {
+        // Program-side pass — walks facts, rule heads, and every body
+        // goal (both polarities) against the registry.
+        let mut errors: Vec<TypeCheckError> = match type_check::check_program(program, registry) {
+            Ok(()) => Vec::new(),
+            Err(es) => es,
+        };
+        // Query-side pass — same per-atom check, appended to the same
+        // vector so both surfaces' diagnostics land in one batch.
+        for goal in &query.goals {
+            type_check::check_atom(goal, registry, &mut errors);
+        }
+        if !errors.is_empty() {
+            return Err(EvalError::TypeCheckErrors(errors));
+        }
+        // Type-check clean — dispatch to the standard query path; its
+        // fingerprint + progress emission run exactly as usual.
+        self.run_query(program, query)
+    }
+
     /// Materialize `program` under stratified negation (R226.M5) and
     /// return the resulting database — no query. The caller then runs
     /// [`query`] against the DB directly.
@@ -638,6 +691,14 @@ pub enum EvalError {
     /// distinct-from-non-numeric-sum split, for instance, does not
     /// reshape `EvalError`.
     AggregationError(AggregationError),
+    /// R226.M9 — one or more schema-driven type check failures were
+    /// collected by [`crate::type_check::check_program`] (or the
+    /// query-side pass in [`Evaluator::run_query_typed`]) before the
+    /// fixpoint was allowed to run. The wrapping is a `Vec` so a
+    /// single failed check surfaces every mismatch a REPL should
+    /// present at once, rather than dripping them one keystroke at a
+    /// time.
+    TypeCheckErrors(Vec<TypeCheckError>),
 }
 
 // --------------------------------------------------------------------

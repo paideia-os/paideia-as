@@ -83,6 +83,7 @@ pub mod parser;
 pub mod progress;
 pub mod session_edb;
 pub mod stratification;
+pub mod type_check;
 
 pub use aggregation::{AggregateResult, AggregationError};
 pub use ast::{Aggregate, AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
@@ -92,3 +93,6 @@ pub use parser::{parse_aggregate_query, parse_block, parse_query, ParseError, Pa
 pub use progress::{CollectingProgressSink, NullProgressSink, ProgressSink};
 pub use session_edb::{AssertResult, RetractResult, SessionEdb};
 pub use stratification::{compute_strata, StratificationError};
+pub use type_check::{
+    check_program, PredicateSignature, SchemaRegistry, TypeCheckError, ValueType,
+};
