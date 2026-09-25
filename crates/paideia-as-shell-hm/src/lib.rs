@@ -80,6 +80,7 @@
 pub mod diagnostic;
 pub mod effect_row;
 pub mod expr;
+pub mod hover;
 pub mod infer;
 pub mod subst;
 pub mod ty;
@@ -91,6 +92,7 @@ pub use diagnostic::{
 };
 pub use effect_row::{unify_effect_rows, EffectRow};
 pub use expr::{app, field, i, lam, let_, record, s, v, Expr, Lit};
+pub use hover::{hover_at, render_hover, HoverEntry, TypeCache};
 pub use infer::{
     generalize, infer, instantiate, FreshVarGen, InferError, TypeEnv,
 };

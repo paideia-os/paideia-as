@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.36.39 — 2026-09-25 — R225.M8 LSP hover + R228.M7 completion snippets
+
+**R225.M8** — Hover query surface for LSP integration:
+
+- **New module** `crates/paideia-as-shell-hm/src/hover.rs`:
+  - `HoverEntry { span: TypeSpan, mono: MonoType, label: String }`.
+  - `TypeCache { entries: Vec<HoverEntry> }` with `new`, `push`, `len`, `is_empty`.
+  - `hover_at(cache, pos) -> Option<&HoverEntry>` — smallest-enclosing
+    under half-open `start <= pos < end`, deterministic tie-break via
+    `Iterator::min_by_key` stability.
+  - `render_hover(entry) -> String` — `"label: mono"` via existing
+    MonoType Display.
+- Semantics follow `TypeSpan`/`Range<usize>` (half-open); O(n) filter+
+  min_by_key. M1-M6 modules untouched.
+- 8-test corpus `r225m8-hov-01`..`r225m8-hov-08` (96 shell-hm total).
+
+**R228.M7** — LSP-style snippet insertions for completion candidates:
+
+- **Candidate.snippet: Option<String>** field. None = insert `text`
+  literally.
+- **Flag snippet lookup**: `flag_candidates` reads
+  `descriptions.get(&format!("{name}__snippet"))` per emitted flag and
+  sets `snippet: Some(...)` when present, else None. `__snippet` suffix
+  convention keeps snippet and description keys disjoint.
+- All Candidate constructions across `command_candidates`,
+  `var_candidates`, `keyword_candidates`, `field_candidates`,
+  `try_path_completion` explicitly set `snippet: None`.
+- M1 test literals (r228m1-cmp-04, r228m1-cmp-05) updated with
+  `snippet: None`.
+- 8-test corpus `r228m7-cmp-01`..`r228m7-cmp-08` (56 shell-completion total).
+
+SYSTEM_VERSION const bumped 0.36.38 → 0.36.39.
+
+Closes paideia-as#1481. Closes paideia-as#1482.
+
 ## 0.36.38 — 2026-09-25 — R225.M7 HM diagnostic surface + R228.M6 path completion
 
 **R225.M7** — Rich HM error reporting with span attribution + context:

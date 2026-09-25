@@ -172,6 +172,25 @@ pub struct Candidate {
     /// penalty score without an awkward type break; callers that only
     /// care about ordering do not need to interpret the numeric value.
     pub score: i32,
+    /// R228.M7 -- optional structured-insertion template. `None` means
+    /// the caller inserts [`Candidate::text`] literally (the default and
+    /// M1..M6 behaviour). `Some(tmpl)` carries a placeholder-bearing
+    /// string in the LSP snippet convention (`${1:pattern}`, `$0`, etc.)
+    /// which the REPL / LSP expands into a tab-navigable insertion.
+    ///
+    /// M7 populates this only on `Flag` candidates whose command's
+    /// [`CommandFlags::descriptions`] map carries a
+    /// `"<bare>__snippet"` key; every other emitter (command, var,
+    /// keyword, field, path) leaves `snippet` as `None`. Held as an
+    /// owned `String` for the same "engine may be swapped between
+    /// requests" reason as [`Candidate::type_hint`].
+    ///
+    /// The snippet body is stored verbatim -- this crate does no
+    /// placeholder validation, so a malformed template surfaces to the
+    /// REPL / LSP renderer which owns the expansion. Keeping the crate
+    /// syntactically inert avoids duplicating the snippet grammar that
+    /// LSP clients already implement.
+    pub snippet: Option<String>,
 }
 
 /// The response the REPL / LSP consumes.
@@ -578,6 +597,9 @@ fn command_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate>
                 // for the formula; 0 for entries not in the buffer, so
                 // an empty history leaves M3 ordering untouched.
                 score: base_score + engine.history.recency_boost(c),
+                // R228.M7 -- command candidates carry no snippet; the
+                // milestone only wires per-flag templates.
+                snippet: None,
             })
         })
         .collect();
@@ -599,6 +621,7 @@ fn var_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
                 display: None,
                 type_hint: None,
                 score: base_score + engine.history.recency_boost(v),
+                snippet: None,
             })
         })
         .collect();
@@ -618,6 +641,7 @@ fn keyword_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate>
                 display: None,
                 type_hint: None,
                 score: base_score + engine.history.recency_boost(kw),
+                snippet: None,
             })
         })
         .collect();
@@ -642,6 +666,7 @@ fn field_candidates(engine: &CompletionEngine, rec_name: &str, prefix: &str) -> 
                 display: None,
                 type_hint: None,
                 score: base_score + engine.history.recency_boost(f),
+                snippet: None,
             })
         })
         .collect();
@@ -834,6 +859,7 @@ fn try_path_completion(
                 // selection texts as the emitter shipped them, and the
                 // emitter ships bare names.
                 score: base_score + engine.history.recency_boost(name),
+                snippet: None,
             })
         })
         .collect();
@@ -1046,6 +1072,18 @@ fn find_command_at_position(tokens: &[Token], upto: usize) -> Option<&str> {
 /// user actually typed after the dashes. The candidate's `score`
 /// still receives the standard recency boost keyed on the final
 /// `text` (`-a` / `--long`), so a repeat selection floats.
+///
+/// R228.M7 -- snippet enrichment. For each flag `name`, look up
+/// `descriptions.get("<name>__snippet")` and, when present, populate
+/// [`Candidate::snippet`]. The `"__snippet"` suffix convention shares
+/// one map between description text (`descriptions["l"]`) and snippet
+/// template (`descriptions["l__snippet"]`) so the shell-flags catalogue
+/// stays a single flat `HashMap<String, String>` -- the two-map
+/// alternative (separate `descriptions` and `snippets` maps) doubles
+/// the seed-time work with no readability gain, since the REPL builds
+/// both entries in the same loop. Missing key leaves `snippet` as
+/// `None`, matching the "empty popup rather than empty label" contract
+/// M5 established for `type_hint`.
 fn flag_candidates(
     engine: &CompletionEngine,
     cf: &CommandFlags,
@@ -1063,12 +1101,14 @@ fn flag_candidates(
             score_match(bare_prefix, name).map(|base_score| {
                 let text = format!("{prefix_glyph}{name}");
                 let recency = engine.history.recency_boost(&text);
+                let snippet_key = format!("{name}__snippet");
                 Candidate {
                     text,
                     kind: CandidateKind::Flag,
                     display: None,
                     type_hint: cf.descriptions.get(name).cloned(),
                     score: base_score + recency,
+                    snippet: cf.descriptions.get(&snippet_key).cloned(),
                 }
             })
         })

@@ -97,6 +97,7 @@ fn r228m1_cmp_04_lambda_var_prefix() {
             display: None,
             type_hint: None,
             score: 997,
+            snippet: None,
         }
     );
     // Span covers just the `xy` token (bytes 6..8).
@@ -123,6 +124,7 @@ fn r228m1_cmp_05_datalog_keyword_prefix() {
             display: None,
             type_hint: None,
             score: 997, // Tier 1b: 1000 - 3.
+            snippet: None,
         }
     );
 }
