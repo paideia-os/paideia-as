@@ -53,10 +53,12 @@
 
 use crate::aggregation::{self, AggregateResult, AggregationError};
 use crate::ast::{AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
+use crate::fingerprint::{FingerprintSink, NullSink, QueryId};
 use crate::magic_sets;
 use crate::session_edb::SessionEdb;
 use crate::stratification::{self, StratificationError};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Concrete per-predicate table. `predicate` name + `arity` are the
 /// composite key so `p/2` and `p/3` are distinct relations (the R229
@@ -179,27 +181,116 @@ pub fn query(db: &Database, q: &Query) -> Result<Vec<Binding>, EvalError> {
     Ok(results)
 }
 
-/// Zero-state façade over the module's free functions plus the
-/// R226.M4 magic-set path. Kept as a unit struct rather than a
-/// stateful engine: the underlying evaluator does not carry
-/// configuration yet — R226.M10 (progress emission) and R226.M11
-/// (fingerprint stream) will be the first to grow real fields, at
-/// which point `Evaluator` becomes the natural place to hold them.
+/// Query-driving façade over the module's free functions plus the
+/// R226.M4 magic-set path.
 ///
-/// Present today so downstream crates can name a stable entry point
-/// for the magic-set path (`Evaluator::run_query_via_magic_sets`)
-/// rather than importing a free function that would migrate in a
-/// later milestone.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Evaluator;
+/// # State (R226.M11)
+///
+/// * `next_query_id` — a monotone per-evaluator counter used to
+///   fingerprint each completed query. Two evaluators built via
+///   [`Evaluator::new`] or [`Evaluator::default`] have independent
+///   counters (both start at 0); a single evaluator threaded through a
+///   REPL sees `0`, `1`, `2`, … across successive queries.
+/// * `fingerprint_sink` — an injected [`FingerprintSink`] the
+///   evaluator emits `dlg.<hex-id>.<result-count>` into after each
+///   completed query. Defaults to [`NullSink`] so pre-M11 call sites
+///   see no observable behaviour change; a caller who wants the
+///   emissions supplies a real sink via
+///   [`Evaluator::with_fingerprint_sink`].
+///
+/// # Concurrency
+///
+/// A single `Evaluator` is shared across threads through an `Arc` in
+/// the wider shell. The counter is an [`AtomicU64`] and the sink
+/// carries a `Send + Sync` bound — a `&self` method can be called from
+/// multiple threads concurrently. The counter's fetch-add uses
+/// [`Ordering::Relaxed`]: fingerprint ids need to be unique per
+/// evaluator (which relaxed fetch-add guarantees) but do not need to
+/// participate in cross-thread happens-before ordering with anything
+/// else — the sink is the visible boundary, and its own
+/// synchronisation covers ordering of emitted tags.
+///
+/// # Error paths are silent
+///
+/// Fingerprints are emitted **only** on successful completion. Bound-
+/// term rejection, [`EvalError::UnstratifiedNegation`], and
+/// [`EvalError::AggregationError`] all return early without touching
+/// the sink — a fingerprint therefore serves as proof of completion,
+/// not merely of attempt.
+pub struct Evaluator {
+    next_query_id: AtomicU64,
+    fingerprint_sink: Box<dyn FingerprintSink + Send + Sync>,
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for Evaluator {
+    /// The sink is a trait object with no `Debug` bound, so we render
+    /// only its presence — a caller inspecting the evaluator only
+    /// cares about the counter's current value and that a sink exists
+    /// at all (the concrete implementation is opaque by design).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Evaluator")
+            .field("next_query_id", &self.next_query_id.load(Ordering::Relaxed))
+            .field("fingerprint_sink", &"<dyn FingerprintSink>")
+            .finish()
+    }
+}
 
 impl Evaluator {
-    /// Convenience constructor. Identical to `Evaluator::default()`;
-    /// preserved because `Evaluator::new()` reads more naturally in
-    /// caller code where "new evaluator, then use it" is the mental
-    /// model.
+    /// Fresh evaluator with a discarding [`NullSink`] and a query
+    /// counter at 0. Identical to [`Evaluator::default`]; preserved
+    /// because "new evaluator, then use it" reads more naturally at
+    /// most call sites than the `Default` trait detour.
     pub fn new() -> Self {
-        Self
+        Self {
+            next_query_id: AtomicU64::new(0),
+            fingerprint_sink: Box::new(NullSink),
+        }
+    }
+
+    /// Builder-style replacement of the fingerprint sink.
+    ///
+    /// The counter is preserved across the swap — a caller that
+    /// upgrades from a silent to a collecting sink mid-session does
+    /// not silently reset the ids that later fingerprints depend on
+    /// for uniqueness. A caller that wants a fresh id sequence should
+    /// build a fresh evaluator instead.
+    pub fn with_fingerprint_sink(
+        mut self,
+        sink: Box<dyn FingerprintSink + Send + Sync>,
+    ) -> Self {
+        self.fingerprint_sink = sink;
+        self
+    }
+
+    /// Consume and return the next fingerprint id, advancing the
+    /// counter by one. Ordering is [`Ordering::Relaxed`] — see the
+    /// struct-level concurrency note.
+    ///
+    /// Exposed for tests and for callers that want to correlate an
+    /// out-of-band trace event with the id an upcoming query will
+    /// carry. Ordinary evaluator users never need to call it directly
+    /// — the query paths call it themselves before emitting.
+    pub fn next_query_id(&self) -> QueryId {
+        QueryId(self.next_query_id.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Emit a completed query's fingerprint. `id` must have been
+    /// minted by a preceding [`Self::next_query_id`] on THIS
+    /// evaluator; `result_count` is the summary scalar (substitution
+    /// count, group count, or total tuple count depending on the query
+    /// shape — see the [`crate::fingerprint`] module doc).
+    ///
+    /// Kept private so every emission call site in this module goes
+    /// through the same formatter — a future format change touches one
+    /// line rather than six.
+    fn emit_fingerprint(&self, id: QueryId, result_count: usize) {
+        self.fingerprint_sink.emit(&id.format_tag(result_count));
     }
 
     /// Materialize `program` under the standard seminaïve fixpoint
@@ -214,7 +305,16 @@ impl Evaluator {
         query: &Query,
     ) -> Result<Vec<Binding>, EvalError> {
         let db = Database::from_program(program)?;
-        crate::eval::query(&db, query)
+        let bindings = crate::eval::query(&db, query)?;
+        // R226.M11 — fingerprint the completed query. Id is minted
+        // AFTER the fallible work so that a failure to materialise the
+        // fixpoint or evaluate the query does not burn a slot in the
+        // counter for an emission that never happens; the counter
+        // then reflects "successful queries" 1:1, which is what the
+        // correlator wants to attribute results against.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, bindings.len());
+        Ok(bindings)
     }
 
     /// Materialize `program` under stratified negation (R226.M5) and
@@ -235,7 +335,14 @@ impl Evaluator {
     /// every rule and evaluate exactly as
     /// [`Database::from_program`] does — no observable difference.
     pub fn run_stratified(&self, program: &Program) -> Result<Database, EvalError> {
-        evaluate_stratified(program)
+        let db = evaluate_stratified(program)?;
+        // R226.M11 — `run_stratified` returns a materialised database
+        // rather than a substitution set, so the scalar summary is the
+        // total tuple count across every predicate the fixpoint
+        // produced. Same id-after-success discipline as `run_query`.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, db.total_tuple_count());
+        Ok(db)
     }
 
     /// Rewrite `program` via magic-set rewriting for `query`, then
@@ -266,7 +373,15 @@ impl Evaluator {
     ) -> Result<Vec<Binding>, EvalError> {
         let rewritten = magic_sets::rewrite(program, query);
         let db = Database::from_program(&rewritten)?;
-        crate::eval::query(&db, query)
+        let bindings = crate::eval::query(&db, query)?;
+        // R226.M11 — the magic-set path answers the same query as
+        // `run_query` and by construction returns the same
+        // substitution set, so the fingerprint's `result_count` field
+        // matches the naïve path bit-for-bit; only the query id
+        // distinguishes them in the correlator log.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, bindings.len());
+        Ok(bindings)
     }
 
     /// Materialize `program` (under stratified negation if needed),
@@ -307,13 +422,22 @@ impl Evaluator {
         // `derive_round`, so aggregation and derivation agree on
         // which bindings are "valid" for a given body.
         let substitutions = enumerate_body(&db, &query.goals);
-        aggregation::evaluate(
+        let groups = aggregation::evaluate(
             query.agg,
             &query.target_var,
             &query.group_by,
             &substitutions,
         )
-        .map_err(EvalError::AggregationError)
+        .map_err(EvalError::AggregationError)?;
+        // R226.M11 — aggregate `result_count` is the number of
+        // groups. Ungrouped queries always emit exactly one row (the
+        // empty-key group), so the fingerprint reads `.1` for them
+        // rather than the substitution count; group-by queries emit
+        // the group cardinality, which is the scalar a caller
+        // benchmarking a group-by rewrite would most want to see.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, groups.len());
+        Ok(groups)
     }
 
     // ------------------------------------------------------------------
@@ -348,7 +472,13 @@ impl Evaluator {
         session: &SessionEdb,
     ) -> Result<Vec<Binding>, EvalError> {
         let db = evaluate_stratified_with_session(program, session)?;
-        crate::eval::query(&db, query)
+        let bindings = crate::eval::query(&db, query)?;
+        // R226.M11 — session-overlay path shares the substitution
+        // shape of `run_query`, so `bindings.len()` is the natural
+        // scalar. Same id-after-success discipline as elsewhere.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, bindings.len());
+        Ok(bindings)
     }
 
     /// R226.M8 — run [`run_stratified`](Self::run_stratified) with a
@@ -362,7 +492,14 @@ impl Evaluator {
         program: &Program,
         session: &SessionEdb,
     ) -> Result<Database, EvalError> {
-        evaluate_stratified_with_session(program, session)
+        let db = evaluate_stratified_with_session(program, session)?;
+        // R226.M11 — stratified-with-session mirrors `run_stratified`
+        // in shape: no query is run, only a DB is materialised, so the
+        // scalar summary is the total tuple count across every
+        // materialised relation.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, db.total_tuple_count());
+        Ok(db)
     }
 
     /// R226.M8 — run [`run_aggregate_query`](Self::run_aggregate_query)
@@ -382,13 +519,18 @@ impl Evaluator {
         }
         let db = evaluate_stratified_with_session(program, session)?;
         let substitutions = enumerate_body(&db, &query.goals);
-        aggregation::evaluate(
+        let groups = aggregation::evaluate(
             query.agg,
             &query.target_var,
             &query.group_by,
             &substitutions,
         )
-        .map_err(EvalError::AggregationError)
+        .map_err(EvalError::AggregationError)?;
+        // R226.M11 — group cardinality, same scalar as the session-
+        // free aggregate path.
+        let id = self.next_query_id();
+        self.emit_fingerprint(id, groups.len());
+        Ok(groups)
     }
 }
 

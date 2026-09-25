@@ -55,6 +55,8 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod cap_check;
 pub mod header;
 
+pub use cap_check::{check_subset, CapCheckError, CapabilitySet};
 pub use header::{parse_header, Import, PdsHeader, PdsHeaderError, SchemaRef, Version};

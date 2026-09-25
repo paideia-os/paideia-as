@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.36.20 — 2026-09-24 — R226.M11 query fingerprint + R227.M2 capability checker
+
+**R226.M11** — Per-query fingerprint emission in `paideia-as-shell-datalog`:
+- New `fingerprint` module: `FingerprintSink` trait, `NullSink` (default, no-op),
+  `CollectingSink { collected: Mutex<Vec<String>> }` for tests, `QueryId(u64)` newtype.
+- `Evaluator` grew `next_query_id: AtomicU64` + `fingerprint_sink: Box<dyn FingerprintSink + Send + Sync>` fields; manual `Default` + `Debug` impls (no longer `Copy`/`Clone` — `Box<dyn>` non-Copy).
+- New builder-style `with_fingerprint_sink(sink)`; accessor `next_query_id()`; private `emit_fingerprint(id, count)` helper.
+- All 7 query methods (`run_query`, `run_query_via_magic_sets`, `run_stratified`,
+  `run_aggregate_query`, `run_query_with_session`, `run_stratified_with_session`,
+  `run_aggregate_query_with_session`) mint an id + emit `dlg.{:016x}.<count>` after
+  successful completion. Error paths do NOT emit.
+- Result-count scalar per path: substitution count for query paths; group cardinality
+  for aggregates; `db.total_tuple_count()` for stratified `Database`-returning paths.
+- 8-test corpus (`r226m11-fp-01`..`r226m11-fp-08`) + 4 in-crate unit tests.
+
+**R227.M2** — Capability-declaration checker in `paideia-as-shell-pds`:
+- New `cap_check` module: `CapabilitySet(HashSet<String>)` newtype with
+  `new/from_iter/insert/contains/len/is_empty`; `check_subset(&declared, &invoker)`;
+  `CapCheckError::MissingCapabilities { missing: Vec<String> }`.
+- Extends `PdsHeader` with `check_against(invoker)` convenience.
+- Missing caps preserved in declaration order for LSP diagnostic anchoring.
+- Byte-exact case-sensitive match (case-normalization deferred to R227.M4+).
+- 12-test corpus (`r227m2-cap-01`..`r227m2-cap-12`) + 1 integration test running
+  `parse_header` → `check_against` end-to-end for both pass and fail paths.
+
+Closes paideia-as#1446 (R226.M11). Closes paideia-as#1447 (R227.M2).
+
 ## 0.36.19 — 2026-09-24 — R226.M8 session EDB + R227.M1 .pds header parser
 
 **R226.M8** — Session-local EDB (extensional database) in `paideia-as-shell-datalog`:

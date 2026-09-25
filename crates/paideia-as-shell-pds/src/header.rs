@@ -6,6 +6,8 @@
 
 use std::fmt;
 
+use crate::cap_check::{self, CapCheckError, CapabilitySet};
+
 /// Semantic version parsed from `#requires-paideia >= X.Y.Z`.
 ///
 /// Three `u32` components; the M1 parser does not attempt any
@@ -69,6 +71,24 @@ pub struct PdsHeader {
     /// Byte offset in the original source where the body starts. The
     /// body is `src[body_offset ..]`.
     pub body_offset: usize,
+}
+
+impl PdsHeader {
+    /// Check this header's declared capabilities against an invoker
+    /// [`CapabilitySet`] using R227.M2's subset rule.
+    ///
+    /// Thin forwarder to [`cap_check::check_subset`] — kept as a
+    /// method on `PdsHeader` so the load-time call site reads as
+    /// `header.check_against(&invoker)?;` without a second `use`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapCheckError::MissingCapabilities`] when at least
+    /// one declared capability is absent from `invoker`. See
+    /// [`cap_check`] for the exact-name / no-wildcard semantics.
+    pub fn check_against(&self, invoker: &CapabilitySet) -> Result<(), CapCheckError> {
+        cap_check::check_subset(&self.capabilities, invoker)
+    }
 }
 
 /// Discriminated failure modes for [`parse_header`].
