@@ -481,8 +481,17 @@ fn execute_cmd_node(
         None => return TurnResult::Error("cmd: non-name head".into()),
     };
     let argv: Vec<String> = args.iter().map(arg_to_string).collect();
+    // R229.M8: `execute_cmd` now returns `Result<Value, CmdError>` — a
+    // typed payload from the dispatcher. Render through the shared
+    // [`render_value`] surface so an `Int`-typed return (`count`) and
+    // a `Str`-typed return (`echo`, generic tag) project onto the same
+    // one-line-of-user-output convention every other executor arm
+    // uses. The generic `Value::Str("cmd: <name> ok (K args)")` path
+    // reduces to the same rendered tag the M3–M7 shape produced, so
+    // pre-M8 fixture pins on `starts_with("cmd: ls ok")` stay green
+    // without a fixture touch.
     match cmd_dispatch::execute_cmd(&state.cmd_registry, &cmd_name, &argv) {
-        Ok(rendered) => TurnResult::Value(rendered),
+        Ok(v) => TurnResult::Value(render_value(&v)),
         Err(err) => TurnResult::Error(format!("cmd: {err}")),
     }
 }
@@ -714,11 +723,19 @@ pub fn eval_let_binding(
 /// Render a [`Value`] for user-visible output.
 ///
 /// Centralised so the [`SyntaxNode::Lambda`] executor arm, the
-/// [`SyntaxNode::Let`] executor arm, and [`eval_let_binding`] all
-/// project a value onto the same string surface — a future addition
-/// of, say, a hex-int renderer or a truncated-closure form has one
-/// place to touch.
-fn render_value(v: &Value) -> String {
+/// [`SyntaxNode::Let`] executor arm, [`eval_let_binding`], the
+/// [`SyntaxNode::Cmd`] arm (R229.M8's typed dispatcher return), and
+/// [`crate::pipeline::execute_pipeline`] (deriving `stage_outputs`
+/// from the typed `stage_values`) all project a value onto the same
+/// string surface — a future addition of, say, a hex-int renderer or a
+/// truncated-closure form has one place to touch.
+///
+/// Exposed `pub(crate)` in R229.M8 so the pipeline runner (a sibling
+/// module) can derive its `stage_outputs: Vec<String>` from the typed
+/// `stage_values` without duplicating the match — the alternative
+/// (duplicating five arms into pipeline.rs) creates a drift risk that
+/// a future variant addition would silently violate.
+pub(crate) fn render_value(v: &Value) -> String {
     match v {
         Value::Int(n) => format!("{n}"),
         Value::Str(s) => s.clone(),

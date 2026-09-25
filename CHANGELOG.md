@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.36.35 — 2026-09-25 — R229.M8 typed command Values + R228.M4 recency-aware ranking
+
+**R229.M8** — Migrate `execute_cmd` from String to typed Value return:
+
+- **cmd_dispatch.rs**:
+  - `execute_cmd` return: `Result<String, CmdError>` → `Result<Value, CmdError>`.
+  - Demonstrator commands: `count` → `Value::Int(args.len())`; `echo` →
+    `Value::Str(args.join(" "))`; all others → generic `Value::Str("cmd: NAME ok (K args)")`.
+  - Argparse still runs first; special-case is a payload choice, not a sig bypass.
+- **pipeline.rs** — dispatch loop takes typed Value from execute_cmd
+  directly, derives `rendered = render_value(&v)`, pushes both into
+  parallel `stage_values`/`stage_outputs` vectors. The M7
+  `Value::Str(rendered)` lift is retired.
+- **turn.rs** — `render_value` promoted `fn` → `pub(crate) fn` so
+  pipeline.rs reuses the same match (avoids drift on future Value
+  variants). `execute_cmd_node` Ok arm renders via `render_value`.
+- 8-test corpus `r229m8-cmd-01`..`r229m8-cmd-08` (82 shell-repl total).
+- No prior-test impact — no test called `execute_cmd` directly; M3/M4/M7
+  fixtures use non-demonstrator names so generic path renders identically.
+
+**R228.M4** — Recency-aware completion ranking:
+
+- **New module** `src/history.rs` — `UsageHistory { entries: VecDeque, capacity }`:
+  - `record(text)` — remove existing dup, push to front, trim to capacity.
+  - `recency_boost(text)` — returns `2000 - position * 100` if found
+    (position 0 = most recent → 2000), else 0. Unclamped so positions
+    ≥21 produce non-positive values (aged-out taper preserves monotonic
+    tie-break).
+  - `Default::default() = new(64)`.
+- **CompletionEngine** gained `pub history: UsageHistory` field, initialised
+  via `Default` in `empty()` and `with_lists()`. New builder
+  `with_history_capacity(cap)`.
+- **complete()** — all four candidate helpers (Command/Var/Field/Keyword)
+  now compose `score = base_score + engine.history.recency_boost(text)`.
+- Free-fn `record_selection(&mut engine, text)` delegates to
+  `history.record`; mirrors `complete(&engine, &req)` free-fn shape.
+- 8-test corpus `r228m4-cmp-01`..`r228m4-cmp-08` (32 shell-completion total).
+- No prior-test impact — M1/M2/M3 use `empty()`/`with_lists()` builders;
+  empty history contributes recency_boost=0.
+
+SYSTEM_VERSION const bumped 0.36.34 → 0.36.35.
+
+Closes paideia-as#1473. Closes paideia-as#1474.
+
 ## 0.36.34 — 2026-09-25 — R229.M7 typed pipeline Value threading + R228.M3 completion ranking
 
 **R229.M7** — Extend R229.M4's pipe stage-to-stage String hand-off with

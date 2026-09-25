@@ -46,9 +46,10 @@
 //! * M2 — Candidate enrichment (`type_hint` for commands) plus 1-level
 //!   Field completion off a `Record.<cursor>` shape. Nested lookup
 //!   (`foo.bar.<cursor>`) is deferred to M3+.
-//! * M3 — ranking (prefix > substring > subsequence; case-fold; recency)
-//!   plus argument-position completion (path expansion, flag hints).
-//! * M4 — nested field-name completion off a schema-typed record cursor.
+//! * M3 — four-tier ranker (exact prefix > case-insensitive prefix >
+//!   subsequence) with `(score desc, text asc)` total order.
+//! * M4 — recency-aware ranking + usage-history buffer (see
+//!   [`history::UsageHistory`] and [`record_selection`]).
 //! * M5 — async / streaming candidate providers.
 
 #![warn(missing_docs)]
@@ -59,7 +60,10 @@ use std::collections::HashMap;
 use paideia_as_shell_lex::{Context, Lexer, Span, Token, TokenKind};
 use paideia_as_unicode::nfc_normalize;
 
+pub mod history;
 pub mod matching;
+
+use history::UsageHistory;
 use matching::score_match;
 
 // R228.M4 will consume `paideia_as_shell_ast::SyntaxNode` to resolve
@@ -211,6 +215,16 @@ pub struct CompletionEngine {
     /// record with its own fields) is deferred to R228.M4, which
     /// will introduce an AST-driven resolver on top of this map.
     pub records: HashMap<String, Vec<String>>,
+    /// MRU buffer of previously-selected completion texts. Consulted
+    /// by every candidate-emitting helper via
+    /// [`UsageHistory::recency_boost`] so a repeat selection floats
+    /// its candidate above equal-scored but unseen alternatives.
+    /// Seeded empty by [`Self::empty`] / [`Self::with_lists`] at the
+    /// default capacity; a caller may swap in a different-cap buffer
+    /// via [`Self::with_history_capacity`]. Mutated externally through
+    /// [`record_selection`] rather than a `mut` reference on `complete`
+    /// so the ranker stays a pure `&engine, &req -> response` function.
+    pub history: UsageHistory,
 }
 
 impl CompletionEngine {
@@ -223,6 +237,7 @@ impl CompletionEngine {
             known_vars: Vec::new(),
             commands_with_types: HashMap::new(),
             records: HashMap::new(),
+            history: UsageHistory::default(),
         }
     }
 
@@ -237,6 +252,7 @@ impl CompletionEngine {
             known_vars,
             commands_with_types: HashMap::new(),
             records: HashMap::new(),
+            history: UsageHistory::default(),
         }
     }
 
@@ -256,6 +272,30 @@ impl CompletionEngine {
         self.records = records;
         self
     }
+
+    /// Swap the MRU history buffer for one of the given capacity.
+    /// Discards any prior recorded selections — the R229 REPL boot
+    /// path chooses the cap before recording anything, so a
+    /// preserve-and-resize primitive would be an unused surface.
+    /// Kept separate from [`Self::empty`] / [`Self::with_lists`] so
+    /// the default construction stays a nullary call.
+    pub fn with_history_capacity(mut self, cap: usize) -> Self {
+        self.history = UsageHistory::new(cap);
+        self
+    }
+}
+
+/// Record a completion selection into the engine's MRU history buffer.
+///
+/// Exposed as a free function (rather than a `&mut self` method on
+/// `CompletionEngine`) so the caller pattern mirrors [`complete`] —
+/// the R229 REPL wire-up passes `&mut engine` on selection and
+/// `&engine` on every keystroke, and having both entry points as
+/// crate-level fns keeps the API surface uniform. Delegates to
+/// [`UsageHistory::record`] for MRU semantics (dup-remove-then-push-
+/// front, then trim to capacity).
+pub fn record_selection(engine: &mut CompletionEngine, text: &str) {
+    engine.history.record(text.to_string());
 }
 
 /// Datalog reserved-word catalogue. Kept as a module-level constant so
@@ -300,7 +340,9 @@ const DATALOG_KEYWORDS: &[&str] = &["not", "?", "$"];
 ///
 /// R228.M3 landed the four-tier ranker (exact prefix > case-insensitive
 /// prefix > subsequence, tie-broken by candidate length then alphabetic
-/// text). Recency weighting is R228.M4+.
+/// text). R228.M4 layers a recency boost on top of the tier score via
+/// [`history::UsageHistory::recency_boost`]; the sort order at the
+/// response boundary remains `(score desc, text asc)`.
 pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> CompletionResponse {
     // ---- 1. Slice + normalize the pre-cursor prefix. ----------------
     // Defensive clamp: an out-of-range cursor or one that lands off a
@@ -392,7 +434,7 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
                     response(cands, tok.span)
                 }
                 (TokenKind::Ident(name), Context::Datalog) => {
-                    let cands = keyword_candidates(name);
+                    let cands = keyword_candidates(engine, name);
                     response(cands, tok.span)
                 }
                 _ => empty_at(cursor),
@@ -428,12 +470,16 @@ fn command_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate>
         .commands
         .iter()
         .filter_map(|c| {
-            score_match(prefix, c).map(|score| Candidate {
+            score_match(prefix, c).map(|base_score| Candidate {
                 text: c.clone(),
                 kind: CandidateKind::Command,
                 display: None,
                 type_hint: engine.commands_with_types.get(c).cloned(),
-                score,
+                // R228.M4 -- recency boost layered on top of the M3
+                // tier score. See `history::UsageHistory::recency_boost`
+                // for the formula; 0 for entries not in the buffer, so
+                // an empty history leaves M3 ordering untouched.
+                score: base_score + engine.history.recency_boost(c),
             })
         })
         .collect();
@@ -449,12 +495,12 @@ fn var_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
         .known_vars
         .iter()
         .filter_map(|v| {
-            score_match(prefix, v).map(|score| Candidate {
+            score_match(prefix, v).map(|base_score| Candidate {
                 text: v.clone(),
                 kind: CandidateKind::Var,
                 display: None,
                 type_hint: None,
-                score,
+                score: base_score + engine.history.recency_boost(v),
             })
         })
         .collect();
@@ -464,16 +510,16 @@ fn var_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
 
 /// Score-filter [`DATALOG_KEYWORDS`] via [`score_match`] and wrap each
 /// hit as a `Keyword` candidate.
-fn keyword_candidates(prefix: &str) -> Vec<Candidate> {
+fn keyword_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = DATALOG_KEYWORDS
         .iter()
         .filter_map(|kw| {
-            score_match(prefix, kw).map(|score| Candidate {
+            score_match(prefix, kw).map(|base_score| Candidate {
                 text: (*kw).to_owned(),
                 kind: CandidateKind::Keyword,
                 display: None,
                 type_hint: None,
-                score,
+                score: base_score + engine.history.recency_boost(kw),
             })
         })
         .collect();
@@ -492,12 +538,12 @@ fn field_candidates(engine: &CompletionEngine, rec_name: &str, prefix: &str) -> 
     let mut out: Vec<Candidate> = fields
         .iter()
         .filter_map(|f| {
-            score_match(prefix, f).map(|score| Candidate {
+            score_match(prefix, f).map(|base_score| Candidate {
                 text: f.clone(),
                 kind: CandidateKind::Field,
                 display: None,
                 type_hint: None,
-                score,
+                score: base_score + engine.history.recency_boost(f),
             })
         })
         .collect();

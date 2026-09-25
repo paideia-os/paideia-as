@@ -62,6 +62,8 @@ use std::fmt;
 
 use paideia_as_shell_cmd::{parse_argv, ArgParseError, CommandSig};
 
+use crate::lambda_eval::Value;
+
 /// Name-keyed registry of already-instantiated [`CommandSig`] handles.
 ///
 /// A driver (interactive REPL, `.pds` runner, R229.M7 replay harness)
@@ -190,49 +192,99 @@ impl fmt::Display for CmdError {
 impl Error for CmdError {}
 
 /// Look up `name` in `reg`, typecheck `args` against the sig's
-/// positional arg specs, and return a rendered success tag.
+/// positional arg specs, and return the typed [`Value`] the command
+/// produced.
 ///
-/// # Milestone stub
+/// # Return shape (R229.M8)
 ///
-/// M3 returns `format!("cmd: {name} ok ({n} args)")` on the happy path.
-/// Real invocation (assembling an [`InvocationCtx`](paideia_as_shell_cmd::InvocationCtx),
-/// calling `sig.execute(&ctx)`, rendering the resulting scalar) is
-/// R229.M4/M5's landing — see the module doc for why deferring is a
-/// UX win, not just a scoping convenience.
+/// M3–M7 returned `Result<String, CmdError>` — a rendered success tag
+/// like `cmd: <name> ok (K args)`, which the pipeline runner lifted
+/// into a `Value::Str` at the stage boundary. R229.M8 lifts that lift
+/// *into* the dispatcher: `execute_cmd` now returns a typed
+/// [`Value`] directly, and the pipeline runner threads the value
+/// through unchanged. The stage-boundary `Value::Str(rendered)` wrap
+/// disappears — a command that wants to emit an `Int` (or a `Bool`,
+/// or a closure) no longer has to round-trip through a rendered
+/// string.
+///
+/// # Milestone-stub demonstrator commands
+///
+/// M8 does not yet grow [`CommandSig::execute`] itself to return a
+/// [`Value`] (that is a follow-on that also has to teach the
+/// `InvocationCtx` / `ExecuteResult` shape about `Value`). Instead,
+/// M8 special-cases *two* command names inside this dispatcher — a
+/// deliberately small demonstrator surface that proves the typed
+/// return path end-to-end without touching `paideia-as-shell-cmd`:
+///
+/// * `count` — returns `Value::Int(args.len() as i64)`. Pinned by
+///   the `r229m8-cmd-*` corpus as the "int-typed return" fixture and
+///   used downstream in pipeline tests to prove a typed `Value::Int`
+///   projects back into an argv token on the next stage's input.
+/// * `echo` — returns `Value::Str(args.join(" "))`. The "user
+///   content" fixture: proves the dispatcher can carry an argv-
+///   derived payload without smuggling it through the M3–M7 render
+///   tag.
+///
+/// Every other registered command falls through to the M3 render
+/// (`format!("cmd: {name} ok ({K} args)")`) wrapped as `Value::Str`
+/// — the M4/M7 corpora that use `a`, `b`, `c`, `d`, `ls`, `wc` see
+/// the same string payload they saw pre-M8. The special-case is
+/// keyed on `name`, not on `CommandSig` fields, so a fixture can
+/// register `count` under any valid sig — the demonstrator overrides
+/// the generic tag but the argparse pre-check (below) still runs.
 ///
 /// # Argparse coupling
 ///
-/// The M3 stub *does* run [`paideia_as_shell_cmd::parse_argv`] over
-/// `args` so a user typing `head foo` sees the `Int`-expected error the
-/// same way the R222.M4 tests do. If the sig has no positional
-/// arguments (M3 test fixtures often use this shape), `parse_argv`
-/// accepts an empty argv and immediately returns; the wrapper still
-/// reports `ok (0 args)`.
+/// The dispatcher runs [`paideia_as_shell_cmd::parse_argv`] over
+/// `args` before choosing a return shape, so a user typing `head foo`
+/// still sees the `Int`-expected error the same way the R222.M4
+/// tests do. If argparse fails, the special-case for `count` / `echo`
+/// is *not* consulted — the `ArgParseFailed` error surfaces first,
+/// matching the M3 contract.
 ///
 /// # Flag handling
 ///
 /// Flags are NOT parsed here. The `Cmd` node's `args` field is a flat
-/// `Vec<SyntaxNode>` and the R229.M3 executor does not (yet)
-/// distinguish `--flag=value` from a positional argument. Splitting
-/// argv into positional-vs-flag lists is R229.M4's landing (it needs
-/// the same split for `Pipe` stage input threading); M3 treats every
-/// argv token as positional and lets `parse_argv` report the shape
-/// mismatch when a `--flag`-shaped token lands on an `ArgSpec` slot.
+/// `Vec<SyntaxNode>` and the executor does not (yet) distinguish
+/// `--flag=value` from a positional argument. Splitting argv into
+/// positional-vs-flag lists is a follow-on milestone; today every
+/// argv token is treated as positional and `parse_argv` reports the
+/// shape mismatch when a `--flag`-shaped token lands on an `ArgSpec`
+/// slot.
 pub fn execute_cmd(
     reg: &CmdDispatchRegistry,
     name: &str,
     args: &[String],
-) -> Result<String, CmdError> {
+) -> Result<Value, CmdError> {
     let sig = reg
         .lookup(name)
         .ok_or_else(|| CmdError::UnknownCommand(name.to_owned()))?;
 
     // Argv typecheck — R222.M4. `parse_argv` handles an empty argv
     // against an empty spec vector by returning `Ok(vec![])`, so the
-    // common "sig has no args" case flows through unchanged.
+    // common "sig has no args" case flows through unchanged. The
+    // typecheck runs *before* the M8 demonstrator special-case so a
+    // sig-argv shape mismatch surfaces with its own error even when
+    // the name is `count` / `echo` — the special-case is a payload
+    // choice, not a bypass of the sig contract.
     let owned: Vec<String> = args.to_vec();
     match parse_argv(&sig.arguments, &owned) {
-        Ok(_values) => Ok(format!("cmd: {name} ok ({} args)", args.len())),
+        Ok(_values) => Ok(match name {
+            // M8 demonstrator: int-typed return payload. Keyed on
+            // name so a fixture registered under `nullary_sig("count")`
+            // still gets `Value::Int(args.len())` — the argparse
+            // above already accepted the argv shape against whatever
+            // sig the driver chose.
+            "count" => Value::Int(args.len() as i64),
+            // M8 demonstrator: user-content string payload. Argv
+            // tokens joined by a single ASCII space; empty argv
+            // produces an empty string.
+            "echo" => Value::Str(args.join(" ")),
+            // Generic path — same rendered tag M3 introduced, now
+            // wrapped as a `Value::Str` so the runner can treat every
+            // return uniformly.
+            _ => Value::Str(format!("cmd: {name} ok ({} args)", args.len())),
+        }),
         Err(e) => Err(CmdError::ArgParseFailed(argparse_display(&e))),
     }
 }

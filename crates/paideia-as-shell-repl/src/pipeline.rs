@@ -73,7 +73,7 @@ use paideia_as_shell_ast::SyntaxNode;
 
 use crate::cmd_dispatch::{self, CmdError};
 use crate::lambda_eval::Value;
-use crate::turn::{arg_to_string, cmd_head_name, ReplState};
+use crate::turn::{arg_to_string, cmd_head_name, render_value, ReplState};
 
 /// Outcome of one pipeline execution.
 ///
@@ -107,15 +107,28 @@ pub struct PipelineResult {
     /// order. See the type doc for the length/halt invariant.
     pub stage_outputs: Vec<String>,
     /// Typed [`Value`] each stage produced, in stage order, parallel to
-    /// [`Self::stage_outputs`]. Under R229.M7 every entry is a
-    /// [`Value::Str`] wrapping the stage's rendered string — commands
-    /// still return a rendered `String` from `execute_cmd` and the
-    /// pipeline runner lifts each into `Value::Str` before threading it
-    /// onward. A follow-on milestone that grows `CommandSig::execute` to
-    /// return a typed [`Value`] directly will fill in `Value::Int`,
-    /// `Value::Bool`, `Value::Fn`, and `Value::Unit` entries without
-    /// touching the runner shape — the caller in `turn.rs` already
-    /// renders through [`crate::lambda_eval::Value`]'s renderer.
+    /// [`Self::stage_outputs`].
+    ///
+    /// R229.M7 introduced this field as a `Value::Str`-only carrier
+    /// (the runner lifted every `execute_cmd` string return into
+    /// `Value::Str(rendered)`). R229.M8 lifted that lift *into* the
+    /// dispatcher: [`crate::cmd_dispatch::execute_cmd`] now returns a
+    /// typed [`Value`] directly, and the runner threads it in
+    /// unchanged. The `stage_outputs` entry is derived by projecting
+    /// the `Value` back through [`crate::turn::render_value`], so the
+    /// two vectors are still parallel — the parallel `String` is now
+    /// a *rendering* of the parallel `Value`, not a value the
+    /// dispatcher emitted separately.
+    ///
+    /// Under M8 the M3 demonstrator surface produces:
+    /// * `count` → `Value::Int(args.len() as i64)`
+    /// * `echo` → `Value::Str(args.join(" "))`
+    /// * anything else → `Value::Str("cmd: <name> ok (K args)")`
+    ///
+    /// A follow-on milestone that grows `CommandSig::execute` itself
+    /// to return a typed [`Value`] will drop the demonstrator special-
+    /// case in `cmd_dispatch::execute_cmd` without touching this field
+    /// or the runner shape.
     ///
     /// Invariant: `stage_values.len() == stage_outputs.len()` — both
     /// grow lockstep, and on a mid-pipeline halt at stage `i` both are
@@ -162,25 +175,30 @@ pub struct PipelineResult {
 /// nullary-sig stage at index 0 receives a zero-length argv and
 /// dispatches through the M3 happy path unchanged.
 ///
-/// R229.M7 upgrades the *threaded quantity* from a bare `String` to a
-/// typed [`Value`] (see [`PipelineResult::stage_values`]). Under M7
-/// every `execute_cmd` return is lifted into `Value::Str(rendered)`
-/// before it is threaded onward — the on-wire argv shape stays a
-/// `Vec<String>` (the M3 dispatcher key), so a non-`Str` `Value` is
-/// projected back into a string via [`value_to_arg_string`] at the
-/// stage boundary. A follow-on milestone that grows commands to
-/// return typed values directly replaces the `Value::Str(rendered)`
-/// lift and gets typed cross-stage threading for free.
+/// R229.M7 upgraded the *threaded quantity* from a bare `String` to a
+/// typed [`Value`] (see [`PipelineResult::stage_values`]); the runner
+/// lifted every `execute_cmd` string return into `Value::Str(rendered)`
+/// at the stage boundary. R229.M8 pushes that lift into the dispatcher:
+/// [`crate::cmd_dispatch::execute_cmd`] now returns a typed [`Value`]
+/// directly, so the runner threads it in unchanged. The on-wire argv
+/// shape stays a `Vec<String>` (the M3 dispatcher key), so a non-`Str`
+/// `Value` is projected back into a string via [`value_to_arg_string`]
+/// at the stage boundary — a typed `Value::Int(3)` from a `count` stage
+/// projects to `"3"` for the next stage's argv. `stage_outputs` is
+/// derived from `stage_values` via [`render_value`] so the two vectors
+/// stay parallel by construction.
 pub fn execute_pipeline(
     state: &ReplState,
     stages: &[&SyntaxNode],
 ) -> Result<PipelineResult, CmdError> {
     let mut result = PipelineResult::default();
     // `prior_value` carries the *typed* handoff between stages. Under
-    // M7 every `execute_cmd` return lifts to `Value::Str(rendered)`, so
-    // this is effectively a `Value::Str` at every stage boundary; the
-    // typed carrier is what lets a future milestone thread `Value::Int`
-    // / `Value::Bool` / `Value::Fn` without touching the loop shape.
+    // R229.M8 `execute_cmd` returns a `Value` directly (the M7
+    // `Value::Str(rendered)` lift moved into the dispatcher), so this
+    // carries whatever the previous stage produced — `Value::Int` for a
+    // `count` stage, `Value::Str` for `echo` or the generic tag. The
+    // typed carrier is what lets a follow-on milestone thread
+    // `Value::Bool` / `Value::Fn` without touching the loop shape.
     // `None` at stage 0 means "no prior stage exists"; the argv
     // prepend skip is keyed on `i >= 1`, not on `prior_value.is_some()`.
     let mut prior_value: Option<Value> = None;
@@ -233,14 +251,20 @@ pub fn execute_pipeline(
         // 3) Dispatch. On execute_cmd failure, capture the halt
         // metadata into the PipelineResult and return `Ok` with the
         // partial state — see the module doc's "Execution halt" for
-        // rationale. On success, lift the rendered string into
-        // `Value::Str` and thread it forward — M7's baseline is
-        // "every stage produces a `Value::Str`"; a follow-on
-        // milestone that has commands returning typed values swaps
-        // this lift for the real return value.
+        // rationale. On success, R229.M8's typed dispatcher already
+        // returns a [`Value`] — the runner threads it directly and
+        // derives `stage_outputs`'s string projection via the shared
+        // [`render_value`] surface. The M7 `Value::Str(rendered)`
+        // lift disappears: a `count`-registered stage now pushes a
+        // real `Value::Int(_)` into `stage_values`, and its
+        // `stage_outputs` entry is `render_value(&Value::Int(_))`
+        // (the decimal string). Generic commands still land as
+        // `Value::Str("cmd: <name> ok (K args)")`, so the M4/M7
+        // `stage_outputs[i].starts_with("cmd: <name> ok")` pins
+        // remain green by construction.
         match cmd_dispatch::execute_cmd(&state.cmd_registry, &cmd_name, &argv) {
-            Ok(rendered) => {
-                let v = Value::Str(rendered.clone());
+            Ok(v) => {
+                let rendered = render_value(&v);
                 result.stage_outputs.push(rendered.clone());
                 result.stage_values.push(v.clone());
                 result.final_value = rendered;
