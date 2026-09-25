@@ -48,7 +48,11 @@ fn r228m1_cmp_02_two_commands_share_prefix() {
 }
 
 // r228m1-cmp-03 -- cursor past a completed command name, sitting on
-// whitespace. M1 does not do argument completion, so no candidates.
+// whitespace. R228.M8 upgraded the M1-era empty response to a single
+// Argument-kind placeholder describing the slot the cursor is typing
+// into (`<ls arg #0>`); the fixture is retained under the same
+// fingerprint so a git-log grep still lands on the argument-position
+// crossover regression case.
 #[test]
 fn r228m1_cmp_03_argument_position_empty_at_m1() {
     let engine = CompletionEngine::with_lists(
@@ -60,11 +64,14 @@ fn r228m1_cmp_03_argument_position_empty_at_m1() {
         cursor_byte: 3,
     };
     let resp = complete(&engine, &req);
-    assert!(
-        resp.candidates.is_empty(),
-        "M1 does not offer argument-position completions; got {:?}",
+    assert_eq!(
+        resp.candidates.len(),
+        1,
+        "M8 argument-fallback emits one placeholder; got {:?}",
         resp.candidates
     );
+    assert_eq!(resp.candidates[0].kind, CandidateKind::Argument);
+    assert_eq!(resp.candidates[0].text, "<ls arg #0>");
     // Insertion span at the cursor.
     assert_eq!(resp.prefix_start, 3);
     assert_eq!(resp.prefix_end, 3);

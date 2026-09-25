@@ -82,6 +82,7 @@ pub mod effect_row;
 pub mod expr;
 pub mod hover;
 pub mod infer;
+pub mod property;
 pub mod subst;
 pub mod ty;
 pub mod typed_value;
@@ -95,6 +96,10 @@ pub use expr::{app, field, i, lam, let_, record, s, v, Expr, Lit};
 pub use hover::{hover_at, render_hover, HoverEntry, TypeCache};
 pub use infer::{
     generalize, infer, instantiate, FreshVarGen, InferError, TypeEnv,
+};
+pub use property::{
+    check_generalize_instantiate_roundtrip, check_infer_terminates, check_unify_symmetric,
+    random_expr, random_mono,
 };
 pub use subst::Substitution;
 pub use ty::{MonoType, RowType, TypeScheme, TypeVar};

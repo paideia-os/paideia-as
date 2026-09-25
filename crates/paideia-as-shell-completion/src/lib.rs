@@ -400,6 +400,119 @@ pub fn record_selection(engine: &mut CompletionEngine, text: &str) {
 /// Datalog surface grows.
 const DATALOG_KEYWORDS: &[&str] = &["not", "?", "$"];
 
+/// R228.M8 -- structural description of the cursor's argument position
+/// within a pipeline stage. Returned by [`arg_position_at`] and used by
+/// [`complete`]'s argument-position fallback to emit an
+/// [`CandidateKind::Argument`] placeholder for the R229 REPL / LSP to
+/// route to per-command hint providers. `arg_index == 0` names the
+/// first argument slot after the command (the token immediately
+/// following whitespace).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArgPosition {
+    /// Command name that owns the argument slot -- the first `Ident` at
+    /// command position within the pipeline stage the cursor sits in.
+    pub command: String,
+    /// Zero-based index of the argument slot the cursor is typing into.
+    /// Counts prior `Ident` and `Str` tokens between the command and
+    /// the cursor. A cursor on trailing whitespace immediately after
+    /// the command yields `arg_index: 0`.
+    pub arg_index: usize,
+}
+
+/// R228.M8 -- classify the cursor's argument position.
+///
+/// Tokenizes `source[..cursor]`, walks back to the start of the current
+/// pipeline stage (either buffer start or the token immediately after
+/// the last [`TokenKind::Pipe`] / [`TokenKind::Semi`] /
+/// [`TokenKind::Newline`]), and finds the first [`TokenKind::Ident`] --
+/// the command. Then counts subsequent `Ident` / `Str` tokens whose
+/// span ends strictly before the cursor, giving the zero-based slot the
+/// cursor is typing into.
+///
+/// Returns `None` when:
+///
+/// * `source` is empty, or
+/// * no command `Ident` is present in the current pipeline stage, or
+/// * the command `Ident` itself is the token straddling the cursor
+///   (`cursor <= cmd_span.end` — the user is still typing the command
+///   name, so this is command position, not argument position).
+///
+/// A cursor sitting mid-argument (`"ls foo|"` — `|` denotes cursor at
+/// byte 6) returns `Some { arg_index: 1 }`: the completed arguments
+/// before the current one are counted, and the current one is not.
+/// Similarly `"ls foo bar |"` (cursor 12, past the trailing space)
+/// returns `arg_index: 2`.
+pub fn arg_position_at(source: &str, cursor: usize) -> Option<ArgPosition> {
+    if source.is_empty() {
+        return None;
+    }
+    let cursor = cursor.min(source.len());
+    if !source.is_char_boundary(cursor) {
+        return None;
+    }
+    let prefix = nfc_normalize(&source[..cursor]);
+    let cursor = prefix.len();
+    let tokens: Vec<Token> = Lexer::new(&prefix).filter_map(Result::ok).collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    // Start of current pipeline stage: index just after the last
+    // Pipe / Semi / Newline (or 0 if none present).
+    let stage_start = tokens
+        .iter()
+        .rposition(|t| {
+            matches!(
+                t.kind,
+                TokenKind::Pipe | TokenKind::Semi | TokenKind::Newline
+            )
+        })
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    // First Ident at (or after) stage_start is the command.
+    let (cmd_idx, cmd_name) = tokens[stage_start..]
+        .iter()
+        .enumerate()
+        .find_map(|(off, t)| match &t.kind {
+            TokenKind::Ident(n) => Some((stage_start + off, n.clone())),
+            _ => None,
+        })?;
+    // Still typing the command name (no whitespace after it yet).
+    if cursor <= tokens[cmd_idx].span.end {
+        return None;
+    }
+    // Count subsequent Ident/Str tokens whose span ends before the
+    // cursor. A token whose span.end == cursor is the argument the
+    // user is currently typing and is NOT counted.
+    let arg_index = tokens[cmd_idx + 1..]
+        .iter()
+        .filter(|t| {
+            matches!(t.kind, TokenKind::Ident(_) | TokenKind::Str(_))
+                && t.span.end < cursor
+        })
+        .count();
+    Some(ArgPosition {
+        command: cmd_name,
+        arg_index,
+    })
+}
+
+/// R228.M8 -- build a single [`CandidateKind::Argument`] placeholder
+/// candidate for the cursor's argument position. The M8 baseline emits
+/// the `<command> arg #<index>` label; R228.M9 layers per-arg-position
+/// type inference on top and replaces the placeholder with typed
+/// candidates.
+fn argument_placeholder(pos: &ArgPosition) -> Candidate {
+    let label = format!("<{} arg #{}>", pos.command, pos.arg_index);
+    Candidate {
+        text: label,
+        kind: CandidateKind::Argument,
+        display: None,
+        type_hint: None,
+        score: 0,
+        snippet: None,
+    }
+}
+
 /// The M1 completion entry point.
 ///
 /// # Algorithm
@@ -478,8 +591,8 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
             // "Upcoming context" at M1: if the last non-whitespace
             // token is absent, a `Pipe`, or a `Semi`, the cursor is at
             // command position -- offer commands as an insertion.
-            // Anything else -> empty (M3 will fill argument-position
-            // candidates).
+            // Otherwise (cursor on whitespace past an ident/etc.) fall
+            // through to R228.M8's argument-position fallback.
             let at_cmd_pos = match tokens.last() {
                 None => true,
                 Some(t) => matches!(t.kind, TokenKind::Pipe | TokenKind::Semi),
@@ -492,7 +605,7 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
                     prefix_end: cursor,
                 }
             } else {
-                empty_at(cursor)
+                argument_fallback(&req.source, req.cursor_byte, cursor)
             }
         }
         // ---- 4b. Active token: dispatch on (kind, context). --------
@@ -539,11 +652,11 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
                         let cands = command_candidates(engine, name);
                         response(cands, tok.span)
                     } else {
-                        // Argument position -- M3's job. M1 emits no
-                        // candidates but still names the token's span
-                        // as the overwrite range so a future M3 wire-
-                        // up can slot in without a shape change.
-                        empty_at(cursor)
+                        // Argument position -- R228.M8 emits a
+                        // placeholder Argument candidate via the
+                        // fallback; R228.M9 replaces it with typed
+                        // per-arg-position candidates.
+                        argument_fallback(&req.source, req.cursor_byte, cursor)
                     }
                 }
                 (TokenKind::Ident(name), Context::Lambda) => {
@@ -554,7 +667,7 @@ pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> Completio
                     let cands = keyword_candidates(engine, name);
                     response(cands, tok.span)
                 }
-                _ => empty_at(cursor),
+                _ => argument_fallback(&req.source, req.cursor_byte, cursor),
             }
         }
     }
@@ -1135,5 +1248,23 @@ fn empty_at(cursor: usize) -> CompletionResponse {
         candidates: Vec::new(),
         prefix_start: cursor,
         prefix_end: cursor,
+    }
+}
+
+/// R228.M8 -- fall through to the argument-position placeholder when
+/// no other dispatch branch produced a candidate. Emits one
+/// [`CandidateKind::Argument`] candidate when [`arg_position_at`]
+/// classifies the cursor as being in an argument slot; otherwise
+/// returns [`empty_at`]. The overwrite span is a bare insertion at
+/// `cursor` -- the placeholder is not literal insertion text, so the
+/// R229 REPL replaces (or ignores) it rather than pasting the label.
+fn argument_fallback(source: &str, cursor_byte: usize, cursor: usize) -> CompletionResponse {
+    match arg_position_at(source, cursor_byte) {
+        Some(pos) => CompletionResponse {
+            candidates: vec![argument_placeholder(&pos)],
+            prefix_start: cursor,
+            prefix_end: cursor,
+        },
+        None => empty_at(cursor),
     }
 }

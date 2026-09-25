@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.36.40 — 2026-09-25 — R225.M9 HM property harness + R228.M8 completion arg-position
+
+**R225.M9** — Deterministic property-test harness for the HM inference
+layer (generators + algebraic-law checkers, no external crates):
+
+- **New module** `crates/paideia-as-shell-hm/src/property.rs`:
+  - `random_expr(depth, seed) -> Expr` — LCG-driven (Knuth MMIX 64-bit
+    constants); depth-0 = `Lit`; depth-N picks from `{Lam, App, Let,
+    Var}` by `seed % 4` with distinct LCG-advanced seeds for siblings.
+  - `random_mono(depth, seed) -> MonoType` — depth-0 = `Var`/`Con`;
+    depth-N picks from `{Var, Con, Arrow, Record}` by `seed % 4`.
+  - `check_infer_terminates(&Expr) -> bool` — wraps `infer` in
+    `panic::catch_unwind`; `Ok`/`Err` both count as terminated.
+  - `check_unify_symmetric(&MonoType, &MonoType) -> bool` — both dirs
+    fail, or both succeed with alpha-equivalent refined principal types.
+  - `check_generalize_instantiate_roundtrip(&TypeEnv, &MonoType) -> bool`
+    — advances `FreshVarGen` past every var free in `mono`/`env` to
+    avoid id-collision aliasing, then checks alpha-equivalence.
+  - Alpha-equivalence via `normalize`: canonical first-appearance
+    variable renumbering across Var/Con/Arrow/Record/EffectRow/Typed.
+- **Re-exports** in `src/lib.rs`: `random_expr`, `random_mono`, plus
+  the three `check_*` functions.
+- **9-fixture corpus** `tests/property.rs` (`r225m9-prop-01..09`):
+  determinism, depth-0 termination sweep, depth-3 infer termination,
+  unify symmetry, generalize/instantiate roundtrip, 100-seed
+  termination sweep, depth-0 leaf shape, depth-5 App/Lam
+  non-triviality, and an open-tail-record symmetry regression pin
+  (prop-09; see hardening note below).
+- Pure std, no `proptest`/`quickcheck` dep — matches M1-M8 posture.
+- **Hardening (debugger-driven, in-band)**: `check_unify_symmetric`
+  now uses `unify_with_fresh` with a shared `FreshVarGen` advanced past
+  every var free in `a` or `b`, mirroring
+  `check_generalize_instantiate_roundtrip`. The prior implementation
+  called the bare `unify()` wrapper, which allocates
+  `FreshVarGen::new()` (id 0) per call; on the Rémy `(open, open)`
+  record branch that would mint a row-tail witness aliased to any
+  hand-authored `TypeVar(0)` in the input, silently corrupting
+  downstream applies. Not fixture-breaking on the M9 corpus
+  (`random_mono` only emits closed rows), but the public API is now
+  honest for any caller including future generators that emit open
+  rows. `r225m9-prop-09` locks the fix in.
+
+**R228.M8** — Walk-back-N-tokens argument-position classifier for the
+completion engine:
+
+- **New pub `ArgPosition { command: String, arg_index: usize }`** in
+  `crates/paideia-as-shell-completion/src/lib.rs`.
+- **New pub `arg_position_at(source, cursor) -> Option<ArgPosition>`**:
+  NFC-normalizes and tokenizes `source[..cursor]`; walks back to the
+  start of the current pipeline stage (after the last `Pipe` / `Semi` /
+  `Newline`); finds the first `Ident` at command position; counts
+  subsequent `Ident` / `Str` tokens whose span ends before the cursor.
+  Returns `None` for empty source, no command found, or cursor still
+  inside the command token.
+- **`complete` argument-fallback**: when the None-active `!at_cmd_pos`
+  branch OR an unclaimed token-dispatch arm (Ident+Pipeline+!cmd_pos,
+  or `_` default) would previously return `empty_at`, the engine now
+  consults `arg_position_at` and emits one `CandidateKind::Argument`
+  placeholder labeled `<command> arg #<index>`. Flag / field / path
+  branches still early-return, so a dash-in-progress, `Record.<cursor>`
+  or `/`-anchored shape wins over the fallback.
+- **`argument_placeholder` helper** builds the M8 baseline candidate
+  (`snippet: None`, `type_hint: None`, `score: 0`); R228.M9 will
+  replace the placeholder with per-arg-position typed candidates.
+- **M1 test literal**: `r228m1-cmp-03` retitled and updated — the
+  fixture that asserted the M1-era empty response for `"ls "` cursor 3
+  now asserts the M8 placeholder shape under the same fingerprint.
+- **8-fixture corpus** `tests/completion_m8.rs` (`r228m8-cmp-01..08`):
+  trailing-whitespace slot count, in-command-name None, bare-space
+  slot 0, empty-source None, post-pipe command resolution, multi-stage
+  pipeline, `complete` placeholder emission, flag-branch precedence
+  over the fallback.
+
+SYSTEM_VERSION const bumped 0.36.39 → 0.36.40.
+
+Closes paideia-as#1483. Closes paideia-as#1484.
+
 ## 0.36.39 — 2026-09-25 — R225.M8 LSP hover + R228.M7 completion snippets
 
 **R225.M8** — Hover query surface for LSP integration:
