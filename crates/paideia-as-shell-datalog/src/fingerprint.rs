@@ -1,6 +1,4 @@
 //! R226.M11 — per-query fingerprint emission.
-//! R226.M10 — per-iteration progress emission (see the second half of
-//! this module).
 //!
 //! Every [`crate::eval::Evaluator`] query path that reaches a completed
 //! result (successful `run_query`, `run_query_via_magic_sets`,
@@ -12,17 +10,11 @@
 //! nothing — a fingerprint is proof that a query *completed*, not
 //! merely that it started.
 //!
-//! The R226.M10 progress channel is a **separate** stream on the same
-//! [`crate::eval::Evaluator`]: while a fingerprint is one tag per
-//! *completed* query, a progress tick is one event per *seminaïve
-//! fixpoint iteration* — a stream a REPL can render as a "3 iterations,
-//! Δ=42 tuples, total=1_284" progress line without waiting for the
-//! query to finish. The two sinks are wired independently
-//! ([`crate::eval::Evaluator::with_fingerprint_sink`] and
-//! [`crate::eval::Evaluator::with_progress_sink`]) so a caller can
-//! attach one without the other. Their defaults are both no-ops so
-//! neither M10 nor M11 changes observable behaviour when a caller does
-//! not opt in.
+//! The companion R226.M10 progress channel lives in
+//! [`crate::progress`]: a fingerprint is one tag per *completed* query,
+//! a progress tick is one event per *seminaïve fixpoint iteration*;
+//! two consumers with different rates, wired independently on the same
+//! [`crate::eval::Evaluator`].
 //!
 //! # Why a trait and not a concrete channel
 //!
@@ -178,134 +170,6 @@ impl QueryId {
     }
 }
 
-// ====================================================================
-// R226.M10 — per-iteration progress emission
-// ====================================================================
-//
-// A separate sink from `FingerprintSink` on purpose: progress ticks fire
-// once per fixpoint iteration (a bulk-hot stream a REPL renders as a
-// live counter), while fingerprints fire once per completed query (a
-// low-rate summary the correlator attributes results against). Two
-// consumers, two rates, two lifecycles — sharing one trait would force
-// every progress consumer to filter out the completion tag and vice
-// versa, and any future extension (per-tick timestamps, backpressure,
-// cancel tokens) belongs on one channel without disturbing the other.
-//
-// The evaluator emits ticks from the seminaïve fixpoint loop *after
-// each iteration merges its delta*, so `total_tuples` is the DB size the
-// caller would observe if the loop stopped right there. The iteration
-// counter is 1-based and monotonic within one fixpoint invocation; a
-// multi-stratum program restarts the count per stratum (a stratum's
-// counter reflects the work that stratum did, which is the scalar a
-// caller diagnosing a slow stratum wants). A tick is fired even for the
-// terminating iteration where `delta_tuples == 0`, so the caller always
-// sees at least one tick whenever a stratum has any prior-round tuples
-// to pivot on — including the facts-only case where there are no rules
-// (the seed tick then reads `(1, 0, |facts|)`, i.e. "one iteration
-// added nothing beyond the EDB you already gave me").
-
-/// Ingest point for one seminaïve-fixpoint-iteration progress tick.
-///
-/// Implementations must be `Send + Sync` for the same reason
-/// [`FingerprintSink`] is — the [`crate::eval::Evaluator`] stores the
-/// sink behind a `Box<dyn ProgressSink + Send + Sync>` and is itself
-/// shared across worker threads via an `Arc` in the wider shell.
-///
-/// # Arguments
-///
-/// * `iteration` — 1-based iteration index within the current fixpoint
-///   invocation. Multi-stratum programs restart the count per stratum;
-///   within one stratum the values are strictly monotonic (`1, 2, 3, …`).
-/// * `delta_tuples` — number of *new* tuples the iteration produced
-///   after filtering against the existing DB. Zero on the terminating
-///   iteration (the tick that told the fixpoint to stop).
-/// * `total_tuples` — [`crate::eval::Database::total_tuple_count`] taken
-///   *after* the iteration's delta was merged. The value the caller
-///   would observe if the fixpoint halted at this tick.
-pub trait ProgressSink {
-    /// Consume one progress tick. Must not panic — the evaluator calls
-    /// this on the seminaïve inner loop and cannot afford to unwind
-    /// mid-fixpoint.
-    fn tick(&self, iteration: usize, delta_tuples: usize, total_tuples: usize);
-}
-
-/// Discarding progress sink — the default. Every tick is a no-op.
-///
-/// Kept as the default so pre-M10 call sites see no observable
-/// behaviour change; the M10 emission code path stays uniform (no
-/// `Option<...>` guard in the evaluator's fixpoint loop) at the cost of
-/// one virtual dispatch per iteration, which is a rounding error
-/// against the tuple-derivation work an iteration performs.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NullProgressSink;
-
-impl ProgressSink for NullProgressSink {
-    fn tick(&self, _iteration: usize, _delta_tuples: usize, _total_tuples: usize) {
-        // Deliberate no-op.
-    }
-}
-
-/// Test-only progress sink that accumulates every tick as an
-/// `(iteration, delta_tuples, total_tuples)` triple under a [`Mutex`].
-/// Kept in the crate proper (not behind `#[cfg(test)]`) so downstream
-/// integration tests — which live in `tests/` and cannot see
-/// `#[cfg(test)]`-gated items — can use it.
-#[derive(Debug, Default)]
-pub struct CollectingProgressSink {
-    collected: Mutex<Vec<(usize, usize, usize)>>,
-}
-
-impl CollectingProgressSink {
-    /// Construct an empty sink.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Snapshot every emitted tick in insertion order. Clones the
-    /// underlying buffer — cheap for test corpora.
-    ///
-    /// Recovers from a poisoned mutex by draining the poisoned guard,
-    /// matching the pattern of [`CollectingSink::tags`]: a poisoning
-    /// implies a panicking concurrent emitter, and surfacing the ticks
-    /// collected before the panic is more useful than re-panicking here.
-    pub fn ticks(&self) -> Vec<(usize, usize, usize)> {
-        match self.collected.lock() {
-            Ok(guard) => guard.clone(),
-            Err(poison) => poison.into_inner().clone(),
-        }
-    }
-
-    /// Number of ticks collected so far. Convenience over `ticks().len()`
-    /// that avoids the clone.
-    pub fn len(&self) -> usize {
-        match self.collected.lock() {
-            Ok(guard) => guard.len(),
-            Err(poison) => poison.into_inner().len(),
-        }
-    }
-
-    /// True iff no tick has been emitted.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl ProgressSink for CollectingProgressSink {
-    fn tick(&self, iteration: usize, delta_tuples: usize, total_tuples: usize) {
-        // Mirror `ticks()`'s poisoning recovery — a poisoned guard
-        // means a concurrent panic, but this thread can still record
-        // its tick without contributing a second panic.
-        match self.collected.lock() {
-            Ok(mut guard) => guard.push((iteration, delta_tuples, total_tuples)),
-            Err(poison) => {
-                poison
-                    .into_inner()
-                    .push((iteration, delta_tuples, total_tuples))
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,37 +214,5 @@ mod tests {
         assert_eq!(tag, "dlg.00000000000000ff.42");
         let tag = QueryId(u64::MAX).format_tag(0);
         assert_eq!(tag, "dlg.ffffffffffffffff.0");
-    }
-
-    // -- R226.M10 -----------------------------------------------------
-
-    #[test]
-    fn null_progress_sink_swallows_tick() {
-        let sink = NullProgressSink;
-        sink.tick(1, 42, 100);
-        // Stateless by contract; the absence of a panic is the entire
-        // assertion.
-    }
-
-    #[test]
-    fn collecting_progress_sink_records_in_order() {
-        let sink = CollectingProgressSink::new();
-        sink.tick(1, 3, 3);
-        sink.tick(2, 5, 8);
-        sink.tick(3, 0, 8);
-        assert_eq!(
-            sink.ticks(),
-            vec![(1, 3, 3), (2, 5, 8), (3, 0, 8)],
-        );
-        assert_eq!(sink.len(), 3);
-        assert!(!sink.is_empty());
-    }
-
-    #[test]
-    fn collecting_progress_sink_starts_empty() {
-        let sink = CollectingProgressSink::new();
-        assert!(sink.is_empty());
-        assert_eq!(sink.len(), 0);
-        assert!(sink.ticks().is_empty());
     }
 }

@@ -80,16 +80,15 @@ pub mod eval;
 pub mod fingerprint;
 pub mod magic_sets;
 pub mod parser;
+pub mod progress;
 pub mod session_edb;
 pub mod stratification;
 
 pub use aggregation::{AggregateResult, AggregationError};
 pub use ast::{Aggregate, AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
 pub use eval::{query, Binding, Database, EvalError, Evaluator};
-pub use fingerprint::{
-    CollectingProgressSink, CollectingSink, FingerprintSink, NullProgressSink, NullSink,
-    ProgressSink, QueryId,
-};
+pub use fingerprint::{CollectingSink, FingerprintSink, NullSink, QueryId};
 pub use parser::{parse_aggregate_query, parse_block, parse_query, ParseError, ParseErrorKind};
+pub use progress::{CollectingProgressSink, NullProgressSink, ProgressSink};
 pub use session_edb::{AssertResult, RetractResult, SessionEdb};
 pub use stratification::{compute_strata, StratificationError};

@@ -53,10 +53,9 @@
 
 use crate::aggregation::{self, AggregateResult, AggregationError};
 use crate::ast::{AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
-use crate::fingerprint::{
-    FingerprintSink, NullProgressSink, NullSink, ProgressSink, QueryId,
-};
+use crate::fingerprint::{FingerprintSink, NullSink, QueryId};
 use crate::magic_sets;
+use crate::progress::{NullProgressSink, ProgressSink};
 use crate::session_edb::SessionEdb;
 use crate::stratification::{self, StratificationError};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -99,7 +98,12 @@ impl Database {
     /// with no negation collapses to a single stratum and evaluates
     /// exactly as the R226.M2 seminaïve loop did.
     pub fn from_program(program: &Program) -> Result<Self, EvalError> {
-        evaluate_stratified(program)
+        // Non-Evaluator entry point — no injected progress sink, so
+        // ticks go to the discarding [`NullProgressSink`]. Callers who
+        // want to observe iteration progress must build an
+        // [`Evaluator`] with [`Evaluator::with_progress_sink`] and run
+        // through its query methods instead.
+        evaluate_stratified(program, &NullProgressSink)
     }
 
     /// Read the ground tuples of a `predicate/arity` relation, if any.
@@ -349,10 +353,10 @@ impl Evaluator {
         query: &Query,
     ) -> Result<Vec<Binding>, EvalError> {
         // R226.M10 — route through the progress-aware pipeline so
-        // per-iteration ticks reach `self.progress_sink`. The base-
-        // arity `Database::from_program` uses a silent sink and is
+        // per-iteration ticks reach `self.progress_sink`. The base
+        // `Database::from_program` uses a silent sink and is
         // unchanged, so non-Evaluator callers keep their behaviour.
-        let db = evaluate_stratified_with_progress(program, self.progress_sink.as_ref())?;
+        let db = evaluate_stratified(program, self.progress_sink.as_ref())?;
         let bindings = crate::eval::query(&db, query)?;
         // R226.M11 — fingerprint the completed query. Id is minted
         // AFTER the fallible work so that a failure to materialise the
@@ -383,7 +387,7 @@ impl Evaluator {
     /// every rule and evaluate exactly as
     /// [`Database::from_program`] does — no observable difference.
     pub fn run_stratified(&self, program: &Program) -> Result<Database, EvalError> {
-        let db = evaluate_stratified(program)?;
+        let db = evaluate_stratified(program, self.progress_sink.as_ref())?;
         // R226.M11 — `run_stratified` returns a materialised database
         // rather than a substitution set, so the scalar summary is the
         // total tuple count across every predicate the fixpoint
@@ -420,7 +424,12 @@ impl Evaluator {
         query: &Query,
     ) -> Result<Vec<Binding>, EvalError> {
         let rewritten = magic_sets::rewrite(program, query);
-        let db = Database::from_program(&rewritten)?;
+        // R226.M10 — route the rewritten program's fixpoint through the
+        // Evaluator's progress sink; the M4 rewrite is answer-preserving
+        // but changes the intermediate DB size, so a caller observing
+        // progress here sees exactly the iteration profile magic-set
+        // rewriting produced.
+        let db = evaluate_stratified(&rewritten, self.progress_sink.as_ref())?;
         let bindings = crate::eval::query(&db, query)?;
         // R226.M11 — the magic-set path answers the same query as
         // `run_query` and by construction returns the same
@@ -463,8 +472,10 @@ impl Evaluator {
             reject_bound(goal.atom())?;
         }
         // Materialize the fixpoint (stratified path handles both the
-        // negation-free and the negation-bearing cases).
-        let db = Database::from_program(program)?;
+        // negation-free and the negation-bearing cases). Routed through
+        // `self.progress_sink` so R226.M10 ticks reach the caller even
+        // on the aggregate path.
+        let db = evaluate_stratified(program, self.progress_sink.as_ref())?;
         // Enumerate every substitution satisfying the body — same
         // positive-then-negative pass order the fixpoint uses inside
         // `derive_round`, so aggregation and derivation agree on
@@ -519,7 +530,11 @@ impl Evaluator {
         query: &Query,
         session: &SessionEdb,
     ) -> Result<Vec<Binding>, EvalError> {
-        let db = evaluate_stratified_with_session(program, session)?;
+        let db = evaluate_stratified_with_session(
+            program,
+            session,
+            self.progress_sink.as_ref(),
+        )?;
         let bindings = crate::eval::query(&db, query)?;
         // R226.M11 — session-overlay path shares the substitution
         // shape of `run_query`, so `bindings.len()` is the natural
@@ -540,7 +555,11 @@ impl Evaluator {
         program: &Program,
         session: &SessionEdb,
     ) -> Result<Database, EvalError> {
-        let db = evaluate_stratified_with_session(program, session)?;
+        let db = evaluate_stratified_with_session(
+            program,
+            session,
+            self.progress_sink.as_ref(),
+        )?;
         // R226.M11 — stratified-with-session mirrors `run_stratified`
         // in shape: no query is run, only a DB is materialised, so the
         // scalar summary is the total tuple count across every
@@ -565,7 +584,11 @@ impl Evaluator {
         for goal in &query.goals {
             reject_bound(goal.atom())?;
         }
-        let db = evaluate_stratified_with_session(program, session)?;
+        let db = evaluate_stratified_with_session(
+            program,
+            session,
+            self.progress_sink.as_ref(),
+        )?;
         let substitutions = enumerate_body(&db, &query.goals);
         let groups = aggregation::evaluate(
             query.agg,
@@ -636,11 +659,25 @@ fn reject_bound(atom: &Atom) -> Result<(), EvalError> {
 /// End-to-end stratified evaluation: reject-bound, stratify, group
 /// rules by their head predicate's stratum, then run a fresh seminaïve
 /// fixpoint per stratum using the accumulated DB from lower strata as
-/// its EDB. Called by both [`Database::from_program`] and
-/// [`Evaluator::run_stratified`] — the two entry points are the same
-/// pipeline, only their names differ so callers can name the shape of
-/// their intent (constructor vs. explicit-negation-aware evaluation).
-fn evaluate_stratified(program: &Program) -> Result<Database, EvalError> {
+/// its EDB. Called by both [`Database::from_program`] and every
+/// [`Evaluator`] method that materialises a fixpoint — the two entry
+/// points share the same pipeline; only the injected `progress` sink
+/// differs (silent for `Database::from_program`, the evaluator's own
+/// sink for the `Evaluator::*` methods).
+///
+/// Progress emission (R226.M10):
+///
+/// * A stratum with any prior-round tuples emits at least one tick
+///   (see [`seminaive_fixpoint`] for the tick contract).
+/// * A rules-free program short-circuits before entering any stratum;
+///   a single seed tick `(1, 0, |facts|)` is emitted iff the program
+///   supplied any facts, so a "facts-only" query still receives one
+///   progress event while a genuinely empty program (no facts, no
+///   rules) emits nothing — there is no work to report on.
+fn evaluate_stratified(
+    program: &Program,
+    progress: &dyn ProgressSink,
+) -> Result<Database, EvalError> {
     // Refuse programs that mention pipeline interpolation — the shell
     // round that resolves `$expr` (R226.M8 + R229) is not landed yet.
     for atom in &program.facts {
@@ -672,6 +709,11 @@ fn evaluate_stratified(program: &Program) -> Result<Database, EvalError> {
     }
 
     if program.rules.is_empty() {
+        // R226.M10 — no rules means no fixpoint runs; emit a single
+        // seed tick so a facts-only program still reports its EDB
+        // size to a subscribed caller. An empty program (no facts
+        // either) emits nothing — there is no work to report on.
+        emit_seed_tick_if_nonempty(&db, progress);
         return Ok(db);
     }
 
@@ -686,11 +728,29 @@ fn evaluate_stratified(program: &Program) -> Result<Database, EvalError> {
     // Run seminaïve stratum by stratum in ascending order. Each
     // stratum's fixpoint sees the previous strata as extensional (fully
     // materialised) input — the standard Apt-Blair-Walker construction.
+    // The progress sink is shared across strata; the iteration counter
+    // inside [`seminaive_fixpoint`] restarts per stratum so a caller
+    // can attribute a slow stratum to its own iteration count rather
+    // than reading a monotonic global.
     for (_stratum, rules) in &rules_by_stratum {
-        seminaive_fixpoint(rules, &mut db);
+        seminaive_fixpoint(rules, &mut db, progress);
     }
 
     Ok(db)
+}
+
+/// R226.M10 — emit a single seed tick reflecting the current DB size,
+/// but only if the DB has any tuples. Called by the rules-free paths
+/// of [`evaluate_stratified`] and [`evaluate_stratified_with_session`]
+/// so a facts-only program still reports its EDB size to a subscribed
+/// caller while a genuinely empty program (no facts either) emits
+/// nothing — matching the "work to report on" contract in the
+/// [`crate::progress`] module doc.
+fn emit_seed_tick_if_nonempty(db: &Database, progress: &dyn ProgressSink) {
+    let total = db.total_tuple_count();
+    if total > 0 {
+        progress.tick(1, 0, total);
+    }
 }
 
 /// R226.M8 — stratified evaluation with an additional session-EDB
@@ -707,9 +767,14 @@ fn evaluate_stratified(program: &Program) -> Result<Database, EvalError> {
 /// derivation invariant: stratification order, negation stratum
 /// closure, safety-condition drops. The only observable difference is
 /// the EDB the fixpoint starts from.
+///
+/// R226.M10 progress emission is threaded through identically to the
+/// non-session path — the shared [`seminaive_fixpoint`] driver ticks
+/// once per iteration into the injected sink.
 fn evaluate_stratified_with_session(
     program: &Program,
     session: &SessionEdb,
+    progress: &dyn ProgressSink,
 ) -> Result<Database, EvalError> {
     // Refuse programs that mention pipeline interpolation — identical
     // policy to `evaluate_stratified`. Session tuples are already
@@ -748,6 +813,8 @@ fn evaluate_stratified_with_session(
     }
 
     if program.rules.is_empty() {
+        // Same seed-tick discipline as the session-free path.
+        emit_seed_tick_if_nonempty(&db, progress);
         return Ok(db);
     }
 
@@ -758,7 +825,7 @@ fn evaluate_stratified_with_session(
     }
 
     for (_stratum, rules) in &rules_by_stratum {
-        seminaive_fixpoint(rules, &mut db);
+        seminaive_fixpoint(rules, &mut db, progress);
     }
 
     Ok(db)
@@ -770,34 +837,55 @@ fn evaluate_stratified_with_session(
 /// body atom in stratum `k` always resolves against the completed
 /// `db` of strata `< k` (its predicate is guaranteed by the stratifier
 /// to sit strictly below `k`).
-fn seminaive_fixpoint(rules: &[&Rule], db: &mut Database) {
+///
+/// # R226.M10 tick contract
+///
+/// After each round merges its delta into `db`, this driver emits one
+/// tick `(iteration, delta_count, db.total_tuple_count())` into
+/// `progress`. The iteration counter is 1-based and monotonic within
+/// one call (a multi-stratum program restarts the counter per stratum
+/// because each stratum makes a fresh call). The terminating round —
+/// the first one whose merged delta is empty — still ticks, so a
+/// caller always sees at least one event as long as the loop entered
+/// (which requires either non-empty `delta_prev`, i.e. any tuples in
+/// `db` when the fixpoint started, or a rule capable of firing without
+/// bindings — the current pivot loop requires the former).
+fn seminaive_fixpoint(rules: &[&Rule], db: &mut Database, progress: &dyn ProgressSink) {
     // First-round Δ is the base DB — every existing tuple is "new"
     // from this stratum's perspective (its rules have never fired
     // before). Subsequent rounds only see the strictly-fresh tuples
     // from the previous round.
     let mut delta_prev: HashMap<Key, TupleSet> = db.tables.clone();
+    let mut iter_count: usize = 0;
     loop {
         let mut delta_new: HashMap<Key, TupleSet> = HashMap::new();
         for rule in rules {
             derive_round(rule, db, &delta_prev, &mut delta_new);
         }
-        let mut had_new = false;
+        // Filter against the existing DB and count the strictly-new
+        // tuples so the tick's `delta_tuples` reports what actually
+        // grew the DB this round (not gross derivations, which double-
+        // count any tuple two rules produced independently).
+        let mut delta_count: usize = 0;
         for (key, set) in delta_new.iter_mut() {
             if let Some(existing) = db.tables.get(key) {
                 set.retain(|t| !existing.contains(t));
             }
-            if !set.is_empty() {
-                had_new = true;
-            }
+            delta_count += set.len();
         }
-        if !had_new {
-            break;
-        }
+        // Merge before ticking so `db.total_tuple_count()` reflects the
+        // post-merge state — the value a caller would observe if the
+        // fixpoint halted at this tick.
         for (key, set) in &delta_new {
             let table = db.tables.entry(key.clone()).or_default();
             for t in set {
                 table.insert(t.clone());
             }
+        }
+        iter_count += 1;
+        progress.tick(iter_count, delta_count, db.total_tuple_count());
+        if delta_count == 0 {
+            break;
         }
         delta_prev = delta_new;
     }

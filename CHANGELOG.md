@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.36.22 — 2026-09-25 — R226.M10 progress emission for long Datalog queries
+
+**R226.M10** — per-iteration progress emission in `paideia-as-shell-datalog`:
+- New `progress` module (separate from `fingerprint` per R226.M11 pattern):
+  `ProgressSink { fn tick(iteration, delta_tuples, total_tuples) }` trait +
+  `NullProgressSink` (default no-op) + `CollectingProgressSink` (test observer).
+- Evaluator grew `progress_sink: Box<dyn ProgressSink + Send + Sync>` field +
+  `with_progress_sink(sink)` builder.
+- Progress threaded through `evaluate_stratified`, `evaluate_stratified_with_session`,
+  `seminaive_fixpoint`. `Database::from_program` uses `&NullProgressSink` (no
+  behavior change for non-Evaluator callers).
+- Tick fires after each seminaïve iteration merges its delta; `total_tuples` is
+  post-merge. Iteration counter is 1-based, monotonic within one stratum;
+  multi-stratum restarts per stratum. Terminating round (Δ=0) still ticks.
+- **Emission contract for edge cases**: rules-free + facts → single seed tick
+  `(1, 0, |facts|)`; rules-free + no-facts → 0 ticks (empty programs never enter
+  the fixpoint loop).
+- 6-test corpus (`r226m10-prog-01`..`r226m10-prog-06`): facts-only, 4-hop
+  transitive-closure, empty program, evaluator isolation, progress+fingerprint
+  co-firing, monotonic iteration counts.
+- 3 new in-crate unit tests + all 99 prior datalog tests still green.
+
+**Bug fixed during landing**: the prior rate-limited partial dispatch had inlined
+progress additions into `fingerprint.rs` and left a broken reference to a
+nonexistent `evaluate_stratified_with_progress` in `eval.rs`. Both fixed:
+progress moved to its own module, eval.rs helper naming reconciled.
+
+Closes paideia-as#1448.
+
 ## 0.36.21 — 2026-09-25 — R227.M6 .pds version pragma resolution
 
 **R227.M6** — resolve `#requires-paideia >= X.Y.Z` against the running system:
