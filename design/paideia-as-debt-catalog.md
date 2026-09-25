@@ -66,24 +66,20 @@ but never runs in this batch (`chmod +x` deliberately withheld).
 
 | # | Bucket                                               | Items | Size | Next-wave landing target                                    |
 |---|------------------------------------------------------|-------|------|-------------------------------------------------------------|
-| 1 | `build_emit` pre-existing failures (v0.22 baseline)  |  ≥16  | L    | Wave 1 encoder + elaborator (spread across v0.22.x .. v0.25.x) |
-| 2 | Parser gaps surfaced by driver / substrate work      |   4   | M    | Wave 2 parser refactor (parallel to `#1360` v0.26 helpers)  |
+| 1 | `build_emit` pre-existing failures (v0.22 baseline)  |  13   | M    | Wave 1 encoder + elaborator (spread across v0.22.x .. v0.25.x) |
+| 2 | Parser gaps surfaced by driver / substrate work      |  21   | L    | Wave 2 parser refactor (parallel to `#1360` v0.26 helpers)  |
 | 3 | Intrinsic-table TODOs + IR-opt stubs                 |   9   | L    | Wave 2 IR-opt round + Wave 3 intrinsic completion           |
 | 4 | `stdlib_lowering` placeholders (hash / sret / imm64) |   4   | M    | Wave 1 encoder round (`#1392` BLAKE3) + Wave 2 sret design  |
-| 5 | Test-runner vaporware (`paideia-as test` is a no-op) |   1   | M    | Wave 1 delivery via `#1393` (v0.33-M1-007)                  |
-| 6 | Satellite runtime shim (`crypto_shim.rs`)            |   1   | S    | Wave 1 delivery via `#1391` (v0.33-M1-005)                  |
+| 5 | Test-runner vaporware (`paideia-as test` is a no-op) |   0   | —    | **LANDED** in v0.33-M1-007 (`#1393`) — bucket now empty     |
+| 6 | Satellite runtime shim (`crypto_shim.rs` + ml-dsa)   |   2   | M    | Wave 1 shim split (`#1391`) + Wave 2 `ml-dsa` `no_std` fix  |
 | 7 | Ignored corpus tests (test-discipline hygiene)       |   7   | S    | Wave 3 corpora reactivation (post Waves 1 + 2)              |
 
-**Aggregate:** 42 individually filable items across 7 buckets, weighted
-2 L + 2 M + 3 S when collapsed to bucket granularity. The Group-1
-count is a lower bound: the v0.22.0 CHANGELOG confirmed "426 passed
-/ 12 failed (12 pre-existing, identical set confirmed via `git stash`
-against `39b3e93`)" (`CHANGELOG.md:264`), and a fresh 2026-09-22 grep
-surfaces seven `#[ignore]`'d tests in tree — four naming walker /
-encoder debt, three naming fixture-add infra. The remaining nine
-runtime failures require a fresh `cargo test -p paideia-as --test
-build_emit` run to enumerate. See §2.2 for the observed gap and the
-recommended enumeration procedure.
+**Aggregate:** 56 individually filable items across 6 active buckets
+(B5 is done). The 2026-09-25 refresh added 17 parser gaps
+(B2-005..021), 1 satellite-runtime blocker (B6-002), recovered the 6
+remaining B1 runtime-failure names (B1-008..013, down from a reserved
+9), retired B1-014..016 as silently-fixed since v0.22.0, and marked
+B5-001 as landed. See §2.3 for the fresh Bucket-1 enumeration.
 
 Formally, let `F` be the set of pre-existing `build_emit` runtime
 failures (|F| = 12 per the v0.22.0 baseline) and `V` the set of
@@ -154,35 +150,46 @@ runs the enumeration then flushes those ids to sub-issues. The draft
 script at `.plans/scratch/file-pas-debt-issues.sh` reads the
 enumeration output as its input file.
 
-### 2.3 Reserved id block
+### 2.3 Reserved id block — RESOLVED 2026-09-25
 
-```
-PAS-DEBT-B1-001 .. B1-007  — enumerated above (7 #[ignore]'d: 4 walker/encoder debt + 3 fixture-add infra)
-PAS-DEBT-B1-008 .. B1-016  — reserved for the nine un-marked runtime failures
-                             (enumerated by cargo test -p paideia-as --test build_emit)
-```
+The v0.22.0 baseline reported 12 pre-existing FAILED runtime tests.
+The 2026-09-25 audit ran `cargo test -p paideia-as --test build_emit
+--no-fail-fast` against v0.36.40 and observed the count has **drifted
+downward from 12 to 6** (441 passed / 6 failed / 7 ignored). Six of
+the original 12 failures were fixed in the intervening ~15 minor
+releases without a CHANGELOG note pinning the individual regressions.
+So the reserved block collapses from B1-008..B1-016 (9 slots) to
+B1-008..B1-013 (6 slots):
 
-Total 16 reserved ids for a "12 known" umbrella figure. The
-arithmetic: seven items are visibly `#[ignore]`'d in tree (a proper
-superset of the runtime failure set, since a skipped test no longer
-reports FAILED but the debt it names still exists); nine ids stay
-reserved for the runtime failures the v0.22.0 baseline enumerated as
-FAILED. The union is `≥ 12` because three of the seven visible items
-(B1-002, B1-003, B1-005..007) describe infra / fixture debt that never
-showed up in the "12 failed" runtime count. This is a **material
-adjustment** from the umbrella's stated "12": the honest catalog
-figure is `≥ 12` runtime failures with 7 additional visible-but-ignored
-debt entries, so the true actionable Bucket-1 count is `≥ 16` not `12`.
+| Entry id          | Test name                                                                             | Root-cause hint (from panic stderr)                                                                    | Fix category           |
+|-------------------|---------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|------------------------|
+| `PAS-DEBT-B1-008` | `build_emit::bss_array_length_const::expression_array_length_is_rejected_with_t0577`  | Parser rejects const-expression array length `[u64; MAX_PIDS * SLOT_QWORDS]`; `T0577` expected but `P0100` "expected `]` found `*`" produced instead. | parser-gap (feeds B2-x) |
+| `PAS-DEBT-B1-009` | `build_emit::label_patches::label_fixup_jz_backward_local_disp32_not_zero`            | `C1301` — `unsafe` port-I/O in lambda body not lifting `PortIo` effect into the lambda's `!{}` row.    | elaborator-effect-lift |
+| `PAS-DEBT-B1-010` | `build_emit::pa10_006l_inout::pa10_006l_inout_instructions_emit`                      | Same `C1301` root cause as B1-009: `_start` port-I/O declaration synthesis gap.                        | elaborator-effect-lift |
+| `PAS-DEBT-B1-011` | `build_emit::typed_encoder_diagnostics::encoder_failure_typed_diagnostic_in_sarif`    | `[m1-003] estimated_offset 0 != encoded text_bytes 5` — advisory tracker off-by-one vs `InstructionSideTable::byte_offset_in_text` (encoder owns truth). Exit-code mismatch (`Some(0)` where `Some(2)` expected). | encoder-diagnostic-align |
+| `PAS-DEBT-B1-012` | `build_emit::typed_encoder_diagnostics::encoder_warn_diagnostic_appears_in_stderr_when_no_sarif` | Same m1-003 tracker root cause as B1-011.                                                             | encoder-diagnostic-align |
+| `PAS-DEBT-B1-013` | `build_emit::typed_encoder_diagnostics::encoder_warn_typed_diagnostic_in_sarif`       | Same m1-003 tracker root cause as B1-011.                                                             | encoder-diagnostic-align |
+
+So the total Bucket-1 id count is now **13** (B1-001..007 visible +
+B1-008..013 recovered), not 16. IDs B1-014..016 are formally
+**retired** — they were reserved for failures that had already been
+silently fixed by the 2026-09-25 audit date.
 
 ### 2.4 Sizing rationale
 
-Enumerating the nine unmarked failures is fast (single `cargo test`
-run). Triaging each into a fix category and drafting a minimal
-reproducer is the L component: the failures include at least one
-elaborator pattern-lowering regression, one encoder byte-form gap,
-and one walker gap per historical CHANGELOG mentions. Estimated total
-across the bucket: ~9 M-sized fixes + ~3 S-sized (`#[ignore]` clears)
-= ≈ 20 engineer-days; hence L at the bucket level.
+The 6 recovered failures triage into 3 groups:
+- **1 parser gap** (B1-008): feeds through B2 (const-expr in bracket
+  position); estimated S once the parser grammar is extended.
+- **2 elaborator regressions** (B1-009, B1-010): shared root cause
+  (`unsafe`/`PortIo` lift through lambda), single fix likely closes
+  both; estimated M.
+- **3 encoder-diagnostic alignment failures** (B1-011..013): shared
+  root cause (m1-003 tracker off-by-one), single fix likely closes
+  all three; estimated M.
+
+Total across the bucket: ~3 M-sized fixes + ~3 S-sized (`#[ignore]`
+clears from §2.2) + 2 M for infra/fixture (B1-002, B1-003, B1-005..007
+group) = ≈ 10 engineer-days; downgrade the bucket from L to M.
 
 ---
 
@@ -195,29 +202,56 @@ downstream consumer of `paideia-as` (`paideia-os` driver code,
 `paideia-stdlib` recipes, or a `build_emit` fixture) needs. The fix
 category taxonomy:
 
-| Category         | Signature                                                              |
-|------------------|------------------------------------------------------------------------|
-| `production-add` | Add a new grammar production for a shape today's parser skips.        |
-| `terminal-add`   | Extend the lexer with a new terminal (keyword, punctuation).           |
-| `recovery-rule`  | Change error-recovery behaviour so a downstream pass can still walk.  |
+| Category             | Signature                                                              |
+|----------------------|------------------------------------------------------------------------|
+| `production-add`     | Add a new grammar production for a shape today's parser skips.        |
+| `terminal-add`       | Extend the lexer with a new terminal (keyword, punctuation).           |
+| `recovery-rule`      | Change error-recovery behaviour so a downstream pass can still walk.  |
+| `lexer-context-add`  | Extend the lexer context state (newline handling, sigil dispatch).    |
+| `lowering-deferred`  | Surface parses but lowering to primitives deferred to a named wave.   |
 
 ### 3.2 Entries
 
-| Entry id          | Site                                                                                        | Missing shape                                                                                                    | Fix category      | Size | Landing wave |
-|-------------------|---------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|-------------------|------|--------------|
-| `PAS-DEBT-B2-001` | `crates/paideia-as-parser/src/parse_control.rs:162`                                         | `for pat in iter { body }` — pattern (`pat`) is parsed then dropped; only the header is stored.                  | `production-add`  | S    | Wave 2       |
-| `PAS-DEBT-B2-002` | `crates/paideia-as-parser/src/parse_item/generics.rs:104`                                   | Associated-type projections (`T::AssocTy`) are lexed but not validated against the trait's associated-type set.   | `production-add`  | M    | Wave 2       |
-| `PAS-DEBT-B2-003` | `crates/paideia-as-parser/src/parse_item/trait_impl.rs:588`                                 | `trait_args = Vec::new();` — trait-impl argument extraction stubbed with an unconditional empty vector.           | `production-add`  | M    | Wave 2       |
-| `PAS-DEBT-B2-004` | `crates/paideia-as/tests/build_emit/field_read.rs:37-42` (parser side of B1-001)            | `struct` type-definition syntax needed by `cap_set_rights.pdx` fixture.                                          | `production-add`  | M    | Wave 2       |
+Refreshed 2026-09-25 from a full-tree grep (`unimplemented!()` / `TODO` /
+deferred markers / `#[ignore]`'d fixtures). B2-001..B2-004 are the
+original entries; B2-005..B2-021 are new evidence surfaced by the
+2026-09-25 audit pass under this umbrella (#1396).
+
+| Entry id          | Site                                                                                        | Missing shape                                                                                                    | Fix category           | Size | Landing wave |
+|-------------------|---------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|------------------------|------|--------------|
+| `PAS-DEBT-B2-001` | `crates/paideia-as-parser/src/parse_control.rs:295`                                         | `for pat in iter { body }` — pattern (`pat`) is parsed then dropped; only `Ident` header stored.                 | `production-add`       | S    | Wave 2       |
+| `PAS-DEBT-B2-002` | `crates/paideia-as-parser/src/parse_item/generics.rs:104`                                   | Associated-type projections (`Iterator<Item = u64>`) lexed but not validated against trait's assoc-type set.     | `production-add`       | M    | Wave 2       |
+| `PAS-DEBT-B2-003` | `crates/paideia-as-parser/src/parse_item/trait_impl.rs:588`                                 | `trait_args = Vec::new();` — trait-impl argument extraction stubbed with an unconditional empty vector.           | `production-add`       | M    | Wave 2       |
+| `PAS-DEBT-B2-004` | `crates/paideia-as/tests/build_emit/field_read.rs:37-42` (parser side of B1-001)            | `struct` type-definition syntax needed by `cap_set_rights.pdx` fixture.                                          | `production-add`       | M    | Wave 2       |
+| `PAS-DEBT-B2-005` | `crates/paideia-as-parser/src/parse_expr.rs:58,138` (+ `paideia-as-lexer` no `DotDot`)      | Range operator `a..b` and chaining `a..b..c` unparseable — no `DotDot` terminal + no production.                 | `terminal-add`         | M    | Wave 2       |
+| `PAS-DEBT-B2-006` | `crates/paideia-as-parser/src/parse_stmt.rs:6-13`                                           | §9.2 multi-line expression statements + §9.3 newline-as-separator — lexer emits newlines as trivia.              | `lexer-context-add`    | M    | Wave 2       |
+| `PAS-DEBT-B2-007` | `crates/paideia-as-parser/src/parse_primary/collection.rs:120,160-168`                      | Tuple exprs `(a, b, c)` — elements parsed into `_elements`, discarded, returns bare `Placeholder`.               | `production-add`       | S    | Wave 2       |
+| `PAS-DEBT-B2-008` | `crates/paideia-as-parser/src/parse_type.rs:38-48`                                          | `forall v. T` — bound variable consumed and discarded; whole `forall` wrapper unstored.                          | `production-add`       | S    | Wave 2       |
+| `PAS-DEBT-B2-009` | `crates/paideia-as-parser/src/parse_type/type_shape.rs:350-367`                             | Function-type param names `(name: T, ...) -> R` — `name` consumed and dropped; only type survives.               | `production-add`       | S    | Wave 2       |
+| `PAS-DEBT-B2-010` | `crates/paideia-as-parser/src/parse_macro.rs:6-9,205`                                       | Macro pattern/template stored as span-only `Placeholder`; no fragment kinds, repetition, hygiene.                | `production-add`       | L    | Wave 3       |
+| `PAS-DEBT-B2-011` | `crates/paideia-as-parser/src/toolkit_attrs.rs:58-66` + `crates/paideia-as-ast/src/functor_attr.rs:19` | `FunctorDecl` has no `NodeId` — `@retain`/`@immediate` cannot key into `FunctorAttrTable`.                       | `production-add`       | M    | Wave 2       |
+| `PAS-DEBT-B2-012` | `crates/paideia-as-parser/src/parse_handler.rs:202-206`                                     | Handler bodies do not synthesize unit literal on trailing `;` (unlike if/loop; P0158 carve-out).                 | `recovery-rule`        | S    | Wave 2       |
+| `PAS-DEBT-B2-013` | `crates/paideia-as-parser/src/parse_pattern.rs:272-286`                                     | Range / or-pipe (`p1 \| p2`) / reference (`&p`) / slice (`[a, b, ..]`) patterns rejected with generic P0100.     | `production-add`       | M    | Wave 3       |
+| `PAS-DEBT-B2-014` | `crates/paideia-as-parser/src/timeline.rs:1-9`                                              | `@timeline_wait` / `@timeline_signal` parses; lowering to timeline-fence primitives deferred to v0.27-M2.        | `lowering-deferred`    | M    | v0.27-M2     |
+| `PAS-DEBT-B2-015` | `crates/paideia-as-parser/src/endian_attr.rs:13-15`                                         | `@endian(be\|le)` parses + validates scalar shape; byte-swap insertion deferred to elaborator.                    | `lowering-deferred`    | S    | Wave 2       |
+| `PAS-DEBT-B2-016` | `crates/paideia-as-shell-datalog/src/parser.rs:66-73`                                       | Zero-arity Datalog atoms (`foo().`) rejected until R226.M2 schema registry attaches types.                       | `production-add`       | S    | R226         |
+| `PAS-DEBT-B2-017` | `crates/paideia-as-shell-ast/src/ast.rs:37-40`                                              | Process-substitution `>(cmd)` — AST variant reserved but pipeline parser does not accept it (R222 deferred).     | `production-add`       | S    | R222         |
+| `PAS-DEBT-B2-018` | `crates/paideia-as-shell-ast/src/parser/mod.rs:16-22`                                       | Shell parser halts at first error; no sync-point recovery (deferred to R229 REPL incremental parse).             | `recovery-rule`        | M    | R229         |
+| `PAS-DEBT-B2-019` | `crates/paideia-as-shell-lex/src/lexer.rs:52-54`                                            | `UnexpectedChar` on `#` / `@` sigils — attribute-macro tokens not handled (R221.M4 gap).                          | `lexer-context-add`    | S    | R221         |
+| `PAS-DEBT-B2-020` | `crates/paideia-as-lexer/src/scan_comment.rs:9-12`                                          | Block-comment scanner stops at first `*/`; nested `/* /* ... */ */` unsupported.                                 | `lexer-context-add`    | S    | Wave 2       |
+| `PAS-DEBT-B2-021` | `crates/paideia-as-lexer/src/token.rs` (site: no `DotDot` variant)                          | Lexer terminal for range operator (`..`) — companion to B2-005; must land first for parser to reach it.          | `terminal-add`         | S    | Wave 2       |
 
 ### 3.3 Note on shape
 
-Every entry is `production-add`; the parser today does not use
-`recovery-rule`-shaped defects (Pratt-style precedence recovery works
-correctly), and the lexer terminal set is complete for every `.pdx`
-fixture on disk. The bucket may grow if paideia-os R52+ driver work
-surfaces new shapes; the id space `PAS-DEBT-B2-005` and up is
-reserved.
+The bucket now spans five categories (`production-add`, `terminal-add`,
+`recovery-rule`, `lexer-context-add`, `lowering-deferred`). B2-005..021
+were added by the 2026-09-25 audit; the original assertion that "every
+entry is production-add" no longer holds. `PAS-DEBT-B2-005` and
+`PAS-DEBT-B2-021` are companions — the lexer terminal must land before
+the parser production can consume it. B2-014 and B2-015 are
+"parses-but-lowering-deferred" cases where the surface is fine but
+downstream lowering to primitives waits on named waves (v0.27-M2 for
+timeline fences, elaborator work for endian byte-swap).
 
 ---
 
@@ -316,20 +350,22 @@ false-positive gate.
 
 | Entry id          | Site                                                                                | Symptom                                                                                                              | Fix category     | Size | Landing wave |
 |-------------------|-------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|------------------|------|--------------|
-| `PAS-DEBT-B5-001` | `crates/paideia-as-test/src/lib.rs:71-111` + `crates/paideia-as/src/cmd_test.rs:65-69` | `TestRunner::discover` is a plain-text substring scan; `run_human_format` reports all discovered tests as passed.    | `native-lowering` | M    | Wave 1 (`#1393`) |
+| `PAS-DEBT-B5-001` | `crates/paideia-as-test/src/lib.rs:161-263,388-461` (post-v0.33-M1-007)             | `TestRunner::discover` substring scan + `run_human_format` false-positive gate. **LANDED** in v0.33-M1-007 (#1393): discover now token-walks via `paideia_as_lexer::Lexer` for `Hash LBracket Ident("test") RBracket`; `run` invokes full parser+elaborator per file. | `native-lowering` | M    | **DONE** (v0.33-M1-007, #1393) |
 
 ### 6.3 Cross-reference (per umbrella §"Known catalog entry")
 
-- **paideia-as#1349** — original OPEN bug report.
-- **paideia-as#1393** — v0.33-M1-007 release-track companion.
-- **ls v1.0.1 adversarial verification** — discovery context; see body
-  of `#1349` for the three concrete symptoms observed against
-  `tests/human_size_fixtures.pdx`, a nonexistent path, and outright
-  garbage input.
+- **paideia-as#1349** — original OPEN bug report. **Closed by #1393
+  landing.** The 2026-09-25 audit under this umbrella confirmed the
+  substring-scan is gone; module header at `paideia-as-test/src/lib.rs`
+  documents the Q-A-4 Option B scoped fix + 8 acceptance tests at
+  lines 478-662.
+- **paideia-as#1393** — v0.33-M1-007 release-track companion (landed).
+- **Deferred to v0.34** (not this bucket, filed under the release
+  track): per-test parallel exec, runtime fixture-invocation protocol,
+  per-function isolation, recursive dir scan.
 
-The catalog entry `PAS-DEBT-B5-001` **is** the sub-issue for `#1349`
-in this catalog's numbering scheme; the Phase-2 filer should attach
-the id to the existing `#1349` rather than opening a duplicate.
+`PAS-DEBT-B5-001` is now **superseded** — no sub-issue to file.
+Phase-2 filer must skip this row.
 
 ---
 
@@ -350,11 +386,12 @@ final link fails with unresolved symbols.
 outstanding sub-issue is the mechanical split into a dedicated
 `crypto_shim.rs` module per manifest v0.33-M1-005.
 
-### 7.2 Entry
+### 7.2 Entries
 
 | Entry id          | Site                                                                | Symptom                                                                                                       | Fix category         | Size | Landing wave |
 |-------------------|---------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|----------------------|------|--------------|
 | `PAS-DEBT-B6-001` | `crates/paideia-satellite-runtime/src/lib.rs` (target `crypto_shim.rs`) | Symbol re-exports currently live in `lib.rs`; sub-issue is the split into `src/crypto_shim.rs` per `#1391`.   | `satellite-runtime`  | S    | Wave 1 (`#1391`) |
+| `PAS-DEBT-B6-002` | `crates/paideia-satellite-runtime/src/lib.rs:236-247`               | `pub use paideia_as_crypto::ffi::mldsa65_*` attempted but RustCrypto `ml-dsa` 0.1.1 pulls `std` via `crypto_common`, conflicting with `#![no_std] panic_impl`. Blocks the ml-dsa re-export path and surfaces as a workspace-wide `cargo build --workspace` failure (E0152 `panic_impl`). | `satellite-runtime`  | M    | Wave 2       |
 
 ### 7.3 Cross-reference
 
@@ -363,6 +400,16 @@ outstanding sub-issue is the mechanical split into a dedicated
 
 Entry `PAS-DEBT-B6-001` supersedes `#1348` under the same collapse
 policy as B5-001 vs `#1349`.
+
+`PAS-DEBT-B6-002` was added by the 2026-09-25 audit: it explains why
+`cargo build --workspace` currently fails on a clean checkout (the
+`E0152 panic_impl` collision in `paideia-satellite-runtime`), which
+had been silently gating every per-crate `cargo test` invocation as
+the pre-push script's workaround. Fix options: (a) drop `ml-dsa` from
+the re-export set (satellite tools don't consume it directly today);
+(b) upgrade to a `ml-dsa` version that is truly `no_std`-clean when
+it lands upstream; (c) contribute a `no_std` feature to
+RustCrypto/ml-dsa. Prefer (a) for the immediate landing.
 
 ---
 
