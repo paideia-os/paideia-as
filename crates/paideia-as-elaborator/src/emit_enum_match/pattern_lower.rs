@@ -95,9 +95,11 @@ impl EmitWalker {
                 *slot += 1;
 
                 // Emit width-correct load via the unified dispatch.
+                // #1519: base_reg (from lower_pattern's caller) now flows into
+                // emit_widening_load; previously it was ignored and RDI was assumed.
                 let (size, signed) = default_size_signed;
                 let before = self.diagnostics.len();
-                self.emit_widening_load(load_id, base_offset, dest_reg, size, signed);
+                self.emit_widening_load(load_id, base_offset, base_reg, dest_reg, size, signed);
                 if self.diagnostics.len() > before {
                     // Unsupported size — the helper already pushed a diagnostic.
                     return;

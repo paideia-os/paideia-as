@@ -737,21 +737,59 @@ fn field_access_fnptr_field_offset_16_u64_load() {
 }
 
 #[test]
-#[ignore = "visit_field_access hardcodes base=RDI; LocalBindingTable resolution deferred to follow-up"]
 fn field_access_var_receiver_base_rcx_offset_8() {
-    // This test documents a pre-existing limitation: visit_field_access and
-    // visit_field_access_with_reg both hardcode base: abi::RDI (rdi), ignoring
-    // the receiver register that would come from LocalBindingTable resolution.
-    //
-    // If the receiver were Var(r) with r bound to rcx in the LocalBindingTable,
-    // the instruction should emit: mov rax, [rcx + 8] → 48 8B 41 08
-    //
-    // Currently, it always emits: mov rax, [rdi + 8] → 48 8B 47 08
-    //
-    // Fixing this requires threading LocalBindingTable through visit_field_access
-    // so that the base register can be resolved from the receiver's binding.
-    // See #983 debugger review and follow-up issue for RDI-hardcode refactor.
-    unimplemented!("deferred: requires LocalBindingTable threading");
+    // PAS-DEBT-B3-006 (#1519): visit_field_access_with_reg now resolves the
+    // pointer receiver's home register from LocalBindingTable instead of
+    // hardcoding RDI. Bind Var("p") → RCX and verify the emit lands
+    // `mov rax, [rcx + 8]` (48 8B 41 08) instead of the pre-#1519
+    // `mov rax, [rdi + 8]` (48 8B 47 08).
+    let mut arena = IrArena::new();
+
+    // FieldAccess(Deref(Var("p"))) with "p" bound to RCX.
+    let var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(var_id, "p".to_string());
+    let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [var_id]);
+    let field_access_id = arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
+
+    arena.field_access_info_mut().insert(
+        field_access_id,
+        paideia_as_ir::record_layout::FieldAccessInfo {
+            type_id: RecordTypeId(1),
+            field_index: 0,
+        },
+    );
+
+    // u64 field at offset 8.
+    let field_layout = FieldLayout {
+        offset: 8,
+        size: 8,
+        signed: false,
+    };
+    let layout = RecordLayout::new(16, 8, vec![field_layout]);
+
+    let mut walker = EmitWalker::new();
+    walker.state_mut().insert_record_layout(RecordTypeId(1), layout);
+    // Pre-seed local_bindings: "p" resides in RCX.
+    walker.state_mut().local_bindings.insert("p".to_string(), abi::RCX);
+
+    // Drive the field-access emit directly so we bypass the top-level walk's
+    // owner-shape checks (there is no enclosing Lambda/Let here).
+    walker.visit_field_access(field_access_id, &arena);
+
+    let inst = walker
+        .state()
+        .instructions
+        .get(field_access_id)
+        .cloned()
+        .expect("field-access emit missing");
+    assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+    let mut buf = paideia_as_encoder::CodeBuffer::new();
+    let mut stats = paideia_as_encoder::EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encode failed");
+    // mov rax, [rcx + 8] → REX.W(48) 8B /0 [rcx+disp8] = 48 8B 41 08.
+    assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x41, 0x08]);
 }
 
 // ── Phase 17 m1-001: Field assign (Store) elaborator-side tests ────

@@ -991,6 +991,23 @@ fn print_pattern_internal(arena: &AstArena, id: NodeId, depth: usize, output: &m
         PatternData::Binding { name, inner } => {
             format!("Binding {{ name: {}, inner: {} }}", name, inner)
         }
+        PatternData::Range { start, end } => {
+            format!("Range {{ start: {:?}, end: {:?} }}", start, end)
+        }
+        PatternData::Reference { inner, mutable } => {
+            format!("Reference {{ inner: {}, mutable: {} }}", inner, mutable)
+        }
+        PatternData::Slice { elements } => {
+            let elem_str = elements
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Slice {{ elements: [{}] }}", elem_str)
+        }
+        PatternData::Rest { binder } => {
+            format!("Rest {{ binder: {:?} }}", binder)
+        }
     };
 
     use std::fmt::Write;

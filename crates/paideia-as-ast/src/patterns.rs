@@ -80,6 +80,45 @@ pub enum PatternData {
         /// Inner pattern.
         inner: NodeId,
     },
+
+    /// Range pattern: `a..b`, `..b`, `a..`, `..`.
+    ///
+    /// Half-open (exclusive end). Mirrors `ExprData::Range`; no `..=` in
+    /// phase-1 (lexer emits no `DotDotEq`). PAS-DEBT-B2-013.
+    Range {
+        /// Optional lower bound (Expression/Pattern node).
+        start: Option<NodeId>,
+        /// Optional upper bound (Expression/Pattern node).
+        end: Option<NodeId>,
+    },
+
+    /// Reference pattern: `&p` or `&mut p`.
+    ///
+    /// Deconstructs a reference; `inner` matches the pointee.
+    Reference {
+        /// Inner pattern (matches the pointee).
+        inner: NodeId,
+        /// `true` for `&mut p`, `false` for `&p`.
+        mutable: bool,
+    },
+
+    /// Slice pattern: `[a, b, ..]` / `[first, .., last]`.
+    ///
+    /// `elements` may contain a single `Rest` pattern (`..` or `..name`)
+    /// at any position, matching the tail/middle of a slice.
+    Slice {
+        /// Element patterns; at most one is a `Rest`.
+        elements: Vec<NodeId>,
+    },
+
+    /// Rest pattern: `..` or `..name`.
+    ///
+    /// Appears only as an element of a `Slice` pattern. `binder` is the
+    /// optional identifier that captures the rest (`..name`).
+    Rest {
+        /// Optional binder identifier (`..name`).
+        binder: Option<NodeId>,
+    },
 }
 
 /// A field in a struct pattern.

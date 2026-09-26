@@ -163,7 +163,11 @@ pub(super) fn map_node_kind(kind: NodeKind) -> IrKind {
         | NodeKind::PatStruct
         | NodeKind::PatEnumVariant
         | NodeKind::PatOr
-        | NodeKind::PatBinding => IrKind::Placeholder,
+        | NodeKind::PatBinding
+        | NodeKind::PatRange
+        | NodeKind::PatReference
+        | NodeKind::PatSlice
+        | NodeKind::PatRest => IrKind::Placeholder,
 
         // Wildcard for future variants added to NodeKind after phase-1.
         _ => IrKind::Placeholder,

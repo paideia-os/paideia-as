@@ -220,6 +220,14 @@ pub enum NodeKind {
     PatOr,
     /// `name @ pat` (binding pattern).
     PatBinding,
+    /// `a..b` / `..b` / `a..` / `..` (range pattern). PAS-DEBT-B2-013.
+    PatRange,
+    /// `&p` / `&mut p` (reference pattern). PAS-DEBT-B2-013.
+    PatReference,
+    /// `[p1, p2, ..]` (slice pattern). PAS-DEBT-B2-013.
+    PatSlice,
+    /// `..` / `..name` (rest sub-pattern inside a slice). PAS-DEBT-B2-013.
+    PatRest,
 }
 
 /// Per-node arena entry: variant discriminant and source position.

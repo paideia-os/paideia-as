@@ -1,7 +1,8 @@
 //! Pattern parsing for let bindings and match arms.
 //!
 //! Implements §8 Pattern grammar: Ident, Wildcard, Tuple, Struct, EnumVariant,
-//! Literal, Or, and Binding patterns. Supports both exhaustive and non-exhaustive patterns.
+//! Literal, Or, Binding, Range, Reference, and Slice patterns (with Rest sub-
+//! pattern). PAS-DEBT-B2-013 (#1506) closed the last four shapes.
 
 use paideia_as_ast::{NodeKind, PatternData};
 use paideia_as_diagnostics::Span;
@@ -21,7 +22,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - `0`, `true`, etc. → Literal pattern
     ///
     /// Returns a pattern node on success.
-    pub(crate) fn parse_pattern(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub fn parse_pattern(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         self.parse_pattern_or()
     }
 
@@ -66,7 +67,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
     /// Parse a binding pattern: `name @ pat` or just the inner pattern.
     fn parse_pattern_binding(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
-        let inner = self.parse_pattern_primary()?;
+        let inner = self.parse_pattern_range()?;
 
         // Check for `@` to form a binding pattern
         if self.at(TokenKind::At) {
@@ -117,7 +118,103 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
     }
 
-    /// Parse a primary pattern (not or/binding).
+    /// Parse a range pattern layer: `a..b`, `..b`, `a..`, or fall through
+    /// to primary. Range is non-associative and binds tighter than or/binding.
+    fn parse_pattern_range(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        // Prefix form: `..end` or bare `..`.
+        if self.at(TokenKind::DotDot) {
+            let dot_tok = self.expect(TokenKind::DotDot)?;
+            let dot_span = dot_tok.span;
+
+            // Endpoint present iff the next token can start a primary pattern.
+            let (end_opt, span_end) = if self.can_start_pattern_primary() {
+                let end = self.parse_pattern_primary()?;
+                let sp = self
+                    .arena()
+                    .get(end)
+                    .map(|n| n.span)
+                    .unwrap_or(dot_span);
+                (Some(end), sp)
+            } else {
+                (None, dot_span)
+            };
+
+            let span = Span::new(
+                dot_span.file(),
+                dot_span.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - dot_span.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_pattern(
+                NodeKind::PatRange,
+                span,
+                PatternData::Range {
+                    start: None,
+                    end: end_opt,
+                },
+            ));
+        }
+
+        let lhs = self.parse_pattern_primary()?;
+
+        // Postfix form: `start..` or `start..end`.
+        if self.at(TokenKind::DotDot) {
+            self.bump(); // consume `..`
+            let start_span = self
+                .arena()
+                .get(lhs)
+                .map(|n| n.span)
+                .unwrap_or_else(|| self.current_span());
+
+            let (end_opt, span_end) = if self.can_start_pattern_primary() {
+                let end = self.parse_pattern_primary()?;
+                let sp = self
+                    .arena()
+                    .get(end)
+                    .map(|n| n.span)
+                    .unwrap_or(start_span);
+                (Some(end), sp)
+            } else {
+                (None, start_span)
+            };
+
+            let span = Span::new(
+                start_span.file(),
+                start_span.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - start_span.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_pattern(
+                NodeKind::PatRange,
+                span,
+                PatternData::Range {
+                    start: Some(lhs),
+                    end: end_opt,
+                },
+            ));
+        }
+
+        Ok(lhs)
+    }
+
+    /// Return true when the current token starts a pattern primary. Used by
+    /// range parsing to decide whether an endpoint is present.
+    fn can_start_pattern_primary(&self) -> bool {
+        match self.peek().map(|t| t.kind) {
+            Some(
+                TokenKind::LParen
+                | TokenKind::LBracket
+                | TokenKind::Amp
+                | TokenKind::Ident
+                | TokenKind::IntLit
+                | TokenKind::StringLit
+                | TokenKind::CharLit
+                | TokenKind::ByteLit
+                | TokenKind::ByteStringLit,
+            ) => true,
+            _ => false,
+        }
+    }
+
+    /// Parse a primary pattern (not or/binding/range).
     fn parse_pattern_primary(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         if let Some(tok) = self.peek() {
             let tok_kind = tok.kind;
@@ -126,6 +223,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             match tok_kind {
                 // Tuple: `(pat1, pat2, ...)`
                 TokenKind::LParen => self.parse_pattern_tuple(),
+
+                // Slice: `[pat1, pat2, ..]` (PAS-DEBT-B2-013)
+                TokenKind::LBracket => self.parse_pattern_slice(),
+
+                // Reference: `&pat` or `&mut pat` (PAS-DEBT-B2-013)
+                TokenKind::Amp => self.parse_pattern_reference(),
 
                 // Literal: int, etc.
                 TokenKind::IntLit => {
@@ -300,6 +403,124 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             self.emit_diagnostic(diag);
             Err(ParseError)
         }
+    }
+
+    /// Parse a reference pattern: `&pat` or `&mut pat` (PAS-DEBT-B2-013).
+    fn parse_pattern_reference(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let amp_tok = self.expect(TokenKind::Amp)?;
+        let amp_span = amp_tok.span;
+        let mutable = self.eat(TokenKind::KwMut);
+
+        let inner = self.parse_pattern_primary()?;
+        let inner_span = self
+            .arena()
+            .get(inner)
+            .map(|n| n.span)
+            .unwrap_or(amp_span);
+        let span = Span::new(
+            amp_span.file(),
+            amp_span.byte_start(),
+            inner_span.byte_start() + inner_span.byte_len() - amp_span.byte_start(),
+        );
+        Ok(self.arena_mut().alloc_pattern(
+            NodeKind::PatReference,
+            span,
+            PatternData::Reference { inner, mutable },
+        ))
+    }
+
+    /// Parse a slice pattern: `[p1, p2, ..]` / `[first, .., last]`
+    /// (PAS-DEBT-B2-013). Rest sub-pattern (`..` optionally bound as
+    /// `..name`) may appear anywhere in the element list.
+    fn parse_pattern_slice(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let lbrk_tok = self.expect(TokenKind::LBracket)?;
+        let span_start = lbrk_tok.span;
+
+        let mut elements: Vec<paideia_as_ast::NodeId> = Vec::new();
+        let mut saw_rest = false;
+
+        // Empty slice `[]`.
+        if self.at(TokenKind::RBracket) {
+            let rbrk_tok = self.expect(TokenKind::RBracket)?;
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                rbrk_tok.span.byte_start() + rbrk_tok.span.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_pattern(
+                NodeKind::PatSlice,
+                span,
+                PatternData::Slice { elements },
+            ));
+        }
+
+        loop {
+            if self.at(TokenKind::DotDot) {
+                let dot_tok = self.expect(TokenKind::DotDot)?;
+                let mut rest_span = dot_tok.span;
+                // Optional binder `..name` (element order sensitive; the
+                // lexer accepts `Ident` immediately after `..`).
+                let binder = if self.at(TokenKind::Ident) {
+                    let name_tok = self.expect(TokenKind::Ident)?;
+                    let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+                    rest_span = Span::new(
+                        rest_span.file(),
+                        rest_span.byte_start(),
+                        name_tok.span.byte_start() + name_tok.span.byte_len()
+                            - rest_span.byte_start(),
+                    );
+                    Some(name_id)
+                } else {
+                    None
+                };
+
+                if saw_rest {
+                    let code = paideia_as_diagnostics::DiagnosticCode::new(
+                        paideia_as_diagnostics::Category::P,
+                        paideia_as_diagnostics::Severity::Error,
+                        104,
+                    )
+                    .expect("valid P0104 code");
+                    let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                        .message("slice pattern may contain at most one `..` rest")
+                        .with_span(rest_span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+                saw_rest = true;
+
+                let rest_id = self.arena_mut().alloc_pattern(
+                    NodeKind::PatRest,
+                    rest_span,
+                    PatternData::Rest { binder },
+                );
+                elements.push(rest_id);
+            } else {
+                let elem = self.parse_pattern()?;
+                elements.push(elem);
+            }
+
+            if !self.at(TokenKind::Comma) {
+                break;
+            }
+            self.bump(); // consume `,`
+            if self.at(TokenKind::RBracket) {
+                break; // trailing comma
+            }
+        }
+
+        let rbrk_tok = self.expect(TokenKind::RBracket)?;
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rbrk_tok.span.byte_start() + rbrk_tok.span.byte_len() - span_start.byte_start(),
+        );
+        Ok(self.arena_mut().alloc_pattern(
+            NodeKind::PatSlice,
+            span,
+            PatternData::Slice { elements },
+        ))
     }
 
     /// Parse a tuple pattern: `(pat1, pat2, ...)`

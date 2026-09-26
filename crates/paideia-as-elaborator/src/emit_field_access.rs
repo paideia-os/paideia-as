@@ -77,6 +77,18 @@ fn u1647_code() -> DiagnosticCode {
         .expect("U1647 is within valid U range")
 }
 
+/// PAS-DEBT-B3-006 debugger follow-up: Field-access pointer receiver is
+/// bound but in a non-register home (Stack / Env / Closure / RegPair).
+/// The current emit path only knows how to load from `[base_reg +
+/// offset]`; non-register homes need a distinct emission (spill-thaw
+/// through a scratch reg, or a dedicated `[rbp + rbp_off]` load).
+/// Refusing here beats silently emitting `[rdi + offset]` and storing
+/// through the wrong pointer.
+fn u1648_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1648)
+        .expect("U1648 is within valid U range")
+}
+
 /// Helper to construct T0540 diagnostic code (MVP scope guard for module-field writes).
 fn t0540_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::T, Severity::Error, 540)
@@ -607,10 +619,51 @@ impl EmitWalker {
             }
         };
 
+        // PAS-DEBT-B3-006 (#1519): resolve the pointer receiver's home register
+        // from LocalBindingTable instead of hardcoding RDI.
+        //
+        // Fallback taxonomy (debugger follow-up to the naive
+        // `unwrap_or(abi::RDI)`): three distinct cases must not collapse
+        // to one silent default:
+        //   1. No binding name at all (`binding_names().get(ptr_id)` = None)
+        //      → pre-#1519 shape, bare synthetic Var; keep RDI fallback for
+        //      test-corpus byte-identity.
+        //   2. Name bound to a `Reg` home → use that register.
+        //   3. Name bound to a NON-`Reg` home (Stack / Env / Closure /
+        //      RegPair) → refuse with U1648. Emitting `[rdi + offset]`
+        //      here would silently generate wrong code for stack-spilled
+        //      or captured pointer receivers.
+        let base_reg = match arena.binding_names().get(ptr_id) {
+            None => abi::RDI,
+            Some(name) => match self.state.local_bindings.get(&name) {
+                Some(reg) => reg,
+                None => {
+                    // Name is bound but not to a Reg home. Do not silently
+                    // encode through RDI — that would corrupt the address
+                    // for any lambda arg spilled to the stack, any closure
+                    // capture, or any RegPair binding.
+                    if self.state.local_bindings.get_home(&name).is_some() {
+                        self.push_typed_diag(
+                            u1648_code(),
+                            format!(
+                                "field access on pointer '{}' bound to a non-register home; \
+                                 spill / env / closure loads are not yet emitted for field access",
+                                name
+                            ),
+                        );
+                        return;
+                    }
+                    // Truly unbound name — same shape as case 1.
+                    abi::RDI
+                }
+            },
+        };
+
         // Route through the unified width dispatch.
         self.emit_widening_load(
             field_access_id,
             field_layout.offset as i32,
+            base_reg,
             dest_reg,
             field_layout.size,
             field_layout.signed,
@@ -638,31 +691,35 @@ impl EmitWalker {
     ///
     /// Unsupported sizes push a diagnostic string and emit nothing.
     ///
-    /// Note: base register is still RDI in the underlying primitives (a
-    /// separate refactoring step will thread `base_reg` through).
+    /// PAS-DEBT-B3-006 (#1519): `base_reg` is now threaded through the three
+    /// underlying primitives so callers that resolve the receiver via
+    /// LocalBindingTable (e.g. `(*p).f` where `p` lives in RCX) get
+    /// `[base_reg + offset]` instead of the pre-#1519 hardcoded `[rdi + offset]`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_widening_load(
         &mut self,
         node_id: IrNodeId,
         offset: i32,
+        base_reg: RegId,
         dest_reg: RegId,
         size: u8,
         signed: bool,
     ) {
         match (size, signed) {
-            (1, false) => self.emit_field_access_movzx_reg(node_id, offset, dest_reg, 1),
-            (2, false) => self.emit_field_access_movzx_reg(node_id, offset, dest_reg, 2),
-            (4, false) => {
-                self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W32)
-            }
-            (8, false) => {
-                self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W64)
-            }
-            (1, true) => self.emit_field_access_movsx_reg(node_id, offset, dest_reg, 1),
-            (2, true) => self.emit_field_access_movsx_reg(node_id, offset, dest_reg, 2),
-            (4, true) => self.emit_field_access_movsx_reg(node_id, offset, dest_reg, 4),
-            (8, true) => {
-                self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W64)
-            }
+            (1, false) => self.emit_field_access_movzx_reg(node_id, offset, base_reg, dest_reg, 1),
+            (2, false) => self.emit_field_access_movzx_reg(node_id, offset, base_reg, dest_reg, 2),
+            (4, false) => self.emit_field_access_mov_sized_reg(
+                node_id, offset, base_reg, dest_reg, IntWidth::W32,
+            ),
+            (8, false) => self.emit_field_access_mov_sized_reg(
+                node_id, offset, base_reg, dest_reg, IntWidth::W64,
+            ),
+            (1, true) => self.emit_field_access_movsx_reg(node_id, offset, base_reg, dest_reg, 1),
+            (2, true) => self.emit_field_access_movsx_reg(node_id, offset, base_reg, dest_reg, 2),
+            (4, true) => self.emit_field_access_movsx_reg(node_id, offset, base_reg, dest_reg, 4),
+            (8, true) => self.emit_field_access_mov_sized_reg(
+                node_id, offset, base_reg, dest_reg, IntWidth::W64,
+            ),
             _ => {
                 self.push_typed_diag(
                     t0565_code(),
@@ -679,13 +736,14 @@ impl EmitWalker {
         &mut self,
         field_access_id: IrNodeId,
         offset: i32,
+        base_reg: RegId,
         dest_reg: RegId,
         width: IntWidth,
     ) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
-            base: abi::RDI, // rdi (first argument)
+            base: base_reg, // #1519: caller-resolved receiver register
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: offset,
@@ -710,13 +768,14 @@ impl EmitWalker {
         &mut self,
         field_access_id: IrNodeId,
         offset: i32,
+        base_reg: RegId,
         dest_reg: RegId,
         src_width: u8,
     ) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
-            base: abi::RDI, // rdi
+            base: base_reg, // #1519: caller-resolved receiver register
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: offset,
@@ -741,13 +800,14 @@ impl EmitWalker {
         &mut self,
         field_access_id: IrNodeId,
         offset: i32,
+        base_reg: RegId,
         dest_reg: RegId,
         src_width: u8,
     ) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
-            base: abi::RDI, // rdi
+            base: base_reg, // #1519: caller-resolved receiver register
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: offset,

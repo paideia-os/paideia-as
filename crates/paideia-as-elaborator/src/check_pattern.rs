@@ -72,6 +72,23 @@ pub fn is_irrefutable(pattern_kind: NodeKind, pattern_data: &PatternData) -> boo
             true
         }
 
+        // Range patterns are refutable (endpoints exclude values).
+        (NodeKind::PatRange, PatternData::Range { .. }) => false,
+
+        // Reference pattern is irrefutable iff its inner is; the safe
+        // default is FALSE (assume refutable) — `&0`, `&Some(x)`,
+        // `&(1..10)` are all refutable and would be miscategorised by an
+        // unconditional-true default the moment a let-binding
+        // refutability check starts consuming this API. Inner-pattern
+        // recursion is a follow-up; for now, err conservative.
+        (NodeKind::PatReference, PatternData::Reference { .. }) => false,
+
+        // Slice patterns are refutable — length may not match.
+        (NodeKind::PatSlice, PatternData::Slice { .. }) => false,
+
+        // Rest sub-pattern matches any tail — irrefutable in isolation.
+        (NodeKind::PatRest, PatternData::Rest { .. }) => true,
+
         // Catch-all: conservative
         _ => false,
     }

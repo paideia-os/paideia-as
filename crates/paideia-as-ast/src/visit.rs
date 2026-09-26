@@ -289,6 +289,14 @@ pub trait PatternVisitor {
     fn visit_pattern_or(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Binding pattern.
     fn visit_pattern_binding(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Range pattern (PAS-DEBT-B2-013).
+    fn visit_pattern_range(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Reference pattern (PAS-DEBT-B2-013).
+    fn visit_pattern_reference(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Slice pattern (PAS-DEBT-B2-013).
+    fn visit_pattern_slice(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Rest sub-pattern (PAS-DEBT-B2-013).
+    fn visit_pattern_rest(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for patterns.
@@ -307,6 +315,10 @@ pub fn walk_pattern<V: PatternVisitor>(visitor: &mut V, arena: &AstArena, id: No
         NodeKind::PatEnumVariant => visitor.visit_pattern_enum_variant(arena, id),
         NodeKind::PatOr => visitor.visit_pattern_or(arena, id),
         NodeKind::PatBinding => visitor.visit_pattern_binding(arena, id),
+        NodeKind::PatRange => visitor.visit_pattern_range(arena, id),
+        NodeKind::PatReference => visitor.visit_pattern_reference(arena, id),
+        NodeKind::PatSlice => visitor.visit_pattern_slice(arena, id),
+        NodeKind::PatRest => visitor.visit_pattern_rest(arena, id),
         _ => {}
     }
 }

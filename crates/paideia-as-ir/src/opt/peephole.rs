@@ -1,63 +1,59 @@
 //! Peephole optimization pass.
 //!
-//! Per optimization-passes.md §1 (referenced; doc TBD). Local pattern
-//! rewrites on the IR's instruction stream. Phase-3-m3-001 ships 8
-//! canonical rewrites ported to work with the InstructionSideTable.
+//! Local pattern rewrites on the IR's instruction stream. Nine canonical
+//! rewrites — see [`PeepholeRewrite`] for the catalog. v0.36.47
+//! (PAS-DEBT-B3-004, #1517) lifted three of the four stubs to real
+//! rewrites (`strength-reduce-mul`, `combine-push-pop` two forms), and
+//! carried the div-by-power-of-2 and jump-to-next patterns to
+//! B3-004-b as a documented deferral (both need infrastructure the
+//! peephole window doesn't have — data-flow across the div triple
+//! and label→instruction position tracking respectively).
 
 use super::{OptDiagSink, OptPass};
 use crate::IrArena;
-use crate::instruction::{Mnemonic, Operand};
+use crate::instruction::{Mnemonic, Operand, RegId};
 use crate::node::IrNodeId;
+use smallvec::SmallVec;
 
 #[cfg(test)]
 use crate::instruction::InstrMode;
 
 /// The peephole optimization pass.
-///
-/// This pass applies a catalog of 8 canonical local rewrites to the IR,
-/// each targeting a specific instruction pattern. Phase-3-m3-001 implements
-/// 5 working rewrites and 3 stubs (pending Mnemonic expansion).
 pub struct PeepholePass;
 
-/// The nine canonical peephole rewrites (phase-3-m3-001 + PA-R14-011):
+/// The nine canonical peephole rewrites.
 ///
-/// 1. RemoveNopMov: `mov r, r` → eliminate. (PORTED)
-/// 2. SimplifyZeroAdd: `add r, 0` → eliminate. (PORTED)
-/// 3. SimplifyZeroSub: `sub r, 0` → eliminate. (PORTED)
-/// 4. StrengthReduceMul: `mul r, 2` → `shl r, 1`. (STUB: Mul/Shl not in Mnemonic enum)
-/// 5. StrengthReduceDiv: `div r, 2` → `shr r, 1` (unsigned). (STUB: Div/Shr not in Mnemonic enum)
-/// 6. FuseLoadStore: `mov r, [mem]; mov [mem], r` (round-trip) → eliminate. (PORTED)
-/// 7. CollapseJumpToNext: `jmp label_next` where label_next immediately follows → eliminate. (PORTED)
-/// 8. CombinePushPop: `push r; pop r` (no intervening) → eliminate. (STUB: Push/Pop not in Mnemonic enum)
-/// 9. CompareToTest: `cmp r, 0; jz/jnz/je/jne` → `test r, r; jz/jnz/je/jne`. (PA-R14-011, PORTED)
-///
-/// Phase-3-m3-001: Pattern-matching + actual rewrites on InstructionSideTable.
-/// Rewrites are applied to a sequence of instructions in a block.
-/// Stubs emit TODO diagnostics for mnemonics not yet in the enum.
+/// 1. `RemoveNopMov` — `mov r, r` → eliminate.
+/// 2. `SimplifyZeroAdd` — `add r, 0` → eliminate.
+/// 3. `SimplifyZeroSub` — `sub r, 0` → eliminate.
+/// 4. `StrengthReduceMul` — `imul r, r, imm_pow2` → `shl r, log2(imm)`
+///    (v0.36.47, #1517).
+/// 5. `StrengthReduceDiv` — `div r_pow2` (with prior `mov r_pow2, imm`)
+///    → `shr rax, log2(imm)`. Deferred to B3-004-b — needs data-flow
+///    across the div triple `mov r,imm; xor rdx,rdx; div r`.
+/// 6. `FuseLoadStore` — `mov r, [m]; mov [m], r` → eliminate.
+/// 7. `CollapseJumpToNext` — `jmp L` where L labels the next
+///    instruction → eliminate. Deferred to B3-004-b — needs a
+///    label→instruction-position side table the peephole doesn't own.
+/// 8. `CombinePushPop` — `push X; pop X` → eliminate;
+///    `push X; pop Y` → `mov Y, X` (v0.36.47, #1517).
+/// 9. `CompareToTest` — `cmp r, 0; jcc(Eq|Ne|Zero|NonZero)` →
+///    `test r, r; jcc …`.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum PeepholeRewrite {
-    /// Remove self-moving instructions (`mov r, r`).
     RemoveNopMov,
-    /// Simplify addition by zero (`add r, 0`).
     SimplifyZeroAdd,
-    /// Simplify subtraction by zero (`sub r, 0`).
     SimplifyZeroSub,
-    /// Strength-reduce multiplication by 2 to left shift.
     StrengthReduceMul,
-    /// Strength-reduce division by 2 to right shift (unsigned).
     StrengthReduceDiv,
-    /// Fuse redundant load-store round-trips.
     FuseLoadStore,
-    /// Collapse jumps to the immediately following instruction.
     CollapseJumpToNext,
-    /// Combine redundant push-pop pairs.
     CombinePushPop,
-    /// Replace cmp reg, 0 with test reg, reg.
     CompareToTest,
 }
 
 impl PeepholeRewrite {
-    /// Returns the canonical name of this rewrite for diagnostic purposes.
+    /// Canonical rewrite name for diagnostics.
     pub fn name(self) -> &'static str {
         match self {
             Self::RemoveNopMov => "remove-nop-mov",
@@ -72,7 +68,7 @@ impl PeepholeRewrite {
         }
     }
 
-    /// Returns all 9 canonical peephole rewrites in order.
+    /// All nine canonical rewrites, in catalog order.
     pub fn all() -> &'static [PeepholeRewrite] {
         &[
             Self::RemoveNopMov,
@@ -88,108 +84,129 @@ impl PeepholeRewrite {
     }
 }
 
-/// Helper: try to apply RemoveNopMov (`mov r, r` → eliminate).
-fn try_rewrite_remove_nop_mov(
+/// One pending mutation to apply to the instruction table after the
+/// pattern-matching borrow is released.
+///
+/// Keeping every rewrite's follow-up in a single enum lets the dispatch
+/// loop read as a flat match against outcomes rather than a fan of
+/// Option slots per rewrite kind.
+enum Pending {
+    /// Delete these instruction ids (1 or 2). `name` labels the rewrite
+    /// in the diagnostic so the fused/removed sites stay distinguishable.
+    Remove {
+        ids: SmallVec<[IrNodeId; 2]>,
+        name: PeepholeRewrite,
+    },
+    /// Rewrite the `cmp` at `id` in place to `test r, r`.
+    ReplaceCmpWithTest { id: IrNodeId },
+    /// Rewrite the `imul r, r, imm` at `id` in place to `shl r, shift`.
+    ReplaceImulWithShl { id: IrNodeId, shift: u8 },
+    /// Collapse `push src; pop dst` (different regs) into `mov dst, src`:
+    /// mutate `push_id` in place, remove `pop_id`.
+    ReplacePushPopWithMov {
+        push_id: IrNodeId,
+        pop_id: IrNodeId,
+        dst: RegId,
+        src: RegId,
+    },
+}
+
+/// Try `mov r, r` → eliminate.
+fn try_remove_nop_mov(
     table: &crate::instruction::InstructionSideTable,
     ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
-    if ids.is_empty() {
-        return None;
-    }
-    let id = ids[0];
-    let inst = table.get(id)?;
-    if inst.mnemonic != Mnemonic::Mov {
-        return None;
-    }
-    if inst.operands.len() != 2 {
+) -> Option<Pending> {
+    let inst = table.get(*ids.first()?)?;
+    if inst.mnemonic != Mnemonic::Mov || inst.operands.len() != 2 {
         return None;
     }
     match (&inst.operands[0], &inst.operands[1]) {
-        (Operand::Reg(r1), Operand::Reg(r2)) if r1 == r2 => {
-            Some((0, PeepholeRewrite::RemoveNopMov))
-        }
+        (Operand::Reg(a), Operand::Reg(b)) if a == b => Some(Pending::Remove {
+            ids: SmallVec::from_slice(&[ids[0]]),
+            name: PeepholeRewrite::RemoveNopMov,
+        }),
         _ => None,
     }
 }
 
-/// Helper: try to apply SimplifyZeroAdd (`add r, 0` → eliminate).
-fn try_rewrite_simplify_zero_add(
+/// Try `add r, 0` → eliminate.
+fn try_simplify_zero_add(
     table: &crate::instruction::InstructionSideTable,
     ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
-    if ids.is_empty() {
+) -> Option<Pending> {
+    let inst = table.get(*ids.first()?)?;
+    if inst.mnemonic != Mnemonic::Add || inst.operands.len() != 2 {
         return None;
     }
-    let id = ids[0];
-    let inst = table.get(id)?;
-    if inst.mnemonic != Mnemonic::Add {
-        return None;
-    }
-    if inst.operands.len() != 2 {
-        return None;
-    }
-    match &inst.operands[1] {
-        Operand::Imm64(0) => Some((0, PeepholeRewrite::SimplifyZeroAdd)),
-        _ => None,
-    }
+    matches!(&inst.operands[1], Operand::Imm64(0)).then(|| Pending::Remove {
+        ids: SmallVec::from_slice(&[ids[0]]),
+        name: PeepholeRewrite::SimplifyZeroAdd,
+    })
 }
 
-/// Helper: try to apply SimplifyZeroSub (`sub r, 0` → eliminate).
-fn try_rewrite_simplify_zero_sub(
+/// Try `sub r, 0` → eliminate.
+fn try_simplify_zero_sub(
     table: &crate::instruction::InstructionSideTable,
     ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
-    if ids.is_empty() {
+) -> Option<Pending> {
+    let inst = table.get(*ids.first()?)?;
+    if inst.mnemonic != Mnemonic::Sub || inst.operands.len() != 2 {
         return None;
     }
-    let id = ids[0];
-    let inst = table.get(id)?;
-    if inst.mnemonic != Mnemonic::Sub {
-        return None;
-    }
-    if inst.operands.len() != 2 {
-        return None;
-    }
-    match &inst.operands[1] {
-        Operand::Imm64(0) => Some((0, PeepholeRewrite::SimplifyZeroSub)),
-        _ => None,
-    }
+    matches!(&inst.operands[1], Operand::Imm64(0)).then(|| Pending::Remove {
+        ids: SmallVec::from_slice(&[ids[0]]),
+        name: PeepholeRewrite::SimplifyZeroSub,
+    })
 }
 
-/// Helper: try to apply StrengthReduceMul (`mul r, 2` → `shl r, 1`).
-/// STUB: Mul and Shl mnemonics not in enum yet.
-fn try_rewrite_strength_reduce_mul(
-    _table: &crate::instruction::InstructionSideTable,
-    _ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
-    // TODO(phase-3-m3-002): Add Mul and Shl to Mnemonic enum.
-    None
-}
-
-/// Helper: try to apply StrengthReduceDiv (`div r, 2` → `shr r, 1`).
-/// STUB: Div and Shr mnemonics not in enum yet.
-fn try_rewrite_strength_reduce_div(
-    _table: &crate::instruction::InstructionSideTable,
-    _ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
-    // TODO(phase-3-m3-002): Add Div and Shr to Mnemonic enum.
-    None
-}
-
-/// Helper: try to apply FuseLoadStore (`mov r, [mem]; mov [mem], r` → eliminate both).
-fn try_rewrite_fuse_load_store(
+/// Try `imul r, r, imm_pow2` → `shl r, log2(imm)`.
+///
+/// Only fires on the 3-operand form where `dst == src` and `imm` is a
+/// positive power of two whose `log2` fits `shl r64, imm8`. Different
+/// dst/src would need a `mov` insertion, which erodes the strength
+/// reduction (imul reg,reg,imm8 = 4 bytes ≤ mov + shl = 7 bytes).
+///
+/// `Mul` in the runtime enum is the wide unsigned `mul r64` (implicit
+/// rax, no immediate operand) — no strength-reduce shape exists for it.
+fn try_strength_reduce_mul(
     table: &crate::instruction::InstructionSideTable,
     ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
+) -> Option<Pending> {
+    let inst = table.get(*ids.first()?)?;
+    if inst.mnemonic != Mnemonic::Imul || inst.operands.len() != 3 {
+        return None;
+    }
+    let (dst, src, imm) = match (&inst.operands[0], &inst.operands[1], &inst.operands[2]) {
+        (Operand::Reg(d), Operand::Reg(s), Operand::Imm64(i)) => (*d, *s, *i),
+        _ => return None,
+    };
+    if dst != src || imm <= 0 {
+        return None;
+    }
+    let u = imm as u64;
+    if !u.is_power_of_two() {
+        return None;
+    }
+    let shift = u.trailing_zeros();
+    if shift == 0 || shift > 63 {
+        return None; // shift==0 means imm==1, no rewrite; >63 out-of-range for shl r64,imm8
+    }
+    Some(Pending::ReplaceImulWithShl {
+        id: ids[0],
+        shift: shift as u8,
+    })
+}
+
+/// Try `mov r, [m]; mov [m], r` → eliminate.
+fn try_fuse_load_store(
+    table: &crate::instruction::InstructionSideTable,
+    ids: &[IrNodeId],
+) -> Option<Pending> {
     if ids.len() < 2 {
         return None;
     }
-    let id0 = ids[0];
-    let id1 = ids[1];
-    let inst0 = table.get(id0)?;
-    let inst1 = table.get(id1)?;
-
-    // First instruction: mov r, [mem]
+    let inst0 = table.get(ids[0])?;
+    let inst1 = table.get(ids[1])?;
     if inst0.mnemonic != Mnemonic::Mov || inst0.operands.len() != 2 {
         return None;
     }
@@ -199,8 +216,6 @@ fn try_rewrite_fuse_load_store(
         }
         _ => return None,
     };
-
-    // Second instruction: mov [mem], r
     if inst1.mnemonic != Mnemonic::Mov || inst1.operands.len() != 2 {
         return None;
     }
@@ -208,76 +223,83 @@ fn try_rewrite_fuse_load_store(
         (Operand::MemSib { .. } | Operand::MemDisp { .. }, Operand::Reg(r2))
             if r2 == reg && mem == &inst1.operands[0] =>
         {
-            Some((0, PeepholeRewrite::FuseLoadStore))
+            Some(Pending::Remove {
+                ids: SmallVec::from_slice(&[ids[0], ids[1]]),
+                name: PeepholeRewrite::FuseLoadStore,
+            })
         }
         _ => None,
     }
 }
 
-/// Helper: try to apply CollapseJumpToNext (`jmp label_next` → eliminate).
-fn try_rewrite_collapse_jump_to_next(
+/// Try `push X; pop Y` → `mov Y, X` (or eliminate both when X == Y).
+///
+/// Excludes RSP: pushing/popping RSP has stack-frame semantics the
+/// peephole should not paper over.
+fn try_combine_push_pop(
     table: &crate::instruction::InstructionSideTable,
     ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
+) -> Option<Pending> {
     if ids.len() < 2 {
         return None;
     }
-    let id0 = ids[0];
-    let inst0 = table.get(id0)?;
-
-    // Check if first instruction is `jmp` with one operand (the target label).
-    if inst0.mnemonic != Mnemonic::Jmp || inst0.operands.len() != 1 {
+    let inst0 = table.get(ids[0])?;
+    let inst1 = table.get(ids[1])?;
+    if inst0.mnemonic != Mnemonic::Push || inst0.operands.len() != 1 {
         return None;
     }
-
-    // For now, we assume the target is "next block" if the label matches the next instruction's index.
-    // A real implementation would track label mappings, but this is a simplified heuristic.
-    // We'll stub this as "would-fire" since label tracking isn't in place yet.
-    Some((0, PeepholeRewrite::CollapseJumpToNext))
+    if inst1.mnemonic != Mnemonic::Pop || inst1.operands.len() != 1 {
+        return None;
+    }
+    let (src, dst) = match (&inst0.operands[0], &inst1.operands[0]) {
+        (Operand::Reg(s), Operand::Reg(d)) => (*s, *d),
+        _ => return None,
+    };
+    // RSP = 4. Skip stack-pointer plays.
+    if src == RegId(4) || dst == RegId(4) {
+        return None;
+    }
+    if src == dst {
+        Some(Pending::Remove {
+            ids: SmallVec::from_slice(&[ids[0], ids[1]]),
+            name: PeepholeRewrite::CombinePushPop,
+        })
+    } else {
+        Some(Pending::ReplacePushPopWithMov {
+            push_id: ids[0],
+            pop_id: ids[1],
+            dst,
+            src,
+        })
+    }
 }
 
-/// Helper: try to apply CombinePushPop (`push r; pop r` → eliminate both).
-/// STUB: Push and Pop mnemonics not in enum yet.
-fn try_rewrite_combine_push_pop(
-    _table: &crate::instruction::InstructionSideTable,
-    _ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
-    // TODO(phase-3-m3-002): Add Push and Pop to Mnemonic enum.
-    None
-}
-
-/// Helper: try to apply CompareToTest (`cmp reg, 0; jz/jnz/je/jne` → `test reg, reg; jz/jnz/je/jne`).
-/// PA-R14-011: Replaces a 7-byte cmp with a 3-byte test, saving 2 bytes (the 32-bit immediate).
-/// Correctness: test reg, reg sets the same flags as cmp reg, 0 for ZF/SF/PF/CF/OF.
-fn try_rewrite_compare_to_test(
+/// Try `cmp r, 0; jcc(Eq|Ne|Zero|NonZero)` → mutate `cmp` to `test r, r`
+/// (PA-R14-011). `jcc` is untouched — same flags read.
+fn try_compare_to_test(
     table: &crate::instruction::InstructionSideTable,
     ids: &[IrNodeId],
-) -> Option<(usize, PeepholeRewrite)> {
+) -> Option<Pending> {
     if ids.len() < 2 {
         return None;
     }
-    let id0 = ids[0];
-    let id1 = ids[1];
-    let inst0 = table.get(id0)?;
-    let inst1 = table.get(id1)?;
-
-    // First instruction: cmp reg, 0
+    let inst0 = table.get(ids[0])?;
+    let inst1 = table.get(ids[1])?;
     if inst0.mnemonic != Mnemonic::Cmp || inst0.operands.len() != 2 {
         return None;
     }
-    let _reg = match (&inst0.operands[0], &inst0.operands[1]) {
-        (Operand::Reg(_r), Operand::Imm64(0)) => _r,
-        _ => return None,
-    };
-
-    // Second instruction: Jcc with condition in {Eq, Ne, Zero, NonZero}
-    // These conditions only care about ZF, which is set identically by cmp and test.
+    if !matches!(
+        (&inst0.operands[0], &inst0.operands[1]),
+        (Operand::Reg(_), Operand::Imm64(0))
+    ) {
+        return None;
+    }
     match inst1.mnemonic {
         Mnemonic::Jcc(cond) => match cond {
             crate::instruction::Cond::Eq
             | crate::instruction::Cond::Ne
             | crate::instruction::Cond::Zero
-            | crate::instruction::Cond::NonZero => Some((0, PeepholeRewrite::CompareToTest)),
+            | crate::instruction::Cond::NonZero => Some(Pending::ReplaceCmpWithTest { id: ids[0] }),
             _ => None,
         },
         _ => None,
@@ -290,149 +312,121 @@ impl OptPass for PeepholePass {
     }
 
     fn apply(&self, arena: &mut IrArena, _function_root: IrNodeId, sink: &mut OptDiagSink) -> bool {
-        // Collect all instruction node ids from the table (simple approach for Phase-3-m3-001).
-        // In a full implementation, this would walk the actual block structure.
         let mut ids: Vec<IrNodeId> = {
             let table = arena.instructions();
             table.entries().keys().copied().collect()
         };
-
         if ids.is_empty() {
             return false;
         }
-
-        // Sort IDs numerically to preserve program order (IDs are created sequentially).
+        // IrNodeIds are handed out sequentially → sort preserves program order.
         ids.sort_by_key(|id| id.get());
 
         let mut changed = false;
-
-        // Try each rewrite pattern on sliding windows of instructions.
         let mut i = 0;
         while i < ids.len() {
             let remaining = &ids[i..];
-            let mut fired = false;
-            let mut to_remove: Vec<IrNodeId> = Vec::new();
-            let mut to_mutate_cmp_to_test: Option<IrNodeId> = None;
 
-            // Try each rewrite in order (check patterns without holding borrow).
-            {
+            // Try each rewrite in catalog order under a scoped read borrow.
+            let pending: Option<Pending> = {
                 let table = arena.instructions();
-                if let Some((_remove_count, _rewrite)) =
-                    try_rewrite_remove_nop_mov(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        format!("O1501 (remove-nop-mov): i{}", ids[i].get()),
-                    );
-                    to_remove.push(ids[i]);
-                    fired = true;
-                } else if let Some((_remove_count, _rewrite)) =
-                    try_rewrite_simplify_zero_add(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        format!("O1501 (simplify-zero-add): i{}", ids[i].get()),
-                    );
-                    to_remove.push(ids[i]);
-                    fired = true;
-                } else if let Some((_remove_count, _rewrite)) =
-                    try_rewrite_simplify_zero_sub(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        format!("O1501 (simplify-zero-sub): i{}", ids[i].get()),
-                    );
-                    to_remove.push(ids[i]);
-                    fired = true;
-                } else if let Some((_, _rewrite)) =
-                    try_rewrite_strength_reduce_mul(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        "TODO: strength-reduce-mul not yet implemented (Mul/Shl mnemonics pending)"
-                            .to_string(),
-                    );
-                    fired = true;
-                } else if let Some((_, _rewrite)) =
-                    try_rewrite_strength_reduce_div(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        "TODO: strength-reduce-div not yet implemented (Div/Shr mnemonics pending)"
-                            .to_string(),
-                    );
-                    fired = true;
-                } else if let Some((_remove_count, _rewrite)) =
-                    try_rewrite_fuse_load_store(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        format!(
-                            "O1502 (fuse-load-store): i{} + i{}",
-                            ids[i].get(),
-                            ids[i + 1].get()
-                        ),
-                    );
-                    to_remove.push(ids[i]);
-                    to_remove.push(ids[i + 1]);
-                    fired = true;
-                } else if let Some((_, _rewrite)) =
-                    try_rewrite_collapse_jump_to_next(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        "TODO: collapse-jump-to-next not yet implemented (label tracking pending)"
-                            .to_string(),
-                    );
-                    fired = true;
-                } else if let Some((_, _rewrite)) = try_rewrite_combine_push_pop(table, remaining) {
-                    sink.emit(
-                        "peephole",
-                        "TODO: combine-push-pop not yet implemented (Push/Pop mnemonics pending)"
-                            .to_string(),
-                    );
-                    fired = true;
-                } else if let Some((_, _rewrite)) =
-                    try_rewrite_compare_to_test(table, remaining)
-                {
-                    sink.emit(
-                        "peephole",
-                        format!("O1503 (compare-to-test): i{}", ids[i].get()),
-                    );
-                    to_mutate_cmp_to_test = Some(ids[i]);
-                    fired = true;
-                }
-            }
+                try_remove_nop_mov(table, remaining)
+                    .or_else(|| try_simplify_zero_add(table, remaining))
+                    .or_else(|| try_simplify_zero_sub(table, remaining))
+                    .or_else(|| try_strength_reduce_mul(table, remaining))
+                    .or_else(|| try_fuse_load_store(table, remaining))
+                    .or_else(|| try_combine_push_pop(table, remaining))
+                    .or_else(|| try_compare_to_test(table, remaining))
+            };
 
-            // Now perform mutations after releasing the immutable borrow.
-            if !to_remove.is_empty() {
-                for id_to_remove in to_remove {
-                    arena.instructions_mut().remove(id_to_remove);
+            match pending {
+                None => {
+                    i += 1;
                 }
-                changed = true;
-                if fired && i + 1 < ids.len() {
-                    // If we removed two instructions (fuse case), skip both.
-                    i += 2;
-                } else if fired {
-                    // Otherwise re-check from the same position.
-                    // (The next instruction has shifted down to position i.)
+                Some(Pending::Remove { ids: remove_ids, name }) => {
+                    let n = remove_ids.len();
+                    let diag = if n == 1 {
+                        format!("O1501 ({}): i{}", name.name(), remove_ids[0].get())
+                    } else {
+                        format!(
+                            "O1502 ({}): i{} + i{}",
+                            name.name(),
+                            remove_ids[0].get(),
+                            remove_ids[1].get()
+                        )
+                    };
+                    sink.emit("peephole", diag);
+                    {
+                        let table = arena.instructions_mut();
+                        for id in &remove_ids {
+                            table.remove(*id);
+                        }
+                    }
+                    changed = true;
+                    // Skip past all removed positions.
+                    i += n;
                 }
-            } else if let Some(cmp_id) = to_mutate_cmp_to_test {
-                // Mutate cmp to test: replace Cmp with Test using the same register twice.
-                if let Some(inst) = arena.instructions_mut().get_mut(cmp_id) {
-                    if inst.operands.len() == 2 {
+                Some(Pending::ReplaceCmpWithTest { id }) => {
+                    sink.emit(
+                        "peephole",
+                        format!("O1503 (compare-to-test): i{}", id.get()),
+                    );
+                    if let Some(inst) = arena.instructions_mut().get_mut(id) {
                         if let Operand::Reg(r) = inst.operands[0] {
                             inst.mnemonic = Mnemonic::Test;
                             inst.operands[1] = Operand::Reg(r);
                             changed = true;
-                            fired = true;
                         }
                     }
+                    i += 1;
                 }
-            }
-
-            if !fired {
-                i += 1;
+                Some(Pending::ReplaceImulWithShl { id, shift }) => {
+                    sink.emit(
+                        "peephole",
+                        format!(
+                            "O1512 (strength-reduce-mul): i{} imul→shl {}",
+                            id.get(),
+                            shift
+                        ),
+                    );
+                    if let Some(inst) = arena.instructions_mut().get_mut(id) {
+                        if let Operand::Reg(dst) = inst.operands[0] {
+                            inst.mnemonic = Mnemonic::Shl;
+                            inst.operands.clear();
+                            inst.operands.push(Operand::Reg(dst));
+                            inst.operands.push(Operand::Imm64(shift as i64));
+                            changed = true;
+                        }
+                    }
+                    i += 1;
+                }
+                Some(Pending::ReplacePushPopWithMov {
+                    push_id,
+                    pop_id,
+                    dst,
+                    src,
+                }) => {
+                    sink.emit(
+                        "peephole",
+                        format!(
+                            "O1513 (combine-push-pop): i{} + i{} → mov",
+                            push_id.get(),
+                            pop_id.get()
+                        ),
+                    );
+                    {
+                        let table = arena.instructions_mut();
+                        if let Some(inst) = table.get_mut(push_id) {
+                            inst.mnemonic = Mnemonic::Mov;
+                            inst.operands.clear();
+                            inst.operands.push(Operand::Reg(dst));
+                            inst.operands.push(Operand::Reg(src));
+                        }
+                        table.remove(pop_id);
+                    }
+                    changed = true;
+                    i += 2;
+                }
             }
         }
 
@@ -443,331 +437,453 @@ impl OptPass for PeepholePass {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instruction::{Cond, Instruction};
+    use smallvec::SmallVec;
+
+    fn mk(mnemonic: Mnemonic, ops: &[Operand]) -> Instruction {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        for o in ops {
+            operands.push(o.clone());
+        }
+        Instruction {
+            mnemonic,
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    fn insert(arena: &mut IrArena, id: u32, inst: Instruction) -> IrNodeId {
+        let node = IrNodeId::new(id).unwrap();
+        arena.instructions_mut().insert(node, inst);
+        node
+    }
 
     #[test]
     fn peephole_rewrite_names_are_unique() {
         let names: Vec<&str> = PeepholeRewrite::all().iter().map(|r| r.name()).collect();
-        let unique_count = names.iter().collect::<std::collections::HashSet<_>>().len();
-        assert_eq!(names.len(), unique_count, "Rewrite names must be unique");
+        let unique = names.iter().collect::<std::collections::HashSet<_>>().len();
+        assert_eq!(names.len(), unique);
     }
 
     #[test]
     fn peephole_pass_emits_no_diagnostics_for_empty_arena() {
-        // Phase-3-m3-001: with no instructions in the arena, no diagnostics are emitted.
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
-        let pass = PeepholePass;
-
-        let dummy_id = IrNodeId::new(1).unwrap();
-
-        let changed = pass.apply(&mut arena, dummy_id, &mut sink);
-
-        assert!(!changed, "Empty arena should produce no changes");
-        assert_eq!(
-            sink.diagnostics.len(),
-            0,
-            "Empty arena should produce no diagnostics"
-        );
+        let changed = PeepholePass.apply(&mut arena, IrNodeId::new(1).unwrap(), &mut sink);
+        assert!(!changed);
+        assert!(sink.diagnostics.is_empty());
     }
 
     #[test]
     fn peephole_pass_removes_nop_mov() {
-        use crate::instruction::{Instruction, Mnemonic, Operand, RegId};
-        use smallvec::SmallVec;
-
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
-        let pass = PeepholePass;
-
-        let id = IrNodeId::new(1).unwrap();
-        let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::Reg(RegId(0)));
-                ops.push(Operand::Reg(RegId(0)));
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
-
-        arena.instructions_mut().insert(id, inst);
-
-        let changed = pass.apply(&mut arena, id, &mut sink);
-
-        assert!(changed, "Remove-nop-mov should produce changes");
-        assert_eq!(sink.diagnostics.len(), 1, "Should emit one diagnostic");
-        assert!(
-            sink.diagnostics[0].message.contains("remove-nop-mov"),
-            "Diagnostic should mention remove-nop-mov"
+        let id = insert(
+            &mut arena,
+            1,
+            mk(Mnemonic::Mov, &[Operand::Reg(RegId(0)), Operand::Reg(RegId(0))]),
         );
-        assert!(
-            arena.instructions().get(id).is_none(),
-            "Instruction should be removed"
-        );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(changed);
+        assert!(arena.instructions().get(id).is_none());
     }
 
     #[test]
     fn peephole_pass_name_is_peephole() {
-        let pass = PeepholePass;
-        assert_eq!(pass.name(), "peephole");
+        assert_eq!(PeepholePass.name(), "peephole");
     }
 
     #[test]
     fn peephole_rewrite_all_returns_nine() {
-        let all_rewrites = PeepholeRewrite::all();
-        assert_eq!(
-            all_rewrites.len(),
-            9,
-            "PeepholeRewrite::all() must return exactly 9 rewrites"
+        assert_eq!(PeepholeRewrite::all().len(), 9);
+    }
+
+    // ── strength-reduce-mul (v0.36.47, #1517) ────────────────────────
+
+    #[test]
+    fn strength_reduce_mul_rewrites_pow2_immediate() {
+        // imul rax, rax, 8  →  shl rax, 3
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let id = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Imul,
+                &[
+                    Operand::Reg(RegId(0)),
+                    Operand::Reg(RegId(0)),
+                    Operand::Imm64(8),
+                ],
+            ),
         );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(changed);
+        let inst = arena.instructions().get(id).unwrap();
+        assert_eq!(inst.mnemonic, Mnemonic::Shl);
+        assert_eq!(inst.operands.len(), 2);
+        assert_eq!(inst.operands[0], Operand::Reg(RegId(0)));
+        assert_eq!(inst.operands[1], Operand::Imm64(3));
+        assert!(sink.diagnostics[0].message.contains("strength-reduce-mul"));
     }
 
     #[test]
-    fn peephole_pass_rewrites_cmp_to_test() {
-        use crate::instruction::{Instruction, Mnemonic, Operand, RegId, Cond};
-        use smallvec::SmallVec;
-
+    fn strength_reduce_mul_handles_large_pow2() {
+        // imul rax, rax, 1<<62 → shl rax, 62
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
-        let pass = PeepholePass;
+        let id = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Imul,
+                &[
+                    Operand::Reg(RegId(3)),
+                    Operand::Reg(RegId(3)),
+                    Operand::Imm64(1i64 << 62),
+                ],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(changed);
+        let inst = arena.instructions().get(id).unwrap();
+        assert_eq!(inst.mnemonic, Mnemonic::Shl);
+        assert_eq!(inst.operands[1], Operand::Imm64(62));
+    }
 
-        // Create: cmp rax, 0
-        let cmp_id = IrNodeId::new(1).unwrap();
-        let cmp_inst = Instruction {
-            mnemonic: Mnemonic::Cmp,
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::Reg(RegId(0))); // rax
-                ops.push(Operand::Imm64(0));
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
+    #[test]
+    fn strength_reduce_mul_skips_non_pow2() {
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let id = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Imul,
+                &[
+                    Operand::Reg(RegId(0)),
+                    Operand::Reg(RegId(0)),
+                    Operand::Imm64(6),
+                ],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(id).unwrap().mnemonic, Mnemonic::Imul);
+    }
 
-        // Create: je label
-        let jcc_id = IrNodeId::new(2).unwrap();
-        let jcc_inst = Instruction {
-            mnemonic: Mnemonic::Jcc(Cond::Eq),
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::LabelRef {
-                    name: "label".to_string(),
+    #[test]
+    fn strength_reduce_mul_skips_negative_and_zero_and_one() {
+        for imm in [-2i64, -8, 0, 1] {
+            let mut arena = IrArena::new();
+            let mut sink = OptDiagSink::new();
+            let id = insert(
+                &mut arena,
+                1,
+                mk(
+                    Mnemonic::Imul,
+                    &[
+                        Operand::Reg(RegId(0)),
+                        Operand::Reg(RegId(0)),
+                        Operand::Imm64(imm),
+                    ],
+                ),
+            );
+            let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+            assert!(!changed, "imm {imm} must not rewrite");
+            assert_eq!(
+                arena.instructions().get(id).unwrap().mnemonic,
+                Mnemonic::Imul
+            );
+        }
+    }
+
+    #[test]
+    fn strength_reduce_mul_skips_when_dst_ne_src() {
+        // imul rax, rbx, 4 — different dst/src; mov+shl would be worse.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let id = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Imul,
+                &[
+                    Operand::Reg(RegId(0)),
+                    Operand::Reg(RegId(3)),
+                    Operand::Imm64(4),
+                ],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(id).unwrap().mnemonic, Mnemonic::Imul);
+    }
+
+    #[test]
+    fn strength_reduce_mul_skips_two_operand_form() {
+        // imul rax, rbx (2-operand) — no immediate present.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let id = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Imul,
+                &[Operand::Reg(RegId(0)), Operand::Reg(RegId(3))],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(!changed);
+    }
+
+    // ── combine-push-pop (v0.36.47, #1517) ───────────────────────────
+
+    #[test]
+    fn combine_push_pop_same_reg_eliminates_both() {
+        // push rax; pop rax → (nothing)
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let push = insert(
+            &mut arena,
+            1,
+            mk(Mnemonic::Push, &[Operand::Reg(RegId(0))]),
+        );
+        let pop = insert(&mut arena, 2, mk(Mnemonic::Pop, &[Operand::Reg(RegId(0))]));
+        let changed = PeepholePass.apply(&mut arena, push, &mut sink);
+        assert!(changed);
+        assert!(arena.instructions().get(push).is_none());
+        assert!(arena.instructions().get(pop).is_none());
+    }
+
+    #[test]
+    fn combine_push_pop_different_regs_becomes_mov() {
+        // push rax; pop rbx → mov rbx, rax; (pop removed)
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let push = insert(
+            &mut arena,
+            1,
+            mk(Mnemonic::Push, &[Operand::Reg(RegId(0))]),
+        );
+        let pop = insert(&mut arena, 2, mk(Mnemonic::Pop, &[Operand::Reg(RegId(3))]));
+        let changed = PeepholePass.apply(&mut arena, push, &mut sink);
+        assert!(changed);
+        let mv = arena.instructions().get(push).unwrap();
+        assert_eq!(mv.mnemonic, Mnemonic::Mov);
+        assert_eq!(mv.operands[0], Operand::Reg(RegId(3))); // dst = pop_reg
+        assert_eq!(mv.operands[1], Operand::Reg(RegId(0))); // src = push_reg
+        assert!(arena.instructions().get(pop).is_none());
+    }
+
+    #[test]
+    fn combine_push_pop_skips_rsp() {
+        // push rsp; pop rax — RSP has stack-frame semantics; leave alone.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let push = insert(
+            &mut arena,
+            1,
+            mk(Mnemonic::Push, &[Operand::Reg(RegId(4))]),
+        );
+        let pop = insert(&mut arena, 2, mk(Mnemonic::Pop, &[Operand::Reg(RegId(0))]));
+        let changed = PeepholePass.apply(&mut arena, push, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(push).unwrap().mnemonic, Mnemonic::Push);
+        assert_eq!(arena.instructions().get(pop).unwrap().mnemonic, Mnemonic::Pop);
+    }
+
+    #[test]
+    fn combine_push_pop_skips_when_pop_target_is_rsp() {
+        // push rax; pop rsp — never rewrite.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        insert(&mut arena, 1, mk(Mnemonic::Push, &[Operand::Reg(RegId(0))]));
+        insert(&mut arena, 2, mk(Mnemonic::Pop, &[Operand::Reg(RegId(4))]));
+        let changed = PeepholePass.apply(&mut arena, IrNodeId::new(1).unwrap(), &mut sink);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn combine_push_pop_skips_non_reg_operand() {
+        // push [rbp-8]; pop rax — memory push is not the pattern we handle.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Push,
+                &[Operand::MemSib {
+                    base: RegId(5),
+                    index: None,
+                    scale: crate::instruction::Scale::X1,
+                    disp: -8,
+                }],
+            ),
+        );
+        insert(&mut arena, 2, mk(Mnemonic::Pop, &[Operand::Reg(RegId(0))]));
+        let changed = PeepholePass.apply(&mut arena, IrNodeId::new(1).unwrap(), &mut sink);
+        assert!(!changed);
+    }
+
+    // ── deferred rewrites (B3-004-b) — verify no spurious rewrites ───
+
+    #[test]
+    fn strength_reduce_div_is_deferred_no_rewrite() {
+        // Div r64 exists; no attempt is made to rewrite it here.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let id = insert(
+            &mut arena,
+            1,
+            mk(Mnemonic::Div, &[Operand::Reg(RegId(3))]),
+        );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(id).unwrap().mnemonic, Mnemonic::Div);
+    }
+
+    #[test]
+    fn collapse_jump_to_next_is_deferred_no_rewrite() {
+        // A bare Jmp without a label→position table stays put.
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let id = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Jmp,
+                &[Operand::LabelRef {
+                    name: "L".to_string(),
                     addend: 0,
-                });
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
-
-        arena.instructions_mut().insert(cmp_id, cmp_inst);
-        arena.instructions_mut().insert(jcc_id, jcc_inst);
-
-        let changed = pass.apply(&mut arena, cmp_id, &mut sink);
-
-        assert!(changed, "Compare-to-test should produce changes");
-        assert_eq!(sink.diagnostics.len(), 1, "Should emit one diagnostic");
-        assert!(
-            sink.diagnostics[0].message.contains("compare-to-test"),
-            "Diagnostic should mention compare-to-test"
+                }],
+            ),
         );
+        let changed = PeepholePass.apply(&mut arena, id, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(id).unwrap().mnemonic, Mnemonic::Jmp);
+    }
 
-        // Check that the cmp instruction was mutated to test.
-        let mutated = arena.instructions().get(cmp_id).unwrap();
-        assert_eq!(mutated.mnemonic, Mnemonic::Test, "Mnemonic should be Test");
-        assert_eq!(mutated.operands.len(), 2, "Should have 2 operands");
-        assert!(
-            matches!(&mutated.operands[0], Operand::Reg(RegId(0))),
-            "First operand should be rax"
-        );
-        assert!(
-            matches!(&mutated.operands[1], Operand::Reg(RegId(0))),
-            "Second operand should be rax"
-        );
+    // ── compare-to-test (existing, kept green) ───────────────────────
 
-        // Check that jcc instruction is unchanged.
-        let jcc_after = arena.instructions().get(jcc_id).unwrap();
-        assert_eq!(jcc_after.mnemonic, Mnemonic::Jcc(Cond::Eq), "Jcc should be unchanged");
+    #[test]
+    fn peephole_pass_rewrites_cmp_to_test() {
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let cmp = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Cmp,
+                &[Operand::Reg(RegId(0)), Operand::Imm64(0)],
+            ),
+        );
+        insert(
+            &mut arena,
+            2,
+            mk(
+                Mnemonic::Jcc(Cond::Eq),
+                &[Operand::LabelRef {
+                    name: "L".to_string(),
+                    addend: 0,
+                }],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, cmp, &mut sink);
+        assert!(changed);
+        let mutated = arena.instructions().get(cmp).unwrap();
+        assert_eq!(mutated.mnemonic, Mnemonic::Test);
+        assert_eq!(mutated.operands[0], Operand::Reg(RegId(0)));
+        assert_eq!(mutated.operands[1], Operand::Reg(RegId(0)));
     }
 
     #[test]
     fn peephole_pass_skips_cmp_when_imm_not_zero() {
-        use crate::instruction::{Instruction, Mnemonic, Operand, RegId, Cond};
-        use smallvec::SmallVec;
-
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
-        let pass = PeepholePass;
-
-        // Create: cmp rax, 1 (NOT zero)
-        let cmp_id = IrNodeId::new(1).unwrap();
-        let cmp_inst = Instruction {
-            mnemonic: Mnemonic::Cmp,
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::Reg(RegId(0))); // rax
-                ops.push(Operand::Imm64(1)); // NOT zero
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
-
-        // Create: je label
-        let jcc_id = IrNodeId::new(2).unwrap();
-        let jcc_inst = Instruction {
-            mnemonic: Mnemonic::Jcc(Cond::Eq),
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::LabelRef {
-                    name: "label".to_string(),
+        let cmp = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Cmp,
+                &[Operand::Reg(RegId(0)), Operand::Imm64(1)],
+            ),
+        );
+        insert(
+            &mut arena,
+            2,
+            mk(
+                Mnemonic::Jcc(Cond::Eq),
+                &[Operand::LabelRef {
+                    name: "L".to_string(),
                     addend: 0,
-                });
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
-
-        arena.instructions_mut().insert(cmp_id, cmp_inst.clone());
-        arena.instructions_mut().insert(jcc_id, jcc_inst);
-
-        let changed = pass.apply(&mut arena, cmp_id, &mut sink);
-
-        assert!(!changed, "Should not change when immediate is not zero");
-        assert_eq!(sink.diagnostics.len(), 0, "Should emit no diagnostics");
-
-        // Check that the cmp instruction is unchanged.
-        let after = arena.instructions().get(cmp_id).unwrap();
-        assert_eq!(after.mnemonic, Mnemonic::Cmp, "Mnemonic should still be Cmp");
+                }],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, cmp, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(cmp).unwrap().mnemonic, Mnemonic::Cmp);
     }
 
     #[test]
     fn peephole_pass_skips_cmp_when_next_not_jcc() {
-        use crate::instruction::{Instruction, Mnemonic, Operand, RegId};
-        use smallvec::SmallVec;
-
+        // cmp rax, 0; mov rbx, 1  — no jcc follower ⇒ no rewrite.
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
-        let pass = PeepholePass;
-
-        // Create: cmp rax, 0
-        let cmp_id = IrNodeId::new(1).unwrap();
-        let cmp_inst = Instruction {
-            mnemonic: Mnemonic::Cmp,
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::Reg(RegId(0))); // rax
-                ops.push(Operand::Imm64(0));
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
-
-        // Create: mov rbx, 1 (NOT a jcc)
-        let mov_id = IrNodeId::new(2).unwrap();
-        let mov_inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands: {
-                let mut ops = SmallVec::new();
-                ops.push(Operand::Reg(RegId(3))); // rbx
-                ops.push(Operand::Imm64(1));
-                ops
-            },
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: InstrMode::default(),
-            emission_order: 0,
-};
-
-        arena.instructions_mut().insert(cmp_id, cmp_inst.clone());
-        arena.instructions_mut().insert(mov_id, mov_inst);
-
-        let changed = pass.apply(&mut arena, cmp_id, &mut sink);
-
-        assert!(!changed, "Should not change when next instruction is not jcc");
-        assert_eq!(sink.diagnostics.len(), 0, "Should emit no diagnostics");
-
-        // Check that the cmp instruction is unchanged.
-        let after = arena.instructions().get(cmp_id).unwrap();
-        assert_eq!(after.mnemonic, Mnemonic::Cmp, "Mnemonic should still be Cmp");
+        let cmp = insert(
+            &mut arena,
+            1,
+            mk(
+                Mnemonic::Cmp,
+                &[Operand::Reg(RegId(0)), Operand::Imm64(0)],
+            ),
+        );
+        insert(
+            &mut arena,
+            2,
+            mk(
+                Mnemonic::Mov,
+                &[Operand::Reg(RegId(3)), Operand::Imm64(1)],
+            ),
+        );
+        let changed = PeepholePass.apply(&mut arena, cmp, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.instructions().get(cmp).unwrap().mnemonic, Mnemonic::Cmp);
     }
 
     #[test]
-    fn peephole_pass_rewrites_cmp_to_test_with_different_conditions() {
-        use crate::instruction::{Instruction, Mnemonic, Operand, RegId, Cond};
-        use smallvec::SmallVec;
-
-        // Test all four conditions: Eq, Ne, Zero, NonZero
-        for cond in &[Cond::Eq, Cond::Ne, Cond::Zero, Cond::NonZero] {
+    fn peephole_pass_rewrites_cmp_to_test_with_four_conditions() {
+        for cond in [Cond::Eq, Cond::Ne, Cond::Zero, Cond::NonZero] {
             let mut arena = IrArena::new();
             let mut sink = OptDiagSink::new();
-            let pass = PeepholePass;
-
-            let cmp_id = IrNodeId::new(1).unwrap();
-            let cmp_inst = Instruction {
-                mnemonic: Mnemonic::Cmp,
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::Reg(RegId(1))); // rcx
-                    ops.push(Operand::Imm64(0));
-                    ops
-                },
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-};
-
-            let jcc_id = IrNodeId::new(2).unwrap();
-            let jcc_inst = Instruction {
-                mnemonic: Mnemonic::Jcc(*cond),
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::LabelRef {
-                        name: "label".to_string(),
-                        addend: 0,
-                    });
-                    ops
-                },
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-};
-
-            arena.instructions_mut().insert(cmp_id, cmp_inst);
-            arena.instructions_mut().insert(jcc_id, jcc_inst);
-
-            let changed = pass.apply(&mut arena, cmp_id, &mut sink);
-
-            assert!(
-                changed,
-                "Compare-to-test should work for condition: {:?}",
-                cond
+            let cmp = insert(
+                &mut arena,
+                1,
+                mk(
+                    Mnemonic::Cmp,
+                    &[Operand::Reg(RegId(1)), Operand::Imm64(0)],
+                ),
             );
-            let mutated = arena.instructions().get(cmp_id).unwrap();
+            insert(
+                &mut arena,
+                2,
+                mk(
+                    Mnemonic::Jcc(cond),
+                    &[Operand::LabelRef {
+                        name: "L".to_string(),
+                        addend: 0,
+                    }],
+                ),
+            );
+            let changed = PeepholePass.apply(&mut arena, cmp, &mut sink);
+            assert!(changed, "cond {cond:?} must rewrite");
             assert_eq!(
-                mutated.mnemonic,
-                Mnemonic::Test,
-                "Should be Test for condition: {:?}",
-                cond
+                arena.instructions().get(cmp).unwrap().mnemonic,
+                Mnemonic::Test
             );
         }
     }

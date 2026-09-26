@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.36.47 — 2026-09-25 — Wave 7 debt-catalog: B3-004 + B3-006 + B2-013
+
+Wave 7 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed. Two of three included catalog reframes.
+
+**PAS-DEBT-B3-004** (closes #1517) — Peephole strength-reduce + push/pop combine:
+
+- **Audit reframe**: the stub comments claimed `Mul/Shl/Div/Shr/Push/
+  Pop` were missing from `Mnemonic`. Not true — all six are already
+  in `paideia_as_runtime::instruction::Mnemonic` and re-exported
+  through `paideia_as_ir::instruction::Mnemonic`. The rewrites were
+  unimplemented peephole logic, not a missing enum.
+- **strength-reduce-mul** — `Imul r, r, imm_pow2` → `Shl r,
+  log2(imm)`. Fires only on 3-operand `imul` when `dst == src`, `imm
+  > 0`, `imm` is a power of two, and `log2(imm) ∈ 1..=63` (fits in
+  `shl r64, imm8`). Skips `dst != src` (required `mov dst, src`
+  prefix erodes the gain).
+- **combine-push-pop** — `Push X; Pop X` → eliminate both; `Push X;
+  Pop Y` (X ≠ Y, neither is RSP) → mutate `Push` to `Mov Y, X`, drop
+  `Pop`. Skips non-Reg push targets.
+- **Deferred as B3-004-b** (with negative-test pins to guard against
+  spurious future firings): strength-reduce-div (needs data-flow
+  across the div triple to prove the divisor is a compile-time
+  pow-2; signed div can't map to shr at all — arithmetic-shift
+  rounding differs), collapse-jump-to-next (needs a label-position
+  side-table the peephole doesn't own).
+- 22 test functions (6 mul, 5 push/pop, 2 deferred-firing pins, plus
+  the pre-existing coverage kept green).
+- **O-code fix (debugger review)**: the softarch initially reused
+  O1504 (already macro_fusion) and O1505 (already dse, with a live
+  DSE test that filters by `.contains("O1505")`). Renumbered to
+  O1512 / O1513 (next free slots after tailcall O1510 + unroll
+  O1511).
+
+**PAS-DEBT-B3-006** (closes #1519) — LocalBindingTable threading:
+
+- **Discovery**: threading was simpler than the catalog implied.
+  `LocalBindingTable` was already on `self.state.local_bindings`
+  (`pub(crate)` field). The fix reduced to (a) resolving the base
+  register at the visitor entry via `arena.binding_names().get(ptr_id)
+  → state.local_bindings.get(name)`, and (b) letting it flow through
+  4 helper signatures that had hardcoded `abi::RDI`.
+- `emit_widening_load` gains `base_reg: RegId` (position 3), forwarded
+  to `emit_field_access_mov_sized_reg` / `_movzx_reg` / `_movsx_reg`.
+- Fallback to `abi::RDI` so bare-Var receivers without a binding name
+  keep the historical arg0-only encoding.
+- Un-`unimplemented!()` `field_access_var_receiver_base_rcx_offset_8`:
+  seeds `local_bindings["p"] = RCX`, asserts emit is `48 8B 41 08`
+  (`mov rax, [rcx + 8]`).
+- **Silent-wrong-code guard (debugger review)**: the initial fallback
+  `unwrap_or(abi::RDI)` collapsed three distinct cases into one silent
+  default — no-binding-name (legitimate RDI shape), Reg-bound (use
+  that reg), and non-Reg-bound (Stack / Env / Closure / RegPair,
+  which would generate wrong code). Split into a three-arm dispatch:
+  the non-Reg case now emits U1648 and refuses rather than encoding
+  through RDI. Uses `LocalBindingTable::get_home()` (already public)
+  to distinguish "name absent" from "name bound to non-register
+  home".
+
+**PAS-DEBT-B2-013** (closes #1506) — Pattern parser extensions:
+
+- **Audit reframe**: catalog listed 4 rejected shapes; or-pipe
+  (`p1 | p2 | ...`) already worked via `parse_pattern_or`. Real gaps:
+  Range, Reference, Slice.
+- **Landed**: 3 new pattern shapes plumbed through AST → parser →
+  visitor → pretty → refutability check.
+  - `Range` — `a..b` / `..b` / `a..` (mirrors `ExprData::Range`;
+    no `..=` since lexer emits no `DotDotEq`).
+  - `Reference` — `&p` and `&mut p`.
+  - `Slice` — `[a, b, c]`, `[a, .., last]`, `[..tail]` (with an
+    inner `Rest` pattern; at most one per slice, `P0104`).
+- New AST: `PatternData::{Range, Reference, Slice, Rest}` +
+  `NodeKind::{PatRange, PatReference, PatSlice, PatRest}`. Defensive
+  coverage across `pretty::print_pattern_internal`,
+  `visit::walk_pattern`, `check_pattern::is_irrefutable`, and
+  `lower::kind_map` (explicit list, not just wildcard).
+- **Deferred as B2-013-b**: `parse_match.rs::parse_pattern_match_atom`
+  still has its own atom parser; needs a broadening pass once the
+  elaborator learns the new shapes.
+- **Refutability soundness fix (debugger review)**: `is_irrefutable`
+  for `PatternData::Reference` initially returned unconditional
+  `true` — the wrong direction for a "conservative default" (should
+  require proof, not be the safe default). `&0`, `&Some(x)`,
+  `&(1..10)` are all refutable. Flipped to `false` (assume
+  refutable) so an eventual let-binding refutability caller doesn't
+  silently pass a refutable pattern. Inner-pattern recursion for a
+  precise verdict is a follow-up.
+- 9-fixture corpus at `tests/pattern_extensions.rs`.
+
+Workspace + SYSTEM_VERSION 0.36.46 → 0.36.47.
+
 ## 0.36.46 — 2026-09-25 — Wave 6 debt-catalog: B2-006 + B2-017 + B2-011
 
 Wave 6 of the paideia-as debt catalog. Three parallel primitives; three

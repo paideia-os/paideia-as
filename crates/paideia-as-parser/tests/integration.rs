@@ -19,6 +19,7 @@ mod inner_attr_bits;
 mod issue_1327_record_reserved_diag;
 mod ljmp_instruction;
 mod packed_struct_snapshots;
+mod pattern_extensions;
 mod range_expr;
 mod ring_attr_errors;
 mod snapshots_gpu_context;
