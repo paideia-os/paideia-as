@@ -1647,6 +1647,59 @@ fn parse_array_p0199_missing_semicolon() {
     assert!(result.is_err(), "expected parse error");
 }
 
+// paideia-as#1490 (PAS-DEBT-B1-008): array length accepts a full expression;
+// const-fold / hard-error responsibility sits in the elaborator, not the parser.
+#[test]
+fn parse_array_length_ident() {
+    // `[u64; N]` — a bare identifier is a valid length expression.
+    let tokens = vec![
+        tok(TokenKind::LBracket, 0),
+        tok(TokenKind::Ident, 1), // u64
+        tok(TokenKind::Semicolon, 4),
+        tok(TokenKind::Ident, 6), // N
+        tok(TokenKind::RBracket, 7),
+        tok(TokenKind::Eof, 8),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0, "no diagnostics expected");
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    assert_eq!(arena.get(ty_id).unwrap().kind, NodeKind::TypeArray);
+    if let Some(TypeData::Array { length, .. }) = arena.type_data(ty_id) {
+        assert_eq!(arena.get(*length).unwrap().kind, NodeKind::ExprPath);
+    } else {
+        panic!("expected TypeArray");
+    }
+}
+
+#[test]
+fn parse_array_length_binary_expr() {
+    // `[u64; MAX_PIDS * SLOT_QWORDS]` — a binary expression clears the
+    // parser (T0577 in the elaborator, not P0100 here).
+    let tokens = vec![
+        tok(TokenKind::LBracket, 0),
+        tok(TokenKind::Ident, 1), // u64
+        tok(TokenKind::Semicolon, 4),
+        tok(TokenKind::Ident, 6),  // MAX_PIDS
+        tok(TokenKind::Star, 15),  // *
+        tok(TokenKind::Ident, 17), // SLOT_QWORDS
+        tok(TokenKind::RBracket, 28),
+        tok(TokenKind::Eof, 29),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0, "no diagnostics expected");
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    assert_eq!(arena.get(ty_id).unwrap().kind, NodeKind::TypeArray);
+    if let Some(TypeData::Array { length, .. }) = arena.type_data(ty_id) {
+        assert_eq!(arena.get(*length).unwrap().kind, NodeKind::ExprInfix);
+    } else {
+        panic!("expected TypeArray");
+    }
+}
+
 // ============================================================================
 // Additional FnPtr tests (per issue #979 pa-r17-001)
 // ============================================================================

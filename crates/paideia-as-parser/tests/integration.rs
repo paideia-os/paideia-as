@@ -18,6 +18,7 @@ mod fn_type_param_names;
 mod for_pattern_extensions;
 mod example_files;
 mod functor_attr_binding;
+mod impl_trait_args;
 mod inner_attr_bits;
 mod issue_1327_record_reserved_diag;
 mod ljmp_instruction;

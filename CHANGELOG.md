@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.36.51 — 2026-09-25 — Wave 11 debt-catalog: B1-004 + B1-008 + B2-003
+
+Wave 11 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed. All three landed as lean fixes — one pure documentation
+debt (stale ignore-note), one one-line parser swap, one small AST plumb.
+
+**PAS-DEBT-B1-004** (closes #1536) — bridge_thunk MS x64 stale ignore:
+
+- **Pure documentation debt**: the U1620 narrowing that motivated the
+  `#[ignore]` was already fully relaxed by v0.21-001 (#1277).
+  `validate_ms_x64_emit_anchor` is now a no-op anchor, and every
+  previously-U1620'd shape (including MS x64 lambdas whose body is an
+  `App`/`Call`) routes through the ABI-aware lowering in
+  `emit_call.rs`. The ignore note was stale; no elaborator or emitter
+  change was required.
+- `tests/build_emit/bridge_thunk.rs`: dropped `#[ignore]` on
+  `ms_caller_to_ms_callee_no_bridge`. MS→MS caller/callee correctly
+  emits shadow bump + arg reshuffle without a paideia bridge save
+  (no push r15/r14). Full 8-test bridge_thunk suite passes green.
+
+**PAS-DEBT-B1-008** (closes #1490) — bss array-length const-expr:
+
+- **One-line parser swap**: `parse_type_array` used `parse_primary()`
+  (single primary token) instead of `parse_expr()` (full expression),
+  so `[u64; MAX_PIDS * SLOT_QWORDS]` and any other const-expression
+  in array-length position was rejected by the parser with `P0100:
+  expected ']', found '*'` — pre-empting the elaborator's `T0577`
+  diagnostic that owns which array-length shapes fold.
+- Elaborator's `compute_bss_size_from_type` already handles all three
+  cases correctly (integer literal → sized; single-ident ExprPath →
+  const-fold via `resolve_module_const_u64`; anything else → T0577
+  via `UnresolvedArrayLength`). No elaborator change needed.
+- Non-fold shapes (binary expressions, mutable bindings, unresolved
+  paths) still emit T0577 — the parser change just gets them past
+  parse.
+- 2 new parser tests: `parse_array_length_ident` and
+  `parse_array_length_binary_expr`.
+
+**PAS-DEBT-B2-003** (closes #1497) — Trait-impl trait_args extraction:
+
+- `parse_item/trait_impl.rs::parse_impl_decl`: replaced `trait_args =
+  Vec::new()` stub with an arena lookup that clones
+  `TypeData::Name.args` from the parsed trait `TypeName`. Non-
+  `TypeName` trait positions collapse to an empty `Vec` (conservative
+  default matching pre-fix behavior).
+- Syntax note: paideia-as uses `Trait(T, U)` paren-form (not
+  `Trait<T, U>` angle-bracket) — the issue text used the Rust
+  shorthand.
+- 4-fixture test corpus at `tests/impl_trait_args.rs` (single-arg,
+  two-arg with mirror-invariant, no-args regression, inherent-impl
+  regression).
+
+**build_emit test-count delta**: 447 passed / 1 failed / 7 ignored
+(baseline) → **450 passed / 0 failed / 5 ignored**. B1-008 closes the
+one pre-existing failure (bss_array_length_const::expression_array_
+length_is_rejected_with_t0577); B1-004 un-ignores one more test.
+
+Workspace + SYSTEM_VERSION 0.36.50 → 0.36.51.
+
 ## 0.36.50 — 2026-09-25 — Wave 10 debt-catalog: B3-002 + B3-005 + B2-002
 
 Wave 10 of the paideia-as debt catalog. Three parallel primitives; three

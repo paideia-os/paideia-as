@@ -1,7 +1,7 @@
 //! Trait and impl declaration parsing.
 //! Split out of `parse_item.rs` (2026-07-08).
 
-use paideia_as_ast::{ItemData, NodeId, NodeKind};
+use paideia_as_ast::{ItemData, NodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -582,10 +582,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         // Check for `for` keyword
         if self.at(TokenKind::KwFor) {
-            // Trait impl: `impl<T> Trait<T> for Type`
+            // Trait impl: `impl<T> Trait(T) for Type`
             self.bump(); // consume `for`
             trait_name = Some(first_type);
-            trait_args = Vec::new(); // TODO: extract from TypeName nodes in later PR
+            // B2-003 (#1497): mirror the TypeName's args into trait_args so
+            // downstream consumers see the trait's generic arguments. Non-
+            // TypeName trait positions (unusual but syntactically possible)
+            // carry no args.
+            trait_args = match self.arena().type_data(first_type) {
+                Some(TypeData::Name { args, .. }) => args.clone(),
+                _ => Vec::new(),
+            };
 
             match self.parse_type() {
                 Ok(t) => for_type = t,

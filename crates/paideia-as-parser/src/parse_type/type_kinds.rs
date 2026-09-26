@@ -261,8 +261,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
         self.bump(); // consume `;`
 
-        // Parse length expression (as a primary expression)
-        let length = self.parse_primary()?;
+        // Parse length expression. Accept a full expression (paideia-as#1490,
+        // PAS-DEBT-B1-008) so `[T; MAX_PIDS * SLOT_QWORDS]` and other const-
+        // expressions get past the parser; the elaborator's array-length
+        // resolver (compute_bss_size_from_type) is the authority on which
+        // shapes fold and emits T0577 for shapes it cannot.
+        let length = self.parse_expr()?;
 
         // Expect closing bracket
         let rbracket_tok = self.expect(TokenKind::RBracket)?;

@@ -311,7 +311,6 @@ fn sysv_caller_to_ms_callee_no_paideia_save() {
 }
 
 #[test]
-#[ignore = "blocked on U1620 narrowing: MS x64 lambda bodies containing function calls are not in the current MVP supported set (identity / add-imm / literal-return only). Un-ignore when U1620 permits App-body MS lambdas."]
 fn ms_caller_to_ms_callee_no_bridge() {
     // Both @abi("ms"): no bridge save, just shadow bump and arg reshuffle.
     let tmp_file = PathBuf::from("/tmp/Test22.pdx");
