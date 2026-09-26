@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.36.46 — 2026-09-25 — Wave 6 debt-catalog: B2-006 + B2-017 + B2-011
+
+Wave 6 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed. Two of three included a reframe on the catalog claim.
+
+**PAS-DEBT-B2-006** (closes #1499) — Parser stmt separators (§9.2, §9.3):
+
+- **Audit reframe**: the deferral note at `parse_stmt.rs:6-13` was
+  wrong. §9.2 (multi-line expressions) has always worked — newlines
+  are `TriviaKind::Newline` and never reach the parser. §9.3
+  (newline-as-separator) already works at block level via existing
+  `parse_block_kind` (`parse_control.rs:365`) and `parse_handler_body`
+  (`parse_handler.rs:114`), which wrap a non-`;`-terminated expression
+  as `StmtExpr` when the next token isn't the block closer — SY-D3
+  rule under a different name.
+- **Landed**: 10-fixture pinning corpus at `tests/stmt_multiline.rs`
+  (5 §9.2, 5 §9.3) + module-doc rewrite reflecting actual state.
+- **Deferred as B2-006-b**: adjacent-line ambiguous-token pairs
+  (`ident\nident`, trailing binop) still require `;` — needs the
+  `lexer-context-add` refactor. Too invasive for one primitive
+  alongside two parallel siblings; deferral note names the follow-up.
+
+**PAS-DEBT-B2-011** (closes #1504) — FunctorDecl NodeId + attribute keying:
+
+- **Root cause**: v0.32-M1-003's standalone `parse_functor_with_attrs`
+  returned a bare struct with no arena identity. `FunctorAttrTable`
+  was already ready to receive entries keyed by `NodeId`, but the
+  parser had no id to hand it, so `@retain` / `@immediate` parsed
+  cleanly then dropped silently.
+- `paideia-as-ast`: `NodeKind::FunctorDecl` (distinct from
+  `NodeKind::Functor`, which is the module-parameterised form), new
+  `ItemData::FunctorDecl { name, param_name, param_sig, return_sig,
+  session_var, doc }` variant, `TermHead::FunctorDecl`,
+  `visit_functor_decl` dispatch, exhaustive `pretty` arm.
+- `paideia-as-parser`: new public
+  `parse_functor_with_attrs_into_arena(tokens, source, file, arena,
+  sink) -> (NodeId, Vec<FunctorAttr>, FunctorDecl)` that runs the
+  existing recogniser, allocates a `NodeKind::FunctorDecl` node with
+  per-field `Ident` children, and pushes each parsed attribute into
+  `arena.functor_attr_mut()`. Slice-only `parse_functor_with_attrs`
+  retained as an additive shim.
+- 8-fixture pinning corpus at `tests/functor_attr_binding.rs`
+  (round-trip retain + immediate, bare-no-entry, kind/payload
+  identity, session-binding, `Term::head`, `walk_item`, pretty).
+- Elaborator lowering deferred (same shape as B2-008 forall) — a
+  session-typed lowering pass requires M1-004 item integration.
+
+**PAS-DEBT-B2-017** (closes #1510) — Shell parser `>(cmd)` process substitution:
+
+- `paideia-as-shell-ast`: `parse_redirect_stage` in
+  `parser/pipeline.rs` now dispatches on `LParen` after `>` / `>>` to
+  a new `parse_proc_subst_target` helper. Target is the inner
+  `Cmd`/`Pipe` directly per the `RedirectKind` doc contract at
+  `ast.rs:37-40` (no `Group` wrap — parens are proc-subst syntax, not
+  plain grouping). R222 evaluator will add semantics only.
+- Unclosed proc-subst reports `` `)` to close process substitution ``
+  via the existing `err_expected` idiom — never-panic fuzz invariant
+  preserved.
+- Pretty-printer wraps non-file-shaped, non-self-delimiting targets in
+  `(...)` so `pretty_print(parse(src))` round-trips proc-subst inputs
+  byte-identically (R221.M7 contract). `is_proc_subst_target` excludes
+  file-shaped leaves (Ident/LitStr/LitInt/LitBool/FieldAccess) AND
+  self-delimiting non-file targets (`DatalogBlock`, `Lambda`) — the
+  latter two were pre-existing bare-redirect grammar shapes that would
+  have been double-braced without the exclusion. Added on debugger-
+  driven review.
+- 8-fixture corpus at `tests/pipeline_parse.rs`: regression file-path
+  redirect, single-command proc-subst, pipeline inside proc-subst,
+  `>>` append-mode proc-subst, unclosed reject, and 3 round-trip
+  pretty-print fixtures.
+
+Workspace + SYSTEM_VERSION 0.36.45 → 0.36.46.
+
 ## 0.36.45 — 2026-09-25 — Wave 5 debt-catalog: B2-008 + B2-012 + B2-019
 
 Wave 5 of the paideia-as debt catalog. Three parallel primitives; three

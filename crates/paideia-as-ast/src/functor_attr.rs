@@ -15,11 +15,16 @@
 //! **v0.32-M1-003 landing scope.** The M1-003 parser primitive that
 //! recognises `@retain` / `@immediate` is the standalone
 //! `paideia_as_parser::toolkit_attrs::parse_functor_with_attrs`, which
-//! predates the parse-item integration of functor decls and therefore
-//! does not yet mint the `NodeId` needed to key this table. The table
-//! ships now so the AST arena surface stays symmetric with
-//! [`crate::StructAttrTable`], and so the M1-004 item-parser hookup can
-//! push into it without a further AST churn.
+//! did not yet mint the `NodeId` needed to key this table.
+//!
+//! **PAS-DEBT-B2-011 (paideia-as#1504, v0.36.46).** Closed by the
+//! arena-aware companion
+//! `paideia_as_parser::toolkit_attrs::parse_functor_with_attrs_into_arena`,
+//! which allocates a [`crate::NodeKind::FunctorDecl`] node with an
+//! [`crate::ItemData::FunctorDecl`] payload and pushes each parsed
+//! attribute here keyed on the freshly minted id. The pre-B2-011 free
+//! function is retained as a slice-only shim for callers that still
+//! parse for signature-only.
 
 use std::collections::HashMap;
 

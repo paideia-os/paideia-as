@@ -26,6 +26,9 @@ pub trait ItemVisitor {
     /// Visit a FunctorParam item.
     fn visit_functor_param(&mut self, _arena: &AstArena, _id: NodeId) {}
 
+    /// Visit a session-typed FunctorDecl item (PAS-DEBT-B2-011).
+    fn visit_functor_decl(&mut self, _arena: &AstArena, _id: NodeId) {}
+
     /// Visit an Effect item.
     fn visit_effect(&mut self, _arena: &AstArena, _id: NodeId) {}
 
@@ -65,6 +68,7 @@ pub fn walk_item<V: ItemVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::Structure => visitor.visit_structure(arena, id),
         NodeKind::Functor => visitor.visit_functor(arena, id),
         NodeKind::FunctorParam => visitor.visit_functor_param(arena, id),
+        NodeKind::FunctorDecl => visitor.visit_functor_decl(arena, id),
         NodeKind::Effect => visitor.visit_effect(arena, id),
         NodeKind::OpSig => visitor.visit_op_sig(arena, id),
         NodeKind::Capability => visitor.visit_capability(arena, id),

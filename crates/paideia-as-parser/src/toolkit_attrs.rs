@@ -55,15 +55,19 @@
 //! empty when neither attribute is present — the common case — and holds
 //! exactly one entry otherwise.
 //!
-//! The M1-003 primitive does **not** push into
-//! [`paideia_as_ast::FunctorAttrTable`] itself: [`FunctorDecl`] currently
-//! carries no `NodeId` (the functor decl is not yet an item-parser node
-//! kind), so there is no key to push against. The AST table ships with
-//! this milestone so the arena surface stays symmetric with
-//! [`paideia_as_ast::StructAttrTable`] and so the M1-004 item-parser
-//! hookup can insert into it without a further AST churn. Callers that
-//! elaborate the returned pair are expected to `push` into the table
-//! once they mint the functor's node id.
+//! The M1-003 free function [`parse_functor_with_attrs`] does **not**
+//! push into [`paideia_as_ast::FunctorAttrTable`] itself: its returned
+//! [`FunctorDecl`] carries no `NodeId`, so there is no key to push
+//! against. It is retained as a slice-only shim for signature-only
+//! callers.
+//!
+//! **PAS-DEBT-B2-011 (paideia-as#1504, v0.36.46).** The arena-aware
+//! companion [`parse_functor_with_attrs_into_arena`] closes the gap:
+//! it allocates a [`paideia_as_ast::NodeKind::FunctorDecl`] node with an
+//! [`paideia_as_ast::ItemData::FunctorDecl`] payload and pushes every
+//! parsed attribute into [`paideia_as_ast::FunctorAttrTable`] keyed on
+//! the freshly minted id. Callers that need the round-trip
+//! attribute-lookup should use the arena entry point.
 //!
 //! # Diagnostics
 //!
@@ -85,7 +89,7 @@
 //!   appears twice — the second occurrence is a redundant declaration
 //!   that provides no new information.
 
-use paideia_as_ast::FunctorAttr;
+use paideia_as_ast::{AstArena, FunctorAttr, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, FileId, Severity, Span,
 };
@@ -186,6 +190,75 @@ pub fn parse_functor_with_attrs(
     let pos = cursor.position();
     let decl = parse_functor(&tokens[pos..], source, file, sink)?;
     Ok((attrs, decl))
+}
+
+/// Arena-aware companion to [`parse_functor_with_attrs`]
+/// (paideia-as#1504, PAS-DEBT-B2-011).
+///
+/// Runs the same recogniser, then allocates a
+/// [`NodeKind::FunctorDecl`] node (with an [`ItemData::FunctorDecl`]
+/// payload keyed by `NodeId`s for the name / param / signatures /
+/// optional session-var), and pushes every parsed [`FunctorAttr`] into
+/// [`paideia_as_ast::FunctorAttrTable`] under that id. This closes the
+/// pre-B2-011 gap where the standalone parser produced a
+/// [`FunctorDecl`] with no arena identity, so `@retain` / `@immediate`
+/// had nothing to key on and were silently dropped.
+///
+/// Returns `(id, attrs, decl)`:
+///
+/// - `id` is the newly minted [`NodeKind::FunctorDecl`] node.
+/// - `attrs` mirrors [`parse_functor_with_attrs`]'s return (0 or 1
+///   entries; caller may consult it without re-hitting the side-table).
+/// - `decl` is the same [`FunctorDecl`] the slice-only shim yields, so
+///   callers keep access to source spans and the opaque body span.
+///
+/// Diagnostics are emitted through `sink` per the M033x table (same
+/// codes as the slice-only path).
+pub fn parse_functor_with_attrs_into_arena(
+    tokens: &[Token],
+    source: &str,
+    file: FileId,
+    arena: &mut AstArena,
+    sink: &mut dyn DiagnosticSink,
+) -> Result<(NodeId, Vec<FunctorAttr>, FunctorDecl), ParseError> {
+    let (attrs, decl) = parse_functor_with_attrs(tokens, source, file, sink)?;
+
+    // Allocate Ident children for name/param/signatures. Spans are
+    // reconstructed from the decl's string lexemes' source offsets by
+    // scanning within the decl.span window — the standalone
+    // FunctorDecl struct predates arena awareness and does not carry
+    // per-field Spans, so we synthesise Ident nodes anchored on the
+    // full-decl span for the fields where we lack a byte offset.
+    // Downstream passes read the strings through `decl` itself; the
+    // Ident nodes are structural anchors for future refactors.
+    let anchor = decl.span;
+    let name_id = arena.alloc(NodeKind::Ident, anchor);
+    let param_name_id = arena.alloc(NodeKind::Ident, anchor);
+    let param_sig_id = arena.alloc(NodeKind::Ident, anchor);
+    let return_sig_id = arena.alloc(NodeKind::Ident, anchor);
+    let session_var_id = decl
+        .session_binding
+        .as_ref()
+        .map(|sb| arena.alloc(NodeKind::Ident, sb.span));
+
+    let id = arena.alloc_item(
+        NodeKind::FunctorDecl,
+        decl.span,
+        ItemData::FunctorDecl {
+            name: name_id,
+            param_name: param_name_id,
+            param_sig: param_sig_id,
+            return_sig: return_sig_id,
+            session_var: session_var_id,
+            doc: None,
+        },
+    );
+
+    for attr in &attrs {
+        arena.functor_attr_mut().push(id, *attr);
+    }
+
+    Ok((id, attrs, decl))
 }
 
 /// Parse a single `@retain` or `@immediate` attribute at the current

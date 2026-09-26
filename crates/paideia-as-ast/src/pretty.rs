@@ -120,6 +120,19 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ItemData::FunctorParam { name, sig } => {
             format!("FunctorParam {{ name: {}, sig: {} }}", name, sig)
         }
+        ItemData::FunctorDecl {
+            name,
+            param_name,
+            param_sig,
+            return_sig,
+            session_var,
+            doc,
+        } => {
+            format!(
+                "FunctorDecl {{ name: {}, param_name: {}, param_sig: {}, return_sig: {}, session_var: {:?}, doc: {:?} }}",
+                name, param_name, param_sig, return_sig, session_var, doc
+            )
+        }
         ItemData::Effect { name, ops, doc } => {
             let ops_str = ops
                 .iter()

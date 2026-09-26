@@ -5,7 +5,9 @@
 //! ```text
 //! pipeline_expr  ::= stage ('|' stage)*
 //! stage          ::= redirect_stage ('&' | )                -- optional bg
-//! redirect_stage ::= cmd_or_group ( redirect_op filename )*
+//! redirect_stage ::= cmd_or_group ( redirect_op redirect_tgt )*
+//! redirect_tgt   ::= '(' pipeline_expr ')'                  -- proc subst
+//!                 | arg                                     -- filename
 //! cmd_or_group   ::= '(' pipeline_expr ')'
 //!                 | atom (arg)*
 //! atom           ::= IDENT | STR | NUMBER | field_chain
@@ -16,6 +18,11 @@
 //!                 | '(' pipeline_expr ')'
 //! ```
 //!
+//! PAS-DEBT-B2-017: `redirect_tgt` with `(…)` yields the inner pipeline
+//! *directly* (a `Cmd`/`Pipe` node), not a `Group` wrapper — the parens
+//! are proc-subst syntax. The `RedirectKind` doc reserves this shape;
+//! the R222 evaluator adds semantics only.
+//!
 //! `Pipe` right-associates. Redirects are left-associative but the
 //! parser folds them onto the innermost `cmd_or_group` so a
 //! `cmd > a > b` yields `Redirect(Redirect(cmd, a), _, b)` — the R222
@@ -25,6 +32,7 @@ use paideia_as_shell_lex::{Context, TokenKind};
 
 use crate::ast::{RedirectKind, SyntaxNode};
 use crate::parser::{ParseError, ParseErrorKind, Parser};
+use crate::span::NodeSpan;
 
 use super::{datalog, lambda};
 
@@ -98,8 +106,28 @@ fn parse_redirect_stage(p: &mut Parser<'_>) -> Result<SyntaxNode, ParseError> {
         for _ in 0..consume {
             p.bump();
         }
-        let target = parse_arg(p)?;
-        let span = node.span().union(target.span());
+        // PAS-DEBT-B2-017: `>(cmd)` process substitution. When the
+        // redirect target begins with `(`, parse the parenthesised
+        // pipeline as the target *directly* (not wrapped in `Group`)
+        // — the parens are proc-subst syntax, not a plain grouping.
+        // The AST spec (ast.rs on `RedirectKind`) reserves this shape:
+        // a `Cmd`/`Pipe` target signals process substitution; a
+        // file-shaped target (`Ident`/`LitStr`/`LitInt`/`FieldAccess`)
+        // signals a filename. The R222 evaluator adds semantics only.
+        let (target, target_span) = match p.peek() {
+            Some(t)
+                if matches!(t.kind, TokenKind::LParen)
+                    && matches!(t.context, Context::Pipeline) =>
+            {
+                parse_proc_subst_target(p)?
+            }
+            _ => {
+                let n = parse_arg(p)?;
+                let s = n.span();
+                (n, s)
+            }
+        };
+        let span = node.span().union(target_span);
         node = SyntaxNode::Redirect {
             source: Box::new(node),
             kind,
@@ -108,6 +136,34 @@ fn parse_redirect_stage(p: &mut Parser<'_>) -> Result<SyntaxNode, ParseError> {
         };
     }
     Ok(node)
+}
+
+/// Parse a process-substitution target `( pipeline_expr )` sitting on
+/// the RHS of a redirect operator. Returns the inner pipeline node
+/// (unwrapped — no `Group`) plus the outer span from `(` through `)`
+/// so the enclosing `Redirect`'s span covers the closing paren.
+///
+/// Precondition: caller has confirmed `p.peek()` is `LParen` in
+/// `Context::Pipeline`.
+fn parse_proc_subst_target(
+    p: &mut Parser<'_>,
+) -> Result<(SyntaxNode, NodeSpan), ParseError> {
+    let lparen = p.bump().expect("caller peeked LParen");
+    let lparen_span = p.token_span(lparen);
+    p.enter_nesting(Some(lparen))?;
+    let inner = parse_pipeline_expr(p)?;
+    let rparen_span = match p.peek() {
+        Some(t) if matches!(t.kind, TokenKind::RParen) => {
+            let rp = p.bump().unwrap();
+            p.token_span(rp)
+        }
+        _ => {
+            p.exit_nesting();
+            return Err(p.err_expected("`)` to close process substitution"));
+        }
+    };
+    p.exit_nesting();
+    Ok((inner, lparen_span.union(rparen_span)))
 }
 
 /// A command invocation, or a parenthesised sub-expression, or a

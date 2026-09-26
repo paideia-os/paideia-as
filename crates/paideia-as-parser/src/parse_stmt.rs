@@ -3,14 +3,41 @@
 //! Implements §8 Stmt grammar: let bindings, return expressions, expression
 //! statements, and assembly instruction statements (mnemonic Operand*).
 //!
-//! **Deferred capabilities (documented per AC):
-//! - §9.2 Continuation rule: Multi-line expressions are not yet supported.
-//!   The lexer emits newlines as Trivia, not tokens, so statement-continuation
-//!   detection requires lexer changes. For now, statements must be on a single
-//!   line or separated by `;`.
-//! - §9.3 Newline as statement separator: Currently relying on `;` separator.
-//!   Newline handling will be added in a follow-up PR once the lexer exposes
-//!   newlines as tokens.
+//! # §9.2 / §9.3 status (paideia-as#1499 / PAS-DEBT-B2-006, v0.36.46)
+//!
+//! The original deferral note claimed both §9.2 and §9.3 were unsupported
+//! and blocked on a lexer refactor. A 2026-09-25 audit against the actual
+//! parser + lexer surface refined that story:
+//!
+//! - **§9.2 (multi-line expression statements) — WORKS.** Newlines are
+//!   emitted as [`paideia_as_lexer::TriviaKind::Newline`] and never reach
+//!   the parser, so any expression can span arbitrarily many lines without
+//!   special support: `let x = 1 +\n  2 + 3;` parses identically to the
+//!   one-line form. See `tests/stmt_multiline.rs` for the pinned corpus
+//!   (function calls, arithmetic across `+`, indexing across `[`, bracket-
+//!   less multi-line expressions inside `let`, and block-tail expressions).
+//!
+//! - **§9.3 (newline-as-statement-separator) — WORKS AT BLOCK LEVEL.**
+//!   The block-body parsers (`parse_block_kind` in `parse_control.rs` and
+//!   `parse_handler_body` in `parse_handler.rs`) implement
+//!   the SY-D3 structural rule: an expression not followed by `;` and not
+//!   immediately followed by `}` (or `finally` for handlers) is wrapped as
+//!   a `StmtExpr` and the loop continues. Consequently
+//!   `{ foo(); bar() }` and `{ foo()\n  bar() }` produce the same AST.
+//!   See `tests/stmt_multiline.rs` for the pinned corpus of newline-only
+//!   separated statement blocks (let-then-expr, expr-then-expr, three-in-a-row).
+//!
+//! - **Residual (not landed here, tracked as B2-006-b — see debt catalog):**
+//!   ambiguous-token statement pairs where two adjacent tokens on separate
+//!   lines could otherwise combine into a longer expression (e.g. two bare
+//!   identifiers on consecutive lines, or a trailing binary operator on
+//!   line N whose right operand starts line N+1). These require the lexer
+//!   to promote newlines to a synchronization terminal in statement context
+//!   only — the `lexer-context-add` category in the debt catalog. The
+//!   parser side is otherwise ready: it already accepts newline-only
+//!   separators in every block form it walks; a future lexer-context patch
+//!   need only add the `Newline` terminal at statement position without any
+//!   parser dispatch changes at the reader-visible surface.
 
 use paideia_as_ast::{AtomicOrdering, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};

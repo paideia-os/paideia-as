@@ -99,6 +99,9 @@ pub enum TermHead {
     Tuple,
     /// `forall a. T` (universally-quantified type). PAS-DEBT-B2-008.
     TypeForall,
+    /// `functor F(In : SigIn) -> SigOut (with S : session)? { ... }` —
+    /// session-typed functor declaration. PAS-DEBT-B2-011.
+    FunctorDecl,
 }
 
 /// A typed handle to an AST expression node.
@@ -198,6 +201,7 @@ impl<'a> Term<'a> {
                 NodeKind::ExprRange => TermHead::Range,
                 NodeKind::ExprTuple => TermHead::Tuple,
                 NodeKind::TypeForall => TermHead::TypeForall,
+                NodeKind::FunctorDecl => TermHead::FunctorDecl,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for

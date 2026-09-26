@@ -64,7 +64,18 @@ fn emit(node: &SyntaxNode, out: &mut String) {
             out.push(' ');
             out.push_str(redir_glyph(*kind));
             out.push(' ');
-            emit(target, out);
+            // PAS-DEBT-B2-017: process substitution `>(cmd)` — a
+            // non-file-shaped target is wrapped in `( … )` so the round
+            // trip preserves the proc-subst reading. File-shaped
+            // targets (Ident, LitStr, LitInt, LitBool, FieldAccess)
+            // are emitted bare.
+            if is_proc_subst_target(target) {
+                out.push('(');
+                emit(target, out);
+                out.push(')');
+            } else {
+                emit(target, out);
+            }
         }
         SyntaxNode::Background { inner, .. } => {
             emit(inner, out);
@@ -286,6 +297,33 @@ fn emit_record_field(f: &RecordField, out: &mut String) {
     out.push_str(&f.name);
     out.push_str(": ");
     emit(&f.value, out);
+}
+
+/// True when a `Redirect.target` node should print wrapped in `(...)`
+/// as process substitution rather than bare. Two categories print bare:
+///
+/// - **File-shaped leaves** (identifier, string, integer, boolean,
+///   field-access chain) — the original file-redirect grammar.
+/// - **Self-delimiting non-file targets** — a bare datalog block
+///   (`{ ... }`) or lambda block (`{ ... }`) that the pre-B2-017
+///   `parse_arg` grammar already accepted as a redirect target. These
+///   emit their own delimiters, so wrapping them in `(...)` would
+///   double-brace and break the byte-identical round-trip contract
+///   (R221.M7) for pre-existing sources.
+///
+/// Everything else — including a pre-parsed `Group`, whose parens the
+/// pretty-printer supplies itself — wraps as proc-subst.
+fn is_proc_subst_target(target: &SyntaxNode) -> bool {
+    !matches!(
+        target,
+        SyntaxNode::Ident { .. }
+            | SyntaxNode::LitStr { .. }
+            | SyntaxNode::LitInt { .. }
+            | SyntaxNode::LitBool { .. }
+            | SyntaxNode::FieldAccess { .. }
+            | SyntaxNode::DatalogBlock { .. }
+            | SyntaxNode::Lambda { .. }
+    )
 }
 
 fn redir_glyph(k: RedirectKind) -> &'static str {

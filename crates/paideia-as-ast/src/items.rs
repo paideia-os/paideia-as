@@ -264,6 +264,33 @@ pub enum ItemData {
         sig: NodeId,
     },
 
+    /// Session-typed functor declaration
+    /// (paideia-as#1504, PAS-DEBT-B2-011):
+    /// `functor F(In : SigIn) -> SigOut (with S : session)? { ... }`.
+    ///
+    /// Standalone form parsed by
+    /// `paideia_as_parser::toolkit_attrs::parse_functor_with_attrs_into_arena`.
+    /// Distinct from [`Self::Functor`] (the module-parameterised form
+    /// with `FunctorParam` children). Exists so `@retain` / `@immediate`
+    /// prefixes can key [`crate::FunctorAttrTable`] on a real
+    /// [`NodeId`] — pre-B2-011 the standalone parser minted no id, so
+    /// functor-level attributes were silently dropped.
+    FunctorDecl {
+        /// Functor name (Ident node).
+        name: NodeId,
+        /// Formal parameter name (Ident node).
+        param_name: NodeId,
+        /// Parameter signature identifier (Ident node).
+        param_sig: NodeId,
+        /// Result signature identifier (Ident node).
+        return_sig: NodeId,
+        /// Optional `with S : session` binder name (Ident node).
+        /// `None` when the `with` clause was omitted.
+        session_var: Option<NodeId>,
+        /// Optional documentation comment.
+        doc: Option<NodeId>,
+    },
+
     /// Effect declaration: `effect Name { OpSig+ }`
     Effect {
         /// Name of the effect (Ident node).

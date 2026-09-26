@@ -154,3 +154,105 @@ fn r221m5_parse_pipe_14_empty_input_is_empty_seq() {
 fn r221m5_parse_pipe_15_reject_bare_operator() {
     parse_err("r221m5-parse-pipe-15", "|");
 }
+
+// ---- PAS-DEBT-B2-017: process substitution `>(cmd)` --------------
+
+/// Regression: bare-file redirect target still parses as a filename
+/// (`Ident`), NOT wrapped in `Group`. The proc-subst path must not
+/// intercept the plain `> file` form.
+#[test]
+fn pas_debt_b2_017_procsubst_01_file_target_still_ident() {
+    let n = parse_ok("pas-debt-b2-017-01", "foo > out.log");
+    if let SyntaxNode::Redirect { kind, target, .. } = &n {
+        assert_eq!(*kind, RedirectKind::StdoutOverwrite);
+        assert!(
+            matches!(target.as_ref(), SyntaxNode::FieldAccess { .. }),
+            "file target should be FieldAccess(out.log), got {target:?}"
+        );
+    } else {
+        panic!("expected Redirect, got {n:?}");
+    }
+}
+
+/// `foo > (bar)` — process substitution with a single command. Target
+/// is the inner `Cmd(bar)` directly, NOT wrapped in `Group`.
+#[test]
+fn pas_debt_b2_017_procsubst_02_single_cmd() {
+    let n = parse_ok("pas-debt-b2-017-02", "foo > (bar)");
+    if let SyntaxNode::Redirect { kind, target, .. } = &n {
+        assert_eq!(*kind, RedirectKind::StdoutOverwrite);
+        assert!(
+            matches!(target.as_ref(), SyntaxNode::Cmd { .. }),
+            "proc-subst target should be bare Cmd (unwrapped), got {target:?}"
+        );
+        if let SyntaxNode::Cmd { name, .. } = target.as_ref() {
+            if let SyntaxNode::Ident { name: n, .. } = name.as_ref() {
+                assert_eq!(n.as_str(), "bar");
+            } else {
+                panic!("proc-subst inner Cmd name should be Ident, got {name:?}");
+            }
+        }
+    } else {
+        panic!("expected Redirect, got {n:?}");
+    }
+}
+
+/// `foo > (bar | baz)` — pipeline inside process substitution. Target
+/// is the inner `Pipe` node directly.
+#[test]
+fn pas_debt_b2_017_procsubst_03_pipeline_inside() {
+    let n = parse_ok("pas-debt-b2-017-03", "foo > (bar | baz)");
+    if let SyntaxNode::Redirect { kind, target, .. } = &n {
+        assert_eq!(*kind, RedirectKind::StdoutOverwrite);
+        assert!(
+            matches!(target.as_ref(), SyntaxNode::Pipe { .. }),
+            "proc-subst target should be bare Pipe (unwrapped), got {target:?}"
+        );
+    } else {
+        panic!("expected Redirect, got {n:?}");
+    }
+}
+
+/// `foo >> (bar)` — append-mode redirect with process substitution.
+/// Same shape as StdoutOverwrite, only the kind differs.
+#[test]
+fn pas_debt_b2_017_procsubst_04_append_mode() {
+    let n = parse_ok("pas-debt-b2-017-04", "foo >> (bar)");
+    if let SyntaxNode::Redirect { kind, target, .. } = &n {
+        assert_eq!(*kind, RedirectKind::StdoutAppend);
+        assert!(
+            matches!(target.as_ref(), SyntaxNode::Cmd { .. }),
+            "proc-subst target should be bare Cmd, got {target:?}"
+        );
+    } else {
+        panic!("expected Redirect, got {n:?}");
+    }
+}
+
+/// Unclosed proc-subst `foo > (bar` reports a parse error rather than
+/// silently accepting or panicking (the never-panic fuzz invariant).
+#[test]
+fn pas_debt_b2_017_procsubst_05_unclosed_errors() {
+    parse_err("pas-debt-b2-017-05", "foo > (bar");
+}
+
+/// Round-trip: `foo > (bar)` pretty-prints back to `foo > (bar)`,
+/// preserving the proc-subst reading (target's parens are re-emitted
+/// by the pretty-printer's proc-subst-shaped-target branch).
+#[test]
+fn pas_debt_b2_017_procsubst_06_roundtrip_single_cmd() {
+    common::assert_roundtrip("pas-debt-b2-017-06", "foo > (bar)");
+}
+
+/// Round-trip: `foo > (bar | baz)` — proc-subst wrapping a pipeline
+/// must survive pretty-print + reparse identically.
+#[test]
+fn pas_debt_b2_017_procsubst_07_roundtrip_pipeline() {
+    common::assert_roundtrip("pas-debt-b2-017-07", "foo > (bar | baz)");
+}
+
+/// Round-trip: `foo >> (bar)` — append proc-subst.
+#[test]
+fn pas_debt_b2_017_procsubst_08_roundtrip_append() {
+    common::assert_roundtrip("pas-debt-b2-017-08", "foo >> (bar)");
+}

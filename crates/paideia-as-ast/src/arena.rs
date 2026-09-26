@@ -37,6 +37,14 @@ pub enum NodeKind {
     Functor,
     /// Functor parameter.
     FunctorParam,
+    /// Session-typed functor declaration:
+    /// `functor F(In : SigIn) -> SigOut (with S : session)? { ... }`.
+    /// Distinct from [`NodeKind::Functor`] (the module-parameterised form
+    /// with `FunctorParam` children); this kind is the arena identity for
+    /// the standalone session-typed decl and keys
+    /// [`crate::FunctorAttrTable`] entries for `@retain` / `@immediate`
+    /// prefixes (paideia-as#1504, PAS-DEBT-B2-011).
+    FunctorDecl,
     /// Generic parameter (type parameter with optional bounds).
     GenericParam,
     /// Effect declaration.
