@@ -1,0 +1,59 @@
+# pas-debt-catalog.tsv — inputs for file-pas-debt-issues.sh (#1396 Phase 2)
+# columns (tab-separated): id  title  priority  deps  bucket  size
+# 56 rows, 6 buckets (B5 skipped — landed via #1393).
+PAS-DEBT-B1-001	Un-#[ignore] field_access_cap_set_rights (blocked on B2-004 struct syntax)	P1	B2-004	1	M
+PAS-DEBT-B1-002	pa10_007_data_symbol_names L89: wire readelf+ld gate in local pre-push	P3		1	S
+PAS-DEBT-B1-003	pa10_007_data_symbol_names L122: same readelf gate as B1-002	P3		1	S
+PAS-DEBT-B1-004	Un-#[ignore] bridge_thunk.rs:314 — MS x64 lambda body with call-body (U1620)	P1		1	M
+PAS-DEBT-B1-005	typed_encoder_diagnostics:140 — supply label-resolution fixture (#1105-followup)	P3		1	S
+PAS-DEBT-B1-006	typed_encoder_diagnostics:148 — supply duplicate-symbol fixture (#1105-followup)	P3		1	S
+PAS-DEBT-B1-007	typed_encoder_diagnostics:156 — supply lambda-no-offset fixture (#1105-followup)	P3		1	S
+PAS-DEBT-B1-008	bss_array_length_const: parser rejects const-expr array length [T; N*M] (T0577 expected, P0100 emitted)	P1	B2-005	1	M
+PAS-DEBT-B1-009	label_patches jz_backward_local: unsafe port-I/O in lambda body not lifting PortIo effect (C1301)	P1		1	M
+PAS-DEBT-B1-010	pa10_006l_inout: _start unsafe/PortIo effect declaration synthesis gap (C1301, same root as B1-009)	P1	B1-009	1	M
+PAS-DEBT-B1-011	typed_encoder_diagnostics failure_in_sarif: m1-003 tracker off-by-one vs InstructionSideTable byte_offset_in_text	P1		1	M
+PAS-DEBT-B1-012	typed_encoder_diagnostics warn_stderr_no_sarif: same m1-003 tracker root as B1-011	P1	B1-011	1	S
+PAS-DEBT-B1-013	typed_encoder_diagnostics warn_typed_in_sarif: same m1-003 tracker root as B1-011	P1	B1-011	1	S
+PAS-DEBT-B2-001	Parser: for pat in iter — pattern dropped, only Ident stored	P2	B1-004	2	S
+PAS-DEBT-B2-002	Parser: associated-type projection Iterator<Item = u64> not validated against assoc-type set	P2		2	M
+PAS-DEBT-B2-003	Parser: trait-impl trait_args extraction stubbed to Vec::new()	P2		2	M
+PAS-DEBT-B2-004	Parser: struct type-definition syntax for cap_set_rights.pdx (blocks B1-001)	P2		2	M
+PAS-DEBT-B2-005	Parser+lexer: range operator .. (production) — companion to B2-021 (terminal)	P1	B2-021	2	M
+PAS-DEBT-B2-006	Parser: §9.2 multi-line expression statements + §9.3 newline-as-separator	P2		2	M
+PAS-DEBT-B2-007	Parser: tuple exprs (a, b, c) parsed into _elements, discarded, returns Placeholder	P2		2	S
+PAS-DEBT-B2-008	Parser: forall v. T — bound variable consumed and discarded	P2		2	S
+PAS-DEBT-B2-009	Parser: function-type param names (name: T, …) → R — name discarded	P2		2	S
+PAS-DEBT-B2-010	Parser: macro pattern/template stored as span-only Placeholder (no fragment kinds, hygiene)	P3		2	L
+PAS-DEBT-B2-011	Parser+AST: FunctorDecl has no NodeId — @retain/@immediate cannot key FunctorAttrTable	P2		2	M
+PAS-DEBT-B2-012	Parser: handler bodies do not synthesize unit literal on trailing ; (P0158 carve-out)	P2		2	S
+PAS-DEBT-B2-013	Parser: pattern parser rejects Range / or-pipe / reference / slice patterns (P0100)	P3		2	M
+PAS-DEBT-B2-014	Parser: @timeline_wait/@timeline_signal lowering deferred to v0.27-M2	P3		2	M
+PAS-DEBT-B2-015	Parser: @endian(be|le) byte-swap insertion deferred to elaborator	P2		2	S
+PAS-DEBT-B2-016	Shell parser: zero-arity Datalog atoms foo(). rejected until R226.M2 schema registry	P2		2	S
+PAS-DEBT-B2-017	Shell parser: process-substitution >(cmd) — AST variant reserved, parser deferred to R222	P3		2	S
+PAS-DEBT-B2-018	Shell parser: halts at first error, no sync-point recovery (deferred to R229)	P2		2	M
+PAS-DEBT-B2-019	Shell lexer: UnexpectedChar on # / @ sigils — attribute-macro tokens not handled	P2		2	S
+PAS-DEBT-B2-020	Lexer: block-comment scanner stops at first */ — nested /* /* … */ */ unsupported	P3		2	S
+PAS-DEBT-B2-021	Lexer: DotDot terminal for range operator — must land first for B2-005	P1		2	S
+PAS-DEBT-B3-001	Tail-call pass: self-recursion detection stubbed	P2	B3-006	3	M
+PAS-DEBT-B3-002	Tail-call rewrite: capability boundary / handler-install / effect-row guard	P2	B3-008	3	M
+PAS-DEBT-B3-003	Unroll pass: body-duplication + remainder-loop emission	P2	B3-004	3	M
+PAS-DEBT-B3-004	Peephole strength-reduce (mul→shl, div→shr) + jump-to-next + push/pop combine	P2		3	M
+PAS-DEBT-B3-005	Schedule pass: block reordering via arena (currently computes then discards)	P2	B3-003	3	M
+PAS-DEBT-B3-006	Thread LocalBindingTable through emit walker (field-access non-rdi base, #983)	P2		3	M
+PAS-DEBT-B3-007	abi.rs: aggregate classifier (#1009) + MS hidden-ptr sret (#1011) + SysV RDX:RAX (#1012)	P1		3	L
+PAS-DEBT-B3-008	Effect walker: handler-clause save/record — push HandlerSideTable	P2		3	M
+PAS-DEBT-B3-009	Introduce IrKind::HandlerValue (retire Placeholder ride-along)	P3	B3-008	3	M
+PAS-DEBT-B4-001	Replace FNV-1a-64 symbol-dedup with BLAKE3 for libpdx-schema-registry (#1392)	P1		4	M
+PAS-DEBT-B4-002	cpuid_leaf full-record return: land sret marshalling design	P1	B3-007	4	L
+PAS-DEBT-B4-003	mldsa65_sign sret return (drop 3309-byte caller-allocated buffer)	P1	B4-002	4	M
+PAS-DEBT-B4-004	encode_mov [MemSib, Imm64] arm — retire hard-coded 8-byte literal	P1		4	S
+PAS-DEBT-B6-001	Split crypto_shim.rs out of paideia-satellite-runtime/src/lib.rs (#1391)	P0		6	S
+PAS-DEBT-B6-002	Satellite runtime: RustCrypto ml-dsa 0.1.1 pulls std via crypto_common — blocks cargo build --workspace (E0152 panic_impl)	P0		6	M
+PAS-DEBT-B7-001	Reactivate examples_compile.rs + m2_macro_*.pdx (macro driver #217)	P3		7	S
+PAS-DEBT-B7-002	Reactivate reflection-corpus runner	P3		7	S
+PAS-DEBT-B7-003	Reactivate effects-corpus index_u64_outside_rawmem_row.pdx reject fixture	P3		7	S
+PAS-DEBT-B7-004	Reactivate linearity-regression reject_corpus_emits_expected_s_codes	P3		7	S
+PAS-DEBT-B7-005	Reactivate opt-regression encode_tight_regression (dep on optimization-passes.md:49)	P3		7	S
+PAS-DEBT-B7-006	Reactivate uefi-smoke::smoke once m6-009+ ships meaningful hello.efi	P3		7	S
+PAS-DEBT-B7-007	Reactivate lsp-harness::harness latency probe under release-profile lane	P3		7	S

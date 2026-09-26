@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.36.41 — 2026-09-25 — PAS-DEBT-B6-001 crypto_shim split + B6-002 ml-dsa no_std unblock
+
+Wave 1 of the paideia-as debt catalog (#1396) landing. Both P0
+satellite-runtime items in a single release.
+
+**PAS-DEBT-B6-001** (closes #1527) — crypto_shim.rs module split:
+
+- **New** `crates/paideia-satellite-runtime/src/crypto_shim.rs` (174
+  LOC): houses every `pub use paideia_as_crypto::ffi::*` re-export
+  (argon2id, ChaCha20-Poly1305 seal/open, ML-KEM-768
+  keygen/encaps/decaps, HKDF-SHA256, Ed25519-verify) plus the
+  fail-closed `PDX_MLDSA_ERR_NO_SIGNER` sentinel and the
+  `mldsa65_{sign,verify}_runtime_entry` stubs (each retains
+  `#[unsafe(no_mangle)]` so `ld` resolves them by C name).
+- **`lib.rs` shrinks 640 → 462 LOC**. `pub mod crypto_shim; pub use
+  crypto_shim::*;` preserves every previously-linked symbol path
+  (`paideia_satellite_runtime::mldsa65_sign_runtime_entry`, etc.);
+  link-time surface unchanged.
+- Design intent: `design/paideia-as-debt-catalog.md` §7,
+  v0.33-M1-005.
+
+**PAS-DEBT-B6-002** (#1528 — RE-OPENED, misdiagnosed):
+
+- `crates/paideia-satellite-runtime/src/lib.rs`: replaced the
+  multi-line "Attempted to `pub use paideia_as_crypto::ffi::mldsa65_*`"
+  commentary with a terse `PAS-DEBT-B6-002` marker. **Cosmetic only.**
+- **The E0152 `panic_impl` collision is NOT resolved by this landing.**
+  Main verified against v0.36.41 with `cargo build --workspace` and
+  the collision persists at `src/lib.rs:336` (the crate's own
+  `#[panic_handler] fn on_panic`). The `pub use ...mldsa65_*` block
+  that B6-002 removed was inert commentary about a previous attempt —
+  it wasn't the source of the `std` transitive pull.
+- **Real root cause** (verified by `cargo tree -p
+  paideia-satellite-runtime -i crypto-common`): `crypto-common` is
+  pulled by `digest` (via argon2 → blake2, ml-kem → sha3),
+  `chacha20poly1305 → aead`, and `chacha20 → cipher`. These crates
+  enable the `default` feature of `crypto-common` which transitively
+  enables `std`. Workspace feature unification defeats
+  `paideia-satellite-runtime`'s `default-features = false` on
+  `paideia-as-crypto` because at least one other workspace consumer
+  keeps defaults on.
+- **Path forward** (deferred to a follow-up issue against #1528):
+  (i) exclude `paideia-satellite-runtime` from `cargo build
+      --workspace` via `[workspace.exclude]` — clean but changes the
+      workspace shape (many touching scripts assume all-in);
+  (ii) `[patch.crates-io]` `crypto-common` / `digest` to `no_std`
+       variants — deep but restores workspace correctness;
+  (iii) split the satellite crate into a separate cargo workspace
+        under `crates/satellite/` — most surgical, matches the
+        crate's staticlib-only nature (nothing else depends on it).
+  The project has historically accepted the per-crate build
+  discipline (paideia-as-pre-push.sh uses `cargo check -p ...`); this
+  entry stays in the catalog until path (i) / (ii) / (iii) lands.
+
+Workspace + SYSTEM_VERSION 0.36.40 → 0.36.41 (justified by B6-001
+crypto_shim split alone).
+
 ## 0.36.40 — 2026-09-25 — R225.M9 HM property harness + R228.M8 completion arg-position
 
 **R225.M9** — Deterministic property-test harness for the HM inference

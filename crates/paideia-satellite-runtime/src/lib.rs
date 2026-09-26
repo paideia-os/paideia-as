@@ -192,206 +192,28 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 // ---------------------------------------------------------------------
-// Crypto — re-export from the single-source `paideia-as-crypto` crate.
+// Crypto FFI surface — split into a dedicated module.
 // ---------------------------------------------------------------------
 //
-// These three `pub use` statements are how design §3.1's "single
-// source of truth" invariant is enforced in Rust:
-//   * The symbol NAMES are `#[unsafe(no_mangle)]` in the source crate,
-//     so `ld` sees exactly one archive-scope definition each — no
-//     duplicate-symbol linker error, no silent shadowing.
-//   * Making them `pub use` (rather than `#[allow(dead_code)] use`)
-//     documents that they are part of the satellite runtime's public
-//     ABI surface. A future audit that walks
-//     `libpaideia_satellite_runtime.a`'s exported symbols will find
-//     all four in one place.
-//   * The `pub use` also forces cargo to depend on
-//     `paideia-as-crypto`'s object code, so the FFI thunks are
-//     definitely packed into the staticlib archive (rather than
-//     dead-code-eliminated).
-pub use paideia_as_crypto::ffi::paideia_crypto_argon2id_derive;
-pub use paideia_as_crypto::ffi::paideia_crypto_chacha20_poly1305_open;
-pub use paideia_as_crypto::ffi::paideia_crypto_chacha20_poly1305_seal;
-// paideia-as#1352 — ML-KEM-768 KEM (FIPS 203). Same re-export
-// discipline as the crypto trio above: the `#[unsafe(no_mangle)]`
-// bodies live in `paideia-as-crypto`, `pub use` here forces cargo
-// to pack them into `libpaideia_satellite_runtime.a` so satellite
-// `ld -nostdlib` lines resolve. R108 device-to-device key
-// agreement and R91+ networking are the intended consumers; a
-// satellite whose object graph never reaches the KEM call chain
-// still needs these symbols to resolve because `.pdx` compilation
-// emits the `call` relocations regardless of runtime reachability.
-pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_decaps;
-pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_encaps;
-pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_keygen;
-// paideia-as Wave γ (γ-01 / γ-02) — HKDF-SHA256 (RFC 5869) and
-// Ed25519 verify (RFC 8032 §5.1.7). `libpdx-net`'s TLS 1.3 key
-// schedule (γ-03), transcript verify (γ-04) and record layer (γ-05)
-// are the intended consumers, reached the same way as the KEM trio
-// above: `.pdx` compilation emits the `call` relocation regardless of
-// runtime reachability, so the symbol must resolve unconditionally.
-pub use paideia_as_crypto::ffi::paideia_crypto_ed25519_verify;
-pub use paideia_as_crypto::ffi::paideia_crypto_hkdf_sha256;
+// `PAS-DEBT-B6-001` / v0.33-M1-005: the `pub use paideia_as_crypto::ffi::*`
+// re-exports AND the fail-closed `mldsa65_{sign,verify}_runtime_entry`
+// stubs live in `crypto_shim`. `pub use crypto_shim::*;` re-flattens
+// them at the crate root so every previously-linked symbol path
+// (`paideia_satellite_runtime::paideia_crypto_argon2id_derive`, etc.)
+// still resolves. See `design/paideia-as-debt-catalog.md` §7 for
+// the split rationale.
+pub mod crypto_shim;
+pub use crypto_shim::*;
 
-// Wave υ (paideia-as υ-01 / υ-02) — compact-ABI ML-DSA-65 sign +
-// verify. Attempted to `pub use paideia_as_crypto::ffi::mldsa65_*`
-// here, but the RustCrypto `ml-dsa` 0.1.1 dep chain pulls `std`
-// (transitively through `crypto_common`) which conflicts with this
-// crate's `#![no_std]` panic_impl. Deferred: satellite tools that need
-// `MlDsa65C::sign` / `MlDsa65C::verify` must link the paideia-as
-// std-side runtime (paideia-as-runtime) directly, not through this
-// no_std satellite shim. Fail-closed `mldsa65_{sign,verify}_runtime_entry`
-// stubs below remain the only mldsa65 symbols this crate exports; the
-// compact-ABI thunks live in paideia-as-crypto::ffi::ml_dsa_65 and are
-// pulled in only by std-linked consumers (the elaborator binary itself).
-
-// ---------------------------------------------------------------------
-// Signing / verification — fail-closed stubs for the ML-DSA-65 pair.
-// ---------------------------------------------------------------------
-//
-// Both `mldsa65_sign_runtime_entry` (v0.28.0 landing, issue #1330) and
-// `mldsa65_verify_runtime_entry` (v0.28.1 landing, issue #1347) are
-// emitted as `call` relocations by the elaborator's
-// `stdlib_lowering::mldsaops` recipe whenever a `.pdx` module imports
-// either intrinsic. The satellite runtime therefore MUST define both
-// symbols so satellite `ld -nostdlib` link lines resolve regardless
-// of runtime reachability. Both bodies unconditionally return the
-// `PDX_MLDSA_ERR_NO_SIGNER` sentinel — see the module-level "Signing"
-// discussion for the fail-closed rationale and the verify-side note
-// on why a negative sentinel from verify is semantically honest.
-
-/// Fail-closed sentinel for the satellite `mldsa65_sign_runtime_entry`
-/// AND `mldsa65_verify_runtime_entry` stubs.
-///
-/// Value: `-6`. Chosen to be band-consistent with the existing
-/// `paideia-pq-sign::ffi::PDX_MLDSA_*` codes (`-1` = InvalidParam,
-/// `-2` = Length, `-3` = Authentication; `-4`/`-5` reserved by the
-/// paideia-as-crypto crypto-error band for cross-primitive alias
-/// reuse). `-6` is the first previously-unused code and unambiguously
-/// signals "no signer is compiled into this binary" as distinct from
-/// any of the runtime-error variants a real signer might return.
-///
-/// Consumers on the `.pdx` side (per design §3.2 consequence, tracked
-/// as a follow-up in `libpdx-volume`'s `pdxb_sign.pdx`) MUST surface
-/// this code upward as a user-visible error rather than silently
-/// treating it as success — otherwise a satellite would produce a
-/// "signed" volume that is not actually signed and cannot be
-/// verified, or would silently accept an unverified signature as
-/// valid. This is design risk R4 in the shim document.
-///
-/// For the verify path specifically: `paideia-pq-sign`'s ABI treats
-/// any negative return from `mldsa65_verify_runtime_entry` as "did
-/// not authenticate" (mldsaops recipe: `0 = valid, negative = invalid
-/// or bad shape`). Returning `-6` from the verify stub therefore
-/// slots into the existing failure band exactly — a correct caller
-/// treats it as "signature did not verify" and never mistakes
-/// fail-closed for success.
-pub const PDX_MLDSA_ERR_NO_SIGNER: i64 = -6;
-
-/// Satellite build of `mldsa65_sign_runtime_entry` — fail-closed.
-///
-/// # Contract
-///
-/// This symbol MUST resolve at satellite link time (the
-/// `stdlib_lowering::mldsaops` recipe emits a `call` relocation to
-/// it whenever a `.pdx` module imports the ML-DSA-65 sign intrinsic,
-/// even when the runtime code path never calls it). This body
-/// returns [`PDX_MLDSA_ERR_NO_SIGNER`] unconditionally; no input is
-/// inspected, no output is written.
-///
-/// # Signature — must match `paideia-pq-sign::ffi::mldsa65_sign_runtime_entry`
-///
-/// Argument order and types are the SysV AMD64 register mapping
-/// documented on the kernel-side symbol (see
-/// `crates/paideia-pq-sign/src/ffi.rs`):
-///
-/// | Register | Meaning                                          |
-/// |----------|--------------------------------------------------|
-/// | RDI      | `seed_ptr`     — `*const u8`, 32-byte seed       |
-/// | RSI      | `msg_ptr`      — `*const u8`                     |
-/// | RDX      | `msg_len`      — `usize`                         |
-/// | RCX      | `sig_out_ptr`  — `*mut u8`, >= 3309 bytes        |
-/// | **RAX**  | return code                                      |
-///
-/// Any drift between this signature and the kernel-side signature
-/// would silently break the fallback safety contract — a caller
-/// expecting `sig_out_ptr` in RCX would find garbage there and,
-/// worse, would not know it. Keep them lockstep.
-///
-/// # Safety
-///
-/// The function does not dereference any argument pointer, so the
-/// usual `slice::from_raw_parts` safety obligations do not apply on
-/// this build. The `#[unsafe(no_mangle)]` attribute is still needed
-/// so the symbol is exported under its exact name for the linker.
-#[unsafe(no_mangle)]
-pub extern "C" fn mldsa65_sign_runtime_entry(
-    _seed_ptr: *const u8,
-    _msg_ptr: *const u8,
-    _msg_len: usize,
-    _sig_out_ptr: *mut u8,
-) -> i64 {
-    PDX_MLDSA_ERR_NO_SIGNER
-}
-
-/// Satellite build of `mldsa65_verify_runtime_entry` — fail-closed.
-///
-/// # Contract
-///
-/// This symbol MUST resolve at satellite link time — the elaborator's
-/// `stdlib_lowering::mldsaops` recipe emits a `call` relocation to
-/// it whenever a `.pdx` module imports the ML-DSA-65 verify
-/// intrinsic (v0.28.1 landing, issue paideia-as#1347), and satellite
-/// `ld -nostdlib` links have no per-object dead-code elimination
-/// that could drop the reference. This body returns
-/// [`PDX_MLDSA_ERR_NO_SIGNER`] unconditionally; no input is
-/// inspected, no output is written.
-///
-/// The negative return is honest per `paideia-pq-sign`'s ABI: verify
-/// projects onto `0 = valid, negative = invalid or bad shape`, so a
-/// caller that treats the return as boolean (`is_valid = ret == 0`)
-/// correctly refuses to accept the "signature" as verified. The
-/// fail-closed contract on satellites is that any `.pdx` code path
-/// invoking verify at runtime MUST NOT reach a "verified" branch —
-/// which the negative sentinel guarantees.
-///
-/// # Signature — must match `paideia-pq-sign::ffi::mldsa65_verify_runtime_entry`
-///
-/// Argument order and types are the SysV AMD64 register mapping
-/// documented on the kernel-side symbol and on the mldsaops recipe:
-///
-/// | Register | Meaning                                          |
-/// |----------|--------------------------------------------------|
-/// | RDI      | `msg_ptr`     — `*const u8`                      |
-/// | RSI      | `msg_len`     — `usize`                          |
-/// | RDX      | `sig_ptr`     — `*const u8`, == 3309 bytes       |
-/// | RCX      | `sig_len`     — `usize` (== 3309)                |
-/// | R8       | `pubkey_ptr`  — `*const u8`, == 1952 bytes       |
-/// | R9       | `pubkey_len`  — `usize` (== 1952)                |
-/// | **RAX**  | return code: 0 = valid, negative = invalid       |
-///
-/// Any drift between this signature and the kernel-side signature
-/// would silently break the fallback safety contract — a caller
-/// expecting `pubkey_ptr` in R8 would find garbage there and,
-/// worse, would not know it. Keep them lockstep.
-///
-/// # Safety
-///
-/// The function does not dereference any argument pointer, so the
-/// usual `slice::from_raw_parts` safety obligations do not apply on
-/// this build. The `#[unsafe(no_mangle)]` attribute is still needed
-/// so the symbol is exported under its exact name for the linker.
-#[unsafe(no_mangle)]
-pub extern "C" fn mldsa65_verify_runtime_entry(
-    _msg_ptr: *const u8,
-    _msg_len: usize,
-    _sig_ptr: *const u8,
-    _sig_len: usize,
-    _pubkey_ptr: *const u8,
-    _pubkey_len: usize,
-) -> i64 {
-    PDX_MLDSA_ERR_NO_SIGNER
-}
+// PAS-DEBT-B6-002 (paideia-as#1528): ml-dsa is intentionally NOT
+// re-exported from this crate. RustCrypto `ml-dsa` 0.1.1 pulls `std`
+// via `crypto_common`, colliding with this crate's `#![no_std]`
+// panic_impl (E0152). The only mldsa65 symbols this crate exports are
+// the fail-closed `mldsa65_{sign,verify}_runtime_entry` stubs defined
+// in `crypto_shim`. Recovery paths (see `design/paideia-as-debt-catalog.md` §7.3):
+// (a) current — drop the re-export set (this landing); (b) upgrade
+// once a `no_std`-clean `ml-dsa` lands upstream; (c) contribute a
+// `no_std` feature to RustCrypto/ml-dsa.
 
 // ---------------------------------------------------------------------
 // Global allocator — hand-rolled bump allocator over a static pool.
