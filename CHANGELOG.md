@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.36.56 — 2026-09-26 — Wave 16 paideia-os prereqs: indirect tail-call widening
+
+**Indirect tail-call widening** (closes paideia-as#1547) — Unblocks paideia-os#2512 fully:
+
+- `opt::tailcall::apply` now recognises three shapes in order:
+  1. **Pattern A** (new, O1518): `Pop Reg(r); Call Reg(rT); Pop
+     Reg(r); Ret` → `Pop Reg(r); Jmp Reg(rT)`. Reversal-invariant —
+     the pre- and post-call pops must name the same register.
+     Matches the paideia-os `nvme_admin_events.pdx` shape.
+  2. **Pattern B** (new, O1518): `Call Reg(r); Ret` → `Jmp Reg(r)`.
+     Simple indirect self- or non-self tail-call. No owner-name gate
+     needed. Depends on Wave 15's `jmp reg64` encoder.
+  3. **Pattern C** (unchanged, O1514): direct self-recursion `Call
+     SymbolRef(f); Ret` where owner==f.
+- B3-002's `tco_arena_blocker` (handler-install + capability
+  disagreement) applies uniformly to all three shapes.
+- Renamed test: `tco_preserves_indirect_call` →
+  `tco_rewrites_indirect_call_to_jmp_reg` with assertion flipped.
+  4 new tests for the two new patterns (positive rewrite, asymmetric
+  pop preservation, handler blocker on indirect, cap-mismatch
+  blocker on indirect).
+- **Main-side compile fix**: softarch used `Option<&str>::cloned()`
+  which doesn't exist (`cloned()` requires `Option<&T> where T:
+  Sized + Clone`; `str` is unsized). Replaced with `.map(std::string
+  ::ToString::to_string)` at two sites.
+
+Workspace + SYSTEM_VERSION 0.36.55 → 0.36.56.
+
 ## 0.36.55 — 2026-09-26 — Wave 15 paideia-os prereqs: BLAKE3 hook + jmp reg64 encoder
 
 Two paideia-os retire-workaround blockers landed as parallel paideia-as
