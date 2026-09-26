@@ -22,6 +22,7 @@ mod impl_trait_args;
 mod inner_attr_bits;
 mod issue_1327_record_reserved_diag;
 mod ljmp_instruction;
+mod macro_fragment_kinds;
 mod packed_struct_snapshots;
 mod pattern_extensions;
 mod range_expr;

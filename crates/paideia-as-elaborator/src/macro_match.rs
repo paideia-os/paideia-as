@@ -246,6 +246,7 @@ mod tests {
             .map(|_| MacroRule {
                 pattern: placeholder_id(),
                 template: placeholder_id(),
+                pattern_elems: Vec::new(),
                 fragments: Vec::<MacroFragment>::new(),
             })
             .collect();

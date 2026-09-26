@@ -67,6 +67,11 @@ pub enum NodeKind {
     UnsafeBlock,
     /// Macro declaration.
     MacroDecl,
+    /// Macro rule pattern (LHS of `pattern => template`).
+    /// PAS-DEBT-B2-010 Slice A (#1503, v0.36.52). Structural detail lives
+    /// in [`crate::MacroRule::pattern_elems`]; this variant labels the
+    /// arena node so `Placeholder` no longer stands in for the pattern.
+    MacroPattern,
 
     // Expressions (§8 Expr: LambdaExpr | ActionBlock | WithHandlerExpr | UnsafeExpr | InfixExpr | ...)
     /// `fn/λ params -> body` or `|x, y| body`.

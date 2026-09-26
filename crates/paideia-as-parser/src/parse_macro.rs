@@ -4,12 +4,16 @@
 //! - Single-rule: `macro Name(pattern) => template`
 //! - Multi-rule: `macro Name { (pattern) => template ; (pattern) => template }`
 //!
-//! Pattern and template token streams are stored as `Placeholder` nodes whose
-//! spans cover the byte ranges of the tokens. The actual pattern matching and
-//! expansion are deferred to PR-47+.
+//! Slice A (PAS-DEBT-B2-010, #1503, v0.36.52) upgraded the pattern side to a
+//! real fragment-kind grammar: the pattern arena node is now
+//! [`NodeKind::MacroPattern`] and [`MacroRule::pattern_elems`] carries the
+//! ordered fragment / literal sequence. Templates remain span-only
+//! `Placeholder` nodes; template substitution is deferred to follow-up
+//! B2-010b, and repetition + hygiene to B2-010c.
 
 use paideia_as_ast::{
-    ItemData, MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule, NodeId, NodeKind,
+    ItemData, MacroDeclData, MacroFragment, MacroFragmentKind, MacroPatternElem, MacroRule,
+    NodeId, NodeKind,
 };
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
@@ -143,11 +147,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 - pattern_start_span.byte_start(),
         );
 
-        // Allocate pattern placeholder
-        let pattern_id = self.arena_mut().alloc(NodeKind::Placeholder, pattern_span);
+        // Slice A: allocate a real MacroPattern node (was Placeholder) and
+        // populate a structured element list. #1503.
+        let pattern_id = self.arena_mut().alloc(NodeKind::MacroPattern, pattern_span);
 
-        // Extract fragments from pattern
-        let fragments = self.extract_macro_fragments(pattern_span)?;
+        // Extract structured pattern elements + fragment-only projection.
+        let (pattern_elems, fragments) = self.extract_macro_pattern(pattern_span)?;
 
         // Expect `=>`
         self.expect(TokenKind::FatArrow)?;
@@ -168,6 +173,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(MacroRule {
             pattern: pattern_id,
             template: template_id,
+            pattern_elems,
             fragments,
         })
     }
@@ -265,27 +271,45 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(last_span)
     }
 
-    /// Extract MacroFragments from a pattern span by scanning the source text
-    /// for `$name:kind` occurrences.
+    /// Extract the structured pattern element list from `pattern_span` by
+    /// scanning source bytes for `$name:kind` fragment sites; every span
+    /// in between (or an unrecognised `$...` sequence) becomes a
+    /// `MacroPatternElem::Literal`.
     ///
-    /// Emits P0110 for unknown fragment kinds.
-    fn extract_macro_fragments(
+    /// Returns `(pattern_elems, fragments)` where `fragments` is the
+    /// fragment-only projection kept for downstream matcher lookup.
+    /// Emits P0110 for unknown fragment kinds (the offending `$name:kind`
+    /// still collapses to a `Literal` element so the pattern stays
+    /// structurally complete).
+    ///
+    /// Slice A only: repetition groups (`$( ... )*`) are not yet
+    /// recognised — the interior scans as ordinary text. See B2-010c.
+    fn extract_macro_pattern(
         &mut self,
         pattern_span: Span,
-    ) -> Result<Vec<MacroFragment>, ParseError> {
-        // First pass: collect fragment metadata without mutating the arena
-        let source = self.source();
+    ) -> Result<(Vec<MacroPatternElem>, Vec<MacroFragment>), ParseError> {
         let start = pattern_span.byte_start() as usize;
         let end = (pattern_span.byte_start() + pattern_span.byte_len()) as usize;
 
-        if start >= source.len() || end > source.len() {
-            return Ok(vec![]);
-        }
+        // Clone the pattern text to own it — the second pass needs `&mut
+        // self` for arena.alloc / emit_diagnostic, and an in-place borrow
+        // of self.source() would conflict. Pattern texts are small; the
+        // clone cost is negligible relative to parse work.
+        let pattern_text: String = {
+            let source = self.source();
+            if start >= source.len() || end > source.len() {
+                return Ok((vec![], vec![]));
+            }
+            source[start..end].to_string()
+        };
 
-        let pattern_text = &source[start..end];
-
+        // First pass: collect fragment site metadata (byte offsets relative
+        // to `pattern_text`). Deferred to a second pass so we don't hold
+        // an arena borrow across the source scan.
         #[derive(Clone)]
-        struct FragmentMetadata {
+        struct FragmentSite {
+            site_start: usize, // byte offset of leading `$`
+            site_end: usize,   // byte offset one past the last kind char
             name_start: usize,
             name_end: usize,
             kind_str: String,
@@ -293,7 +317,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             kind_end: usize,
         }
 
-        let mut metadata = vec![];
+        let mut sites = vec![];
         let mut chars = pattern_text.char_indices().peekable();
 
         while let Some((i, ch)) = chars.next() {
@@ -326,11 +350,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     }
 
                     if kind_end > kind_start {
-                        let kind_str = pattern_text[kind_start..kind_end].to_string();
-                        metadata.push(FragmentMetadata {
+                        sites.push(FragmentSite {
+                            site_start: i,
+                            site_end: kind_end,
                             name_start,
                             name_end,
-                            kind_str,
+                            kind_str: pattern_text[kind_start..kind_end].to_string(),
                             kind_start,
                             kind_end,
                         });
@@ -339,35 +364,77 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Second pass: allocate nodes and fragments
-        let mut fragments = vec![];
-        for meta in metadata {
-            if let Some(kind) = MacroFragmentKind::parse(&meta.kind_str) {
-                let name_byte_pos = (start + meta.name_start) as u32;
-                let name_byte_len = (meta.name_end - meta.name_start) as u32;
+        // Second pass: interleave literal + fragment elements in source
+        // order, emitting P0110 for unknown fragment kinds.
+        let mut pattern_elems: Vec<MacroPatternElem> = Vec::with_capacity(sites.len() * 2 + 1);
+        let mut fragments: Vec<MacroFragment> = Vec::with_capacity(sites.len());
+        let mut cursor = 0usize;
+
+        for site in sites {
+            // Literal span before this fragment site (skip zero-length spans).
+            if site.site_start > cursor {
+                let lit_pos = (start + cursor) as u32;
+                let lit_len = (site.site_start - cursor) as u32;
+                pattern_elems.push(MacroPatternElem::Literal {
+                    span: Span::new(pattern_span.file(), lit_pos, lit_len),
+                });
+            }
+
+            if let Some(kind) = MacroFragmentKind::parse(&site.kind_str) {
+                let name_byte_pos = (start + site.name_start) as u32;
+                let name_byte_len = (site.name_end - site.name_start) as u32;
                 let name_span = Span::new(pattern_span.file(), name_byte_pos, name_byte_len);
                 let name_id = self.arena_mut().alloc(NodeKind::Ident, name_span);
 
+                let site_pos = (start + site.site_start) as u32;
+                let site_len = (site.site_end - site.site_start) as u32;
+                let frag_span = Span::new(pattern_span.file(), site_pos, site_len);
+
+                pattern_elems.push(MacroPatternElem::Fragment {
+                    name: name_id,
+                    kind,
+                    span: frag_span,
+                });
                 fragments.push(MacroFragment {
                     name: name_id,
                     kind,
                 });
             } else {
-                let kind_byte_pos = (start + meta.kind_start) as u32;
-                let kind_byte_len = (meta.kind_end - meta.kind_start) as u32;
+                // Unknown kind: report P0110, and keep the whole `$name:kind`
+                // site as a Literal so caller can still inspect the source
+                // structure without a hole.
+                let kind_byte_pos = (start + site.kind_start) as u32;
+                let kind_byte_len = (site.kind_end - site.kind_start) as u32;
                 let kind_span = Span::new(pattern_span.file(), kind_byte_pos, kind_byte_len);
 
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 110)
                     .expect("valid P0110 code");
                 let diag = Diagnostic::error(code)
-                    .message(format!("unknown macro fragment kind: '{}'", meta.kind_str))
+                    .message(format!("unknown macro fragment kind: '{}'", site.kind_str))
                     .with_span(kind_span)
                     .finish();
                 self.emit_diagnostic(diag);
+
+                let site_pos = (start + site.site_start) as u32;
+                let site_len = (site.site_end - site.site_start) as u32;
+                pattern_elems.push(MacroPatternElem::Literal {
+                    span: Span::new(pattern_span.file(), site_pos, site_len),
+                });
             }
+
+            cursor = site.site_end;
         }
 
-        Ok(fragments)
+        // Trailing literal span after the last fragment.
+        if cursor < pattern_text.len() {
+            let lit_pos = (start + cursor) as u32;
+            let lit_len = (pattern_text.len() - cursor) as u32;
+            pattern_elems.push(MacroPatternElem::Literal {
+                span: Span::new(pattern_span.file(), lit_pos, lit_len),
+            });
+        }
+
+        Ok((pattern_elems, fragments))
     }
 }
 

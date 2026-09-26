@@ -1,9 +1,14 @@
 //! Macro-related AST nodes for phase-1 pattern-based macros.
 //!
-//! Supports macro declarations with pattern → template rules. Pattern matching
-//! and expansion are deferred to later PRs (PR-47+).
+//! Slice A (PAS-DEBT-B2-010, #1503, v0.36.52) landed a real fragment-kind
+//! pattern grammar: `MacroRule::pattern_elems` is now a structured
+//! `Vec<MacroPatternElem>`, and the pattern arena node is
+//! [`crate::NodeKind::MacroPattern`] (not a bare `Placeholder`). Template
+//! substitution (Slice B → follow-up B2-010b) and repetition + hygiene
+//! (Slice C → follow-up B2-010c) remain deferred.
 
 use crate::NodeId;
+use paideia_as_diagnostics::Span;
 
 /// One pattern fragment in a macro rule, e.g. `$x:expr`.
 ///
@@ -77,6 +82,34 @@ impl MacroFragmentKind {
     }
 }
 
+/// One element of a macro rule's pattern.
+///
+/// Slice A structures the pattern as an ordered sequence of literal token
+/// spans and fragment metavariables. Templates remain span-only until
+/// follow-up B2-010b lands substitution.
+#[derive(Clone, Debug)]
+pub enum MacroPatternElem {
+    /// `$name:kind` — a fragment metavariable.
+    Fragment {
+        /// Name of the fragment binding (Ident node, spans just the name
+        /// text without the leading `$`).
+        name: NodeId,
+        /// Syntactic category the fragment matches.
+        kind: MacroFragmentKind,
+        /// Span of the entire `$name:kind` fragment site (leading `$`
+        /// through the last char of the kind selector).
+        span: Span,
+    },
+    /// A literal token from the pattern surface (anything that is not a
+    /// `$name:kind` fragment). The matcher treats these as required
+    /// terminals. Kept as a raw span in Slice A; a structured token
+    /// stream is Slice B's concern (B2-010b).
+    Literal {
+        /// Byte range covered by the literal token.
+        span: Span,
+    },
+}
+
 /// One rule: pattern → template.
 ///
 /// A macro has one or more rules. When invoked, the macro expander tries to
@@ -84,21 +117,31 @@ impl MacroFragmentKind {
 /// rule's template.
 #[derive(Clone, Debug)]
 pub struct MacroRule {
-    /// Pattern node. In phase-1, this is a `Placeholder` node whose span
-    /// covers the byte range of the pattern token stream (between `(` and `)`).
-    /// The matcher (PR-47) walks the raw source text to match the pattern.
+    /// Pattern node id. Since Slice A (v0.36.52) this is a
+    /// [`crate::NodeKind::MacroPattern`] node whose span covers the byte
+    /// range of the pattern token stream (between `(` and `)`). The
+    /// structural detail lives in [`Self::pattern_elems`]; the arena node
+    /// carries the identity + span.
     pub pattern: NodeId,
-    /// Template node. In phase-1, this is a `Placeholder` node whose span
-    /// covers the byte range of the template token stream (after `=>` until `;`
-    /// in multi-rule form, or until `}` in single-rule or final rule).
-    /// The expander (PR-47) walks the raw source text to interpolate `$var`
-    /// references.
+    /// Template node. Slice B (follow-up B2-010b) will replace this with a
+    /// real token-stream node. Until then it stays a `Placeholder` whose
+    /// span covers the raw template bytes (after `=>` until `;` in
+    /// multi-rule form, or until end-of-rule in single-rule form). The
+    /// text-walking expander in `paideia-as-elaborator::macro_match`
+    /// interpolates `$var` references directly against source bytes.
     pub template: NodeId,
-    /// Fragment list extracted from the pattern.
+    /// Structured pattern element sequence.
     ///
-    /// Contains all `$name:kind` declarations found during pattern parsing.
-    /// Used for quick lookup during expansion and validation of template
-    /// references (PR-47+).
+    /// Interleaves fragment metavariables with literal token spans in the
+    /// order they appear in source. Slice A (#1503) parses this out of
+    /// the char-scanned pattern text; Slice C (#follow-up B2-010c) will
+    /// add repetition groups (`$( ... )*`).
+    pub pattern_elems: Vec<MacroPatternElem>,
+    /// Fragment-only projection of [`Self::pattern_elems`], kept as a
+    /// thin duplicate so `paideia-as-elaborator::macro_match` and other
+    /// downstream consumers that only care about `$name:kind`
+    /// declarations do not have to re-walk the interleaved element list.
+    /// Slice A holds both fields in sync at parse time.
     pub fragments: Vec<MacroFragment>,
 }
 

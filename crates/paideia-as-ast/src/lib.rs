@@ -44,7 +44,9 @@ pub use items::{
     AtomicOrdering, AttrValue, CallingConvention, ImplDecl, InterruptAttr, ItemAttribute,
     ItemData, StructAttr, TraitMethod,
 };
-pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
+pub use macros::{
+    MacroDeclData, MacroFragment, MacroFragmentKind, MacroPatternElem, MacroRule,
+};
 pub use modules::{
     Def, Functor, IncludeDecl, ModuleDecl, SigDecl, Signature, Structure, TypeAbstraction,
     TypeDecl, ValDecl,

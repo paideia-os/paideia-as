@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.36.52 — 2026-09-26 — Wave 12 debt-catalog: B2-010 Slice A (macro fragment-kind grammar)
+
+Wave 12 is a dedicated L-sized wave — one primitive, scoped down to
+Slice A of B2-010 to keep the landing focused. Template expansion +
+repetition + hygiene deferred to explicit follow-ups.
+
+**PAS-DEBT-B2-010 Slice A** (closes #1503) — Structured macro pattern elements:
+
+- New AST surface `MacroPatternElem { Fragment { name, kind, span } |
+  Literal { span } }` interleaves fragment metavariables with literal
+  token spans in source order. `MacroRule` gains
+  `pattern_elems: Vec<MacroPatternElem>` alongside the existing
+  `fragments: Vec<MacroFragment>` projection (kept in sync so the
+  elaborator's `macro_match` phase-1 text-walking matcher continues
+  to compile unchanged).
+- New `NodeKind::MacroPattern` (enum is `#[non_exhaustive]`; additive).
+  Parser now allocates a real MacroPattern node — the span-only
+  `Placeholder` cited by the debt catalog is gone.
+- `extract_macro_fragments` → `extract_macro_pattern`: two-pass source-
+  byte scan produces both the structured element list and the
+  fragment projection. `P0110` on unknown fragment kinds collapses
+  the offending site to a `Literal` element so the pattern stays
+  structurally complete (no holes).
+- 8 new fixtures at `tests/macro_fragment_kinds.rs`: six positive
+  (one per fragment kind: `expr`, `ident`, `type`, `pat`, `stmt`,
+  `block`), one P0110 negative (`$x:wat` collapses to Literal, no
+  Fragment), one interleaving-order test.
+- **Main-side borrow fix**: the softarch's initial diff had two E0502
+  errors (immutable-borrow-of-`self.source()` conflicting with the
+  second pass's `self.arena_mut()` / `self.emit_diagnostic()` calls).
+  Fixed by cloning `pattern_text` as an owned `String` in an inner
+  block so the source borrow ends before the mutable-borrow site.
+  Pattern texts are small; clone cost is negligible.
+
+**Deferred to follow-up issues (filed at wave close)**:
+
+- **B2-010b (#1541)** — template expansion with substitution.
+  `expand_macro(pattern_elems, template_elems, input_tokens) ->
+  Vec<Token>` that substitutes fragment bindings into a real
+  (non-Placeholder) template.
+- **B2-010c (#1542)** — repetition (`$( ... )*`) + hygiene
+  (identifier freshening across expansion boundaries).
+
+Workspace + SYSTEM_VERSION 0.36.51 → 0.36.52.
+
 ## 0.36.51 — 2026-09-25 — Wave 11 debt-catalog: B1-004 + B1-008 + B2-003
 
 Wave 11 of the paideia-as debt catalog. Three parallel primitives; three
