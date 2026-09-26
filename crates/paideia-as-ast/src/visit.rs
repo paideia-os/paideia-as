@@ -141,6 +141,8 @@ pub trait ExprVisitor {
     fn visit_expr_string(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a ByteString literal expression.
     fn visit_expr_byte_string(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Range expression `a..b` / `a..` / `..b` / `..`. PAS-DEBT-B2-005.
+    fn visit_expr_range(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for expressions.
@@ -180,6 +182,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprFieldAccess => visitor.visit_expr_field_access(arena, id),
         NodeKind::ExprString => visitor.visit_expr_string(arena, id),
         NodeKind::ExprByteString => visitor.visit_expr_byte_string(arena, id),
+        NodeKind::ExprRange => visitor.visit_expr_range(arena, id),
         _ => {}
     }
 }

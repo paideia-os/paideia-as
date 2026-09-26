@@ -192,6 +192,45 @@ fn lex_triple_dot_greedy_dotdot_then_dot() {
 }
 
 #[test]
+fn lex_int_dotdot_int_regression_1498() {
+    // PAS-DEBT-B2-005 debugger finding: pre-fix, `1..2` greedy-lexed as
+    // FloatLit("1.") + Dot + IntLit("2"), silently breaking the range
+    // operator's headline syntax. Fixed in scan_number.rs by requiring a
+    // digit after `.` before consuming it as a decimal point. Pin the
+    // corrected shape here.
+    let (tokens, _sink) = lex("1..2");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![TokenKind::IntLit, TokenKind::DotDot, TokenKind::IntLit, TokenKind::Eof]
+    );
+    assert_eq!(tokens[0].span.byte_len(), 1);
+    assert_eq!(tokens[1].span.byte_len(), 2);
+    assert_eq!(tokens[2].span.byte_len(), 1);
+}
+
+#[test]
+fn lex_int_dot_digit_still_float_regression_1498() {
+    // Companion regression: the fix must NOT break real float literals.
+    // `1.5` is unambiguously a float.
+    let (tokens, _sink) = lex("1.5");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, vec![TokenKind::FloatLit, TokenKind::Eof]);
+    assert_eq!(tokens[0].span.byte_len(), 3);
+}
+
+#[test]
+fn lex_int_dotdot_ident_regression_1498() {
+    // The canonical `for i in 0..n` idiom must tokenize as three tokens.
+    let (tokens, _sink) = lex("0..n");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![TokenKind::IntLit, TokenKind::DotDot, TokenKind::Ident, TokenKind::Eof]
+    );
+}
+
+#[test]
 fn lex_mixed_tokens() {
     let (tokens, _sink) = lex("fn main() { let x = 10; }");
 

@@ -268,7 +268,7 @@ pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
                     let rodata_bytes = vec![0u8; 8];
                     let reloc = RelocSpec::new(
                         0,
-                        format!("__str_{:016x}", crate::string_intern::fnv1a_64(bytes)),
+                        format!("__str_{:016x}", crate::string_intern::symbol_hash(bytes)),
                     );
                     let entry = DataEntry::new_rodata_with_relocs(
                         rodata_bytes,

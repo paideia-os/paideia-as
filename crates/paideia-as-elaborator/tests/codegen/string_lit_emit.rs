@@ -67,20 +67,16 @@ fn string_lit_emit_distinct_bytes_distinct_symbols() {
 }
 
 #[test]
-fn string_lit_emit_fnv1a_test_vectors() {
-    // Test: FNV-1a hash matches known test vectors.
-    use paideia_as_elaborator::string_intern::fnv1a_64;
+fn string_lit_emit_symbol_hash_is_deterministic_and_distinguishes() {
+    // PAS-DEBT-B4-001 (#1523): symbol_hash is BLAKE3-truncated-to-u64.
+    // Verify determinism and that similar inputs do not collide.
+    use paideia_as_elaborator::string_intern::symbol_hash;
 
-    // Empty string should hash to offset basis
-    let empty_hash = fnv1a_64(b"");
-    assert_eq!(empty_hash, 0xcbf29ce484222325);
-
-    // "hello" has a specific FNV-1a hash value (computed independently)
-    let hello_hash = fnv1a_64(b"hello");
-    // This value is deterministic; any implementation should produce it.
-    // Placeholder: use as regression test for future changes.
-    let _expected = hello_hash; // Use to avoid unused variable warning
-    assert_ne!(hello_hash, 0xcbf29ce484222325);
+    assert_eq!(symbol_hash(b"hello"), symbol_hash(b"hello"));
+    assert_ne!(symbol_hash(b"hello"), symbol_hash(b"world"));
+    // Off-by-one and case-change: independent digests.
+    assert_ne!(symbol_hash(b"schema@0.1"), symbol_hash(b"schema@0.2"));
+    assert_ne!(symbol_hash(b"Schema"), symbol_hash(b"schema"));
 }
 
 #[test]

@@ -137,6 +137,10 @@ pub enum NodeKind {
     ExprArrayRepeat,
     /// `uninit` (uninitialized value marker for `let mut` bindings).
     ExprUninit,
+    /// `start..end`, `..end`, `start..`, or `..` (half-open range expression).
+    /// Parser production landed with paideia-as#1498 (PAS-DEBT-B2-005) atop the
+    /// `DotDot` lexer terminal shipped in v0.36.42 (PAS-DEBT-B2-021, #1540).
+    ExprRange,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt | LabelStmt)
     /// `let name: ty? = expr;`.

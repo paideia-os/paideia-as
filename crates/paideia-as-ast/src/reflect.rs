@@ -93,6 +93,8 @@ pub enum TermHead {
     TypeFnPtr,
     /// `|T1, T2| -> T !{...} @{...}` (closure type).
     TypeClosure,
+    /// `a..b` / `a..` / `..b` / `..` (range expression). PAS-DEBT-B2-005.
+    Range,
 }
 
 /// A typed handle to an AST expression node.
@@ -189,6 +191,7 @@ impl<'a> Term<'a> {
                 NodeKind::TypeRecord => TermHead::TypeRecord,
                 NodeKind::TypeFnPtr => TermHead::TypeFnPtr,
                 NodeKind::TypeClosure => TermHead::TypeClosure,
+                NodeKind::ExprRange => TermHead::Range,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -462,6 +465,14 @@ impl<'a> Term<'a> {
                 }
                 ExprData::Uninit => {
                     // No children for uninit
+                }
+                ExprData::Range { start, end } => {
+                    if let Some(s) = start {
+                        result.push(Term::new(self.arena, *s));
+                    }
+                    if let Some(e) = end {
+                        result.push(Term::new(self.arena, *e));
+                    }
                 }
             }
         }

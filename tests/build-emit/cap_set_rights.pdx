@@ -2,8 +2,22 @@
 // Struct Capability with rights field at offset 16 (after kind at offset 0)
 // Function set_rights dereferences pointer and writes to rights field at offset 16
 // Expected bytes: 48 89 77 10 (mov [rdi + 16], rsi)
+//
+// PAS-DEBT-B2-004 (2026-09-25): struct declaration re-added now that the
+// parser accepts top-level `struct` type-defs (see cap_smoke.pdx). The
+// field-access lowering that emits `mov [rdi + 16], rsi` is B1-001's
+// territory; the fixture parses today but the integration test in
+// crates/paideia-as/tests/build_emit/field_read.rs remains #[ignore]
+// until B1-001 lands.
 
 module CapSetRights = structure {
+  struct Capability {
+    kind: u64,
+    target: u64,
+    rights: u64,
+    generation: u64
+  }
+
   let fn_set_rights : () -> () !{} @{} = fn(_: ()) -> unsafe {
     effects: {},
     capabilities: {},

@@ -500,6 +500,23 @@ pub enum ExprData {
     /// - Invalid: `let x : u64 = uninit` → P0220
     /// - Invalid: `some_func(uninit)` → P0221
     Uninit,
+
+    /// `start..end`, `..end`, `start..`, or `..`.
+    ///
+    /// Half-open range expression (exclusive end). Either endpoint may be
+    /// absent; `..` alone is the fully-open range. Precedence sits between
+    /// additive (`+`/`-`) and comparison (`<`/`>`) — below arithmetic and
+    /// above comparison, matching Rust — and the operator is non-associative,
+    /// so `a..b..c` is rejected by the parser with `P0103` (paideia-as#1498,
+    /// PAS-DEBT-B2-005). The dedicated inclusive form (`..=`) is not part of
+    /// phase-1: the lexer produces no `DotDotEq` terminal, and the parser
+    /// deliberately refuses to synthesize one here.
+    Range {
+        /// Optional start expression (`None` for open-start forms `..end` and `..`).
+        start: Option<NodeId>,
+        /// Optional end expression (`None` for open-end forms `start..` and `..`).
+        end: Option<NodeId>,
+    },
 }
 
 /// A single arm in a match expression.

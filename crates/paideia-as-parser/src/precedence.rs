@@ -29,16 +29,37 @@ pub struct InfixBp {
     pub right: u8,
 }
 
+/// Binding power for the range operator `..` (paideia-as#1498, PAS-DEBT-B2-005).
+///
+/// Placed between comparison (`< > <= >=`, left 50) and bit-or (`|`, left 60),
+/// which mirrors Rust's expression-precedence table (§Expression precedence,
+/// Rust Reference). Effect: range is below arithmetic (`+`, `-` — left 100)
+/// and above comparison, so:
+///
+/// - `1 + 2 .. 3 + 4` groups as `(1+2)..(3+4)` — arithmetic binds tighter;
+/// - `a < b..c`      groups as `a < (b..c)` — range binds tighter than `<`;
+/// - `arr[i..j]`     parses `i..j` as one expression inside the index.
+///
+/// `..` is intentionally NOT returned by [`infix_bp`]: the parser dispatches
+/// it out of the Pratt loop through `parse_expr_bp`'s dedicated range branch
+/// so a range endpoint may be absent (`a..`, `..b`, `..`) — a shape the
+/// generic infix path cannot express — and so chaining (`a..b..c`) can be
+/// blocked with `P0103` in one place rather than through a synthetic
+/// asymmetric-bp trick. The operator is non-associative.
+pub const RANGE_BP: u8 = 55;
+
 /// Look up the infix binding power for an operator token.
 ///
 /// Returns `None` if `kind` is not an infix operator (e.g., a prefix or postfix op).
 ///
 /// The binding power tiers map to §7 of the syntax reference:
 /// - Tier 13 (assignment, right-assoc): { left: 21, right: 20 }
-/// - Tier 12 (range, non-assoc): { left: 22, right: 22 } (range chaining blocked by parser)
 /// - Tier 11 (||): { left: 30, right: 31 }
 /// - Tier 10 (&&): { left: 40, right: 41 }
 /// - Tier 9 (comparison): { left: 50, right: 51 }
+/// - Range `..` (non-assoc, out-of-band): [`RANGE_BP`] (= 55) — see the
+///   constant docstring; not returned here because the parser dispatches
+///   range through a dedicated branch, not the generic infix path.
 /// - Tier 8 (bit-or |): { left: 60, right: 61 }
 /// - Tier 7 (bit-xor ^): { left: 70, right: 71 }
 /// - Tier 6 (bit-and &): { left: 80, right: 81 }

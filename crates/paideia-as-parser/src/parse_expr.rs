@@ -5,12 +5,37 @@
 //! to handle infix, prefix, and postfix operators via standard Pratt precedence climbing.
 
 use paideia_as_ast::{ExprData, NodeId, NodeKind};
-use paideia_as_diagnostics::Span;
+use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
 use crate::parse_control::BlockKind;
 use crate::parser::{ParseError, Parser};
-use crate::precedence::{infix_bp, postfix_bp, prefix_bp};
+use crate::precedence::{RANGE_BP, infix_bp, postfix_bp, prefix_bp};
+
+/// Tokens that unambiguously do not begin an expression. Used by the range
+/// parser to decide whether `..` is followed by an end operand: the shapes
+/// `a..`, `..`, and `a..)` all end with `..` because the next token is one
+/// of these terminators. Any other token is assumed to begin an expression
+/// and is parsed as the range's end — a parse error there surfaces at the
+/// operand site with its normal diagnostic, not silently swallowed here.
+fn is_expr_terminator(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Eof
+            | TokenKind::Semicolon
+            | TokenKind::Comma
+            | TokenKind::RParen
+            | TokenKind::RBracket
+            | TokenKind::RBrace
+            | TokenKind::DotDot // chained `..` — handled explicitly, not as an operand
+            | TokenKind::FatArrow
+            | TokenKind::Colon
+    )
+}
+
+fn parse_p_code(n: u16) -> DiagnosticCode {
+    DiagnosticCode::new(Category::P, Severity::Error, n).expect("valid P code")
+}
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Check if the current position looks like a record constructor: `{ Ident : ...`.
@@ -55,8 +80,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// **Operator nodes:** Allocated as `NodeKind::Placeholder` covering the op token.
     ///
-    /// **Range chaining:** If `..` (not yet in lexer) is encountered twice in a row,
-    /// emit P0103 and continue recovery.
+    /// **Range chaining:** `..` is dispatched out of the generic Pratt path
+    /// to [`Parser::parse_range_infix`] (or [`Parser::parse_range_prefix`] at
+    /// expression start). Encountering `a..b..c` — a chained range — emits
+    /// `P0103` at the second `..` and recovers by consuming that token.
+    /// See [`crate::precedence::RANGE_BP`] for the precedence rationale
+    /// (paideia-as#1498, PAS-DEBT-B2-005).
     pub fn parse_expr_bp(&mut self, min_bp: u8) -> Result<NodeId, ParseError> {
         // Step 0: Check for control-flow constructs and lambdas (highest precedence as they parse their own subtrees).
         if let Some(tok) = self.peek() {
@@ -106,11 +135,20 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Step 1: Check for prefix operator.
-        let mut lhs = if self.peek().and_then(|tok| prefix_bp(tok.kind)).is_some() {
+        // Step 1: Compute the initial `lhs`. Range shows up in three shapes
+        // at expression start (`..`, `..b`) — the DotDot branch below fires
+        // BEFORE the generic prefix path so `DotDot` never flows through
+        // `parse_prefix` (that path would allocate an `ExprPrefix` node,
+        // but a range with an absent start is not a prefix over a single
+        // operand: the end may itself be absent). The returned `ExprRange`
+        // then falls into the same Pratt loop as any other primary so
+        // lower-precedence infix operators (e.g. `..b < c` → `(..b) < c`)
+        // can still attach to it.
+        let mut lhs = if self.at(TokenKind::DotDot) {
+            self.parse_range_prefix(min_bp)?
+        } else if self.peek().and_then(|tok| prefix_bp(tok.kind)).is_some() {
             self.parse_prefix()?
         } else {
-            // Step 2: Parse primary.
             self.parse_primary()?
         };
 
@@ -126,6 +164,49 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 continue;
             }
 
+            // Range operator `..` (paideia-as#1498, PAS-DEBT-B2-005). Dispatched
+            // out of the generic infix path because its right operand is
+            // optional (`a..` is a legal shape) and because the operator is
+            // non-associative — a second `..` on an already-`ExprRange` lhs
+            // is a chained range (`a..b..c` or `..b..c`) and must be
+            // rejected here rather than silently nested. See
+            // [`crate::precedence::RANGE_BP`] for the precedence rationale.
+            if next_tok.kind == TokenKind::DotDot {
+                if RANGE_BP < min_bp {
+                    break;
+                }
+                let lhs_is_range = matches!(
+                    self.arena().get(lhs).map(|nd| nd.kind),
+                    Some(NodeKind::ExprRange)
+                );
+                if lhs_is_range {
+                    // Chain detected — the previous op was already a range.
+                    // Emit P0103 at THIS `..` and consume it so a bare
+                    // trailing operand (`c` in `a..b..c`) does not then look
+                    // like an unrelated expression start to the caller.
+                    let extra_span = self.peek().expect("at(DotDot) implies peek Some").span;
+                    let diag = Diagnostic::error(parse_p_code(103))
+                        .message(
+                            "chained range operators are not allowed; \
+                             parenthesize one of the ranges"
+                                .to_string(),
+                        )
+                        .with_span(extra_span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    self.bump(); // consume the stray `..`
+                    // Skip a trailing operand too, if present, so `..b..c`
+                    // and `a..b..c` both leave the stream at the same state
+                    // as their un-chained counterparts.
+                    if self.peek().map(|t| !is_expr_terminator(t.kind)).unwrap_or(false) {
+                        let _ = self.parse_expr_bp(RANGE_BP + 1)?;
+                    }
+                    break;
+                }
+                lhs = self.parse_range_infix(lhs)?;
+                continue;
+            }
+
             // Check for infix operators.
             if let Some(infix) = infix_bp(next_tok.kind)
                 && infix.left >= min_bp
@@ -133,9 +214,6 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 let op_tok = self.bump().expect("peek returned Some");
                 let op_span = op_tok.span;
                 let op_node = self.arena_mut().alloc(NodeKind::Placeholder, op_span);
-
-                // Special case: range chaining detection.
-                // (Skip for now; `..` not yet in TokenKind.)
 
                 let rhs = self.parse_expr_bp(infix.right)?;
 
@@ -186,6 +264,108 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
 
         Ok(lhs)
+    }
+
+    /// Parse a prefix range: `..end` (start absent) or bare `..` (both absent).
+    ///
+    /// Called from [`Parser::parse_expr_bp`] when the very first token of an
+    /// expression is `..`. Consumes the `..`, then decides whether an end
+    /// operand is present by peeking one token:
+    ///
+    /// - If that token can begin an expression (i.e. it is not one of the
+    ///   terminators in [`is_expr_terminator`]), parse it at
+    ///   [`RANGE_BP`]` + 1` — one bp above the range operator so the operand
+    ///   never consumes another `..` on our behalf (chained ranges are
+    ///   rejected up in `parse_expr_bp`).
+    /// - Otherwise, the range has no end (`..` alone, or `..` followed by
+    ///   `)`, `]`, `,`, etc.).
+    ///
+    /// The `min_bp` argument is accepted for symmetry with the Pratt entry
+    /// but is not consulted: a prefix `..` is the whole expression here, so
+    /// the outer minimum-binding-power constraint applies to the returned
+    /// node, not to its construction.
+    fn parse_range_prefix(&mut self, _min_bp: u8) -> Result<NodeId, ParseError> {
+        let dotdot_tok = self.bump().expect("at(DotDot) implies peek Some");
+        let dotdot_span = dotdot_tok.span;
+
+        let end = self.parse_optional_range_endpoint()?;
+
+        // Non-associativity is enforced up in `parse_expr_bp`'s DotDot arm,
+        // which fires once the prefix range falls back into the Pratt loop:
+        // an `ExprRange` lhs followed by another `..` there emits `P0103`.
+
+        let range_span = match end {
+            Some(end_id) => {
+                let end_span = self
+                    .arena()
+                    .get(end_id)
+                    .map(|nd| nd.span)
+                    .unwrap_or(dotdot_span);
+                Span::new(
+                    dotdot_span.file(),
+                    dotdot_span.byte_start(),
+                    end_span.byte_start() + end_span.byte_len() - dotdot_span.byte_start(),
+                )
+            }
+            None => dotdot_span,
+        };
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprRange,
+            range_span,
+            ExprData::Range { start: None, end },
+        ))
+    }
+
+    /// Parse an infix range: `lhs..end` (both bounded) or `lhs..` (start only).
+    ///
+    /// Called from the [`Parser::parse_expr_bp`] loop when the next token
+    /// after an already-parsed `lhs` is `..`. Consumes the `..`, then
+    /// applies the same present-vs-absent-endpoint decision as
+    /// [`Parser::parse_range_prefix`]. Chaining (`a..b..c`) is detected by
+    /// the caller after this method returns, so the parse itself never
+    /// synthesizes nested `ExprRange` here.
+    fn parse_range_infix(&mut self, lhs: NodeId) -> Result<NodeId, ParseError> {
+        let dotdot_tok = self.bump().expect("caller peeked DotDot");
+        let dotdot_span = dotdot_tok.span;
+
+        let end = self.parse_optional_range_endpoint()?;
+
+        let lhs_span = self.arena().get(lhs).map(|nd| nd.span).unwrap_or(dotdot_span);
+        let range_end_span = match end {
+            Some(end_id) => self.arena().get(end_id).map(|nd| nd.span).unwrap_or(dotdot_span),
+            None => dotdot_span,
+        };
+        let range_span = Span::new(
+            lhs_span.file(),
+            lhs_span.byte_start(),
+            range_end_span.byte_start() + range_end_span.byte_len() - lhs_span.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprRange,
+            range_span,
+            ExprData::Range {
+                start: Some(lhs),
+                end,
+            },
+        ))
+    }
+
+    /// Peek the next token and either parse a range endpoint or report None.
+    ///
+    /// Shared by [`Parser::parse_range_prefix`] and
+    /// [`Parser::parse_range_infix`]: an endpoint is absent iff the next
+    /// token is a terminator (`)`, `]`, `,`, `;`, `..`, EOF, etc.).
+    /// Otherwise the endpoint is parsed at `RANGE_BP + 1` so an inner `..`
+    /// cannot silently attach itself to our right operand — chained ranges
+    /// are the caller's responsibility to reject.
+    fn parse_optional_range_endpoint(&mut self) -> Result<Option<NodeId>, ParseError> {
+        match self.peek() {
+            None => Ok(None),
+            Some(tok) if is_expr_terminator(tok.kind) => Ok(None),
+            _ => Ok(Some(self.parse_expr_bp(RANGE_BP + 1)?)),
+        }
     }
 }
 

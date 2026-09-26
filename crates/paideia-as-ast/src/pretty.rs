@@ -709,6 +709,10 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         }
 
         ExprData::Uninit => "Uninit".to_string(),
+
+        ExprData::Range { start, end } => {
+            format!("Range {{ start: {:?}, end: {:?} }}", start, end)
+        }
     };
 
     use std::fmt::Write;

@@ -31,15 +31,20 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
     cmd.output().expect("failed to run cargo")
 }
 
-// Note: cap_set_rights.pdx is currently aspirational. Phase 6 parser does not yet support
-// the struct type definition syntax required to fully enable field access in unsafe blocks.
-// The unit tests in unsafe_walker.rs validate the core field offset resolution logic.
-// This integration test is deferred until parser support arrives.
+// PAS-DEBT-B1-001 (blocked-on PAS-DEBT-B2-004, closed 2026-09-25): the
+// cap_set_rights.pdx fixture now includes the `struct Capability` decl
+// and parses cleanly; struct type-definition syntax is accepted at both
+// file scope and inside `structure { ... }` (see
+// crates/paideia-as-parser/tests/struct_type_def.rs). What remains is
+// the field-access lowering that turns `(*p).rights = ...` inside an
+// unsafe block into `48 89 77 10` — that walker/emit path is B1-001's
+// territory. Keep this test `#[ignore]`d until B1-001 lands; un-ignoring
+// belongs to that issue, not to B2-004.
 #[test]
 #[ignore]
 fn field_access_cap_set_rights_deferred_pending_parser_support() {
     // This test would verify that cap_set_rights.pdx builds and emits correct bytes.
-    // Currently ignored because the parser doesn't support the struct syntax yet.
+    // Ignored while B1-001 (walker field-offset emission) is outstanding.
     let input = build_emit_data("cap_set_rights.pdx");
     let _output = cargo_run(&[
         "build",

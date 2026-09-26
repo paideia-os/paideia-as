@@ -64,10 +64,19 @@ pub fn scan_number(file: FileId, content: &str, byte_offset: u32) -> NumberScan 
     let (int_part, int_len, has_digit) = scan_int_part(after_prefix, base);
 
     // Check if there's a decimal point or exponent (indicates float).
+    // The `.` case additionally requires a following ASCII digit — otherwise
+    // `1..2` (range operator, PAS-DEBT-B2-005) would greedily lex as
+    // `FloatLit("1.")` + `Dot` + `IntLit("2")` and the parser would never see
+    // `IntLit DotDot IntLit`. Matches Rust's own tokenizer.
     let next_offset = int_len;
-    let is_float = if next_offset < after_prefix.len() {
-        let next_byte = after_prefix.as_bytes()[next_offset];
-        next_byte == b'.' || next_byte == b'e' || next_byte == b'E'
+    let bytes = after_prefix.as_bytes();
+    let is_float = if next_offset < bytes.len() {
+        let next_byte = bytes[next_offset];
+        if next_byte == b'.' {
+            next_offset + 1 < bytes.len() && bytes[next_offset + 1].is_ascii_digit()
+        } else {
+            next_byte == b'e' || next_byte == b'E'
+        }
     } else {
         false
     };

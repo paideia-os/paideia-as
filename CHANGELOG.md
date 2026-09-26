@@ -1,5 +1,110 @@
 # Changelog
 
+## 0.36.43 — 2026-09-25 — Wave 3 debt-catalog: B2-005 + B4-001 + B2-004
+
+Wave 3 of the paideia-as debt catalog. Three parallel primitives; four
+issues closed (B4-001 also closes companion #1392).
+
+**PAS-DEBT-B2-005** (closes #1498) — Parser range operator `..` production:
+
+- `paideia-as-ast`: new `ExprData::Range { start: Option<NodeId>, end:
+  Option<NodeId> }` + `NodeKind::ExprRange` + `TermHead::Range`. Single
+  node covers all four shapes (`a..b`, `a..`, `..b`, `..`); endpoint-
+  absence lives in the `Option`, not a variant explosion.
+  `pretty::print_expr_internal`, `reflect::Term::head`,
+  `reflect::Term::children`, and `visit::walk_expr` +
+  `ExprVisitor::visit_expr_range` all updated (defensive coverage —
+  the debugger flagged the visit.rs + reflect.rs head() wildcards as
+  silent-miss hazards even though currently dormant).
+- **Companion lexer fix**: `crates/paideia-as-lexer/src/scan_number.rs`
+  was greedily lexing `1..2` as `FloatLit("1.")` + `Dot` + `IntLit(2)`
+  (never checked whether a digit followed the `.`), so B2-005's
+  headline syntax was silently broken through the real Lexer even
+  though the parser corpus passed (fixtures hand-built `Vec<Token>`,
+  bypassing the lexer). Fixed: `.` only opens a float when the next
+  byte is an ASCII digit; matches Rust's tokenizer. Three real-Lexer
+  regression pins added to `tests/lex_driver.rs`:
+  `lex_int_dotdot_int_regression_1498`,
+  `lex_int_dot_digit_still_float_regression_1498`,
+  `lex_int_dotdot_ident_regression_1498`.
+- `paideia-as-parser::precedence`: `pub const RANGE_BP: u8 = 55` —
+  between comparison-right (51) and bit-or-left (60), matching Rust's
+  precedence table. `..` intentionally NOT returned by `infix_bp`:
+  Pratt cannot express an optional right operand, so range dispatches
+  out-of-band.
+- `parse_expr`: two dispatch sites — Step 0.5 prefix (`..b` / `..`
+  when the very first token is `..`) and in-loop infix (before the
+  postfix/infix bp checks). Endpoint helper returns `None` at
+  expression terminators (`)`, `]`, `,`, `;`, `..`, `:`, `=>`, EOF)
+  and otherwise parses at `RANGE_BP + 1` so inner `..` cannot silently
+  attach.
+- Chaining `a..b..c` rejected with `P0103` at the second `..`.
+- Companion to B2-021 which landed the `DotDot` lexer terminal in
+  v0.36.42.
+- 8-fixture test corpus at `crates/paideia-as-parser/tests/range_expr.rs`.
+
+**PAS-DEBT-B4-001** (closes #1523, closes #1392) — BLAKE3 for string-intern hash:
+
+- `paideia-as-elaborator::string_intern`: swap FNV-1a-64 for BLAKE3-
+  truncated-to-u64 (`blake3::hash(bytes).as_bytes()[..8]` LE-u64).
+  Cryptographic collision resistance for the content-addressed keying
+  that `libpdx-schema-registry` will consume.
+- **Public rename** `fnv1a_64` → `symbol_hash` (keeping the old name
+  while switching algorithms would be actively deceptive). Two intra-
+  repo call sites migrated (`data_encoder.rs`, one codegen test).
+  `StringInternTable` API (`intern`, `intern_with_hash`, `get`, `len`,
+  `is_empty`, `iter`) is byte-identical.
+- BLAKE3 dep was already at `crates/paideia-as-elaborator/Cargo.toml`
+  (workspace pin `blake3 = "1"`).
+- Doc cites Aumasson, Neves, Wilcox-O'Hearn & Winnerlein (2020).
+- Tests pin BLAKE3-empty-string truncation
+  (`0xa6a1_f9f5_b949_13af`), determinism, and non-collision on similar
+  inputs (case, off-by-one, prefix).
+
+**PAS-DEBT-B2-004** (closes #1539) — parser struct type-def surface (documentation debt, no code gap):
+
+- **Discovery reframe**: parser already carried `parse_struct_decl`
+  (`parse_item/struct_enum.rs`) with generics, empty bodies, and full
+  dispatch from both file scope and `module M = structure { ... }`.
+  B2-004's actual gap was (a) the fixture `cap_set_rights.pdx` never
+  contained the `struct Capability` decl its own header comment
+  described; (b) stale docs claimed struct syntax was unsupported.
+- `tests/build-emit/cap_set_rights.pdx`: added the `struct Capability
+  { kind, target, rights, generation: u64 }` decl the file comment
+  always described (rights at offset 16 matches the `mov [rdi + 16],
+  rsi` in the unsafe block). Fixture now parses.
+- New pinning corpus at `crates/paideia-as-parser/tests/struct_type_
+  def.rs` (5 fixtures) — struct-in-file-scope, generic struct, empty
+  struct, struct-in-`structure`, and a verbatim mini-parse of the
+  updated fixture. A regression here fires before the workspace build
+  ever compiles B1-001.
+- `crates/paideia-as/tests/build_emit/field_read.rs`: rewrote the
+  stale "unsupported" note. Test stays `#[ignore]`d — un-ignoring
+  belongs to B1-001 per the catalog dependency edge.
+
+Workspace + SYSTEM_VERSION 0.36.42 → 0.36.43.
+
+Wave 3 verification (corrected after debugger cross-check):
+- `paideia-as-ast`: 128 tests + 6 doc/test-bin = all green.
+- `paideia-as-lexer`: 149 + 2 + 16 + 1 = 168 tests, all green
+  (previous baseline 165; +3 for the new `1..2` lexer regression
+  pins).
+- `paideia-as-parser` lib: 458 passed / 9 failed — the 9 failures
+  (`endian_attr::tests` × 4 diagnostic-code-range issue, `timeline::
+  tests` × 5 snapshot drift) all confirmed **pre-existing** via
+  `git stash` baseline check.
+- `paideia-as-parser` integration bin: 89 passed / 9 failed
+  (`endian_attr_snapshots` cluster, also **pre-existing**).
+- `paideia-as-elaborator`: 1045 passed / 2 failed
+  (`emit_walker_m3_004_cap_mint_4_stores_from_arg_regs` `left:31
+  right:32`, `emit_walker_ms_five_arg_call_emits_t0521` T0521 non-
+  emission) — both confirmed **pre-existing** on baseline. Not from
+  B4-001's BLAKE3 hash change (baseline had identical numbers).
+
+Total 20 pre-existing failures across 3 crates carried forward; none
+introduced by Wave 3. Should be filed as follow-up catalog entries
+(not this wave's scope).
+
 ## 0.36.42 — 2026-09-25 — Wave 2 debt-catalog: B2-021 + B4-004 + B1-009/010 + B1-011/012/013
 
 Wave 2 of the paideia-as debt catalog. Four parallel primitives; six issues
