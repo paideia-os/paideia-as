@@ -20,6 +20,8 @@ use crate::enum_layout::{
     EnumConsSideTable, EnumDiscriminantSideTable, EnumVariantPayloadTable, EnumVariantPrimitiveWidthTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
     MatchDispatchMetaSideTable, MatchJumpTableArmValuesSideTable, MatchScrutineeTable,
 };
+use crate::fn_caps::{CallSiteRequiredCapsTable, FnDeclaredCapsTable};
+use crate::handler_value::HandlerSideTable;
 use crate::instr_owner::InstrOwnerTable;
 use crate::instruction::InstructionSideTable;
 use crate::int_match::IntMatchScrutineeTable;
@@ -55,6 +57,20 @@ pub struct IrArena {
     /// detection; elaborator populates it from `instr_to_lambda` +
     /// `SymbolTable`.
     instr_owner_table: InstrOwnerTable,
+    /// Side-table: Handle IrNodeId → `HandlerInfo` (effect + op bodies).
+    /// PAS-DEBT-B3-002 (#1515): consumed by `opt::tailcall` to detect
+    /// tail-calls nested inside a handler op body. Elaborator moves its
+    /// walker-owned table into the arena at the end of the effect pass;
+    /// wire-up lands as B3-002b.
+    handler_side_table: HandlerSideTable,
+    /// Side-table: top-level function symbol → declared capability set.
+    /// PAS-DEBT-B3-002 (#1515): consumed by `opt::tailcall` to reject
+    /// TCO across a capability boundary. Absent entry → no cap evidence,
+    /// checker stays silent.
+    fn_declared_caps_table: FnDeclaredCapsTable,
+    /// Side-table: Call IrNodeId → cap set the callee requires at that site.
+    /// PAS-DEBT-B3-002 (#1515): companion of `fn_declared_caps_table`.
+    call_site_required_caps_table: CallSiteRequiredCapsTable,
     /// Side-table: loop metadata (entry/exit labels) indexed by Loop node ID.
     loop_meta_table: LoopMetaTable,
     /// Side-table: compile-time-known trip counts indexed by Loop node ID.
@@ -186,6 +202,9 @@ impl IrArena {
             children_table: Vec::with_capacity(n),
             instruction_table: InstructionSideTable::new(),
             instr_owner_table: InstrOwnerTable::new(),
+            handler_side_table: HandlerSideTable::new(),
+            fn_declared_caps_table: FnDeclaredCapsTable::new(),
+            call_site_required_caps_table: CallSiteRequiredCapsTable::new(),
             loop_meta_table: LoopMetaTable::new(),
             trip_count_table: TripCountTable::new(),
             unroll_info_table: UnrollInfoTable::new(),
@@ -323,6 +342,43 @@ impl IrArena {
     /// Borrow the instruction-owner side-table (mutable).
     pub fn instr_owner_mut(&mut self) -> &mut InstrOwnerTable {
         &mut self.instr_owner_table
+    }
+
+    /// Borrow the handler side-table (read-only).
+    /// PAS-DEBT-B3-002 (#1515): maps Handle IrNodeId → `HandlerInfo`.
+    #[must_use]
+    pub fn handler_side_table(&self) -> &HandlerSideTable {
+        &self.handler_side_table
+    }
+
+    /// Borrow the handler side-table (mutable). Elaborator moves its
+    /// walker-populated table here after effect-row analysis (B3-002b).
+    pub fn handler_side_table_mut(&mut self) -> &mut HandlerSideTable {
+        &mut self.handler_side_table
+    }
+
+    /// Borrow the function-declared-caps side-table (read-only).
+    /// PAS-DEBT-B3-002 (#1515): consumed by `opt::tailcall`.
+    #[must_use]
+    pub fn fn_declared_caps(&self) -> &FnDeclaredCapsTable {
+        &self.fn_declared_caps_table
+    }
+
+    /// Borrow the function-declared-caps side-table (mutable).
+    pub fn fn_declared_caps_mut(&mut self) -> &mut FnDeclaredCapsTable {
+        &mut self.fn_declared_caps_table
+    }
+
+    /// Borrow the call-site-required-caps side-table (read-only).
+    /// PAS-DEBT-B3-002 (#1515): consumed by `opt::tailcall`.
+    #[must_use]
+    pub fn call_site_required_caps(&self) -> &CallSiteRequiredCapsTable {
+        &self.call_site_required_caps_table
+    }
+
+    /// Borrow the call-site-required-caps side-table (mutable).
+    pub fn call_site_required_caps_mut(&mut self) -> &mut CallSiteRequiredCapsTable {
+        &mut self.call_site_required_caps_table
     }
 
     /// Borrow the loop metadata side-table (read-only).

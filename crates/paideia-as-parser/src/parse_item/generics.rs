@@ -1,7 +1,7 @@
 //! Generic parameter parsing (`<T, N: Copy>`) and type-name path parsing.
 //! Split out of `parse_item.rs` (2026-07-08).
 
-use paideia_as_ast::{GenericParam, NodeId, NodeKind};
+use paideia_as_ast::{GenericParam, NodeId, NodeKind, TraitBound};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -90,66 +90,19 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             let param_name = self.arena_mut().alloc(NodeKind::Ident, param_name_tok.span);
 
-            // Parse optional bounds: `:` followed by comma-separated trait names
-            // With optional projections like `Iterator<Item = u64>`
-            let mut bounds = Vec::new();
+            // Parse optional bounds: `:` followed by comma-separated trait names,
+            // each optionally carrying a `<Name = Type, ...>` associated-type
+            // projection list (and/or regular type args).
+            let mut bounds: Vec<TraitBound> = Vec::new();
             if self.eat(TokenKind::Colon) {
                 loop {
                     // Parse trait name as a path
                     let trait_name = self.parse_type_name_path()?;
-                    bounds.push(trait_name);
-
-                    // NEW: Check for projection syntax `<Item = Type>`
-                    // Phase 4 (m9-007): Store projection markers as synthetic Ident nodes.
-                    // TODO (resolver): Extract and validate projections against trait's associated types.
-                    if self.at(TokenKind::Lt) {
-                        self.bump(); // consume `<`
-
-                        if let Some(proj_tok) = self.peek() {
-                            if proj_tok.kind == TokenKind::Ident {
-                                let proj_name_tok = proj_tok;
-                                self.bump(); // consume projection name
-
-                                if self.at(TokenKind::Eq) {
-                                    self.bump(); // consume `=`
-
-                                    // Skip type tokens until we hit `,`, `>`, or other boundary
-                                    // Phase 4: Parse as placeholder; resolver will validate projection type
-                                    // Track nested angle brackets to handle nested generics like <X<Y>>
-                                    let mut depth = 0;
-                                    while !self.at_eof() {
-                                        if self.at(TokenKind::Lt) {
-                                            depth += 1;
-                                            self.bump();
-                                        } else if self.at(TokenKind::Gt) {
-                                            if depth > 0 {
-                                                depth -= 1;
-                                                self.bump();
-                                            } else {
-                                                // This is the closing `>` for the projection
-                                                break;
-                                            }
-                                        } else if self.at(TokenKind::Comma) && depth == 0 {
-                                            // Comma at depth 0 ends the projection
-                                            break;
-                                        } else {
-                                            self.bump();
-                                        }
-                                    }
-
-                                    // Store synthesized projection marker (phase 4 minimum)
-                                    let proj_marker =
-                                        self.arena_mut().alloc(NodeKind::Ident, proj_name_tok.span);
-                                    bounds.push(proj_marker);
-                                }
-                            }
-                        }
-
-                        // Consume the closing `>` of the projection
-                        if self.at(TokenKind::Gt) {
-                            self.bump(); // consume `>`
-                        }
-                    }
+                    let projections = self.parse_trait_bound_projections()?;
+                    bounds.push(TraitBound {
+                        path: trait_name,
+                        projections,
+                    });
 
                     // Check for comma (more bounds) or end of bounds
                     if !self.eat(TokenKind::Comma) {
@@ -196,6 +149,65 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
 
         Ok(params)
+    }
+
+    /// Parse the optional bound-position `<...>` after a trait path, extracting
+    /// associated-type projections as `(name_ident, ty)` pairs.
+    ///
+    /// Accepts both projections (`Name = Type`) and regular type arguments
+    /// interleaved in the same list, comma-separated. Regular type arguments
+    /// are parsed for well-formedness and then dropped — the elaborator
+    /// reconstructs the trait's generic instantiation from context.
+    ///
+    /// Validation of `Name` against the referenced trait's associated-type
+    /// set is a resolver concern (needs trait-registry access) and is not
+    /// performed here (paideia-as#1496, PAS-DEBT-B2-002).
+    pub(super) fn parse_trait_bound_projections(
+        &mut self,
+    ) -> Result<Vec<(NodeId, NodeId)>, ParseError> {
+        let mut projections: Vec<(NodeId, NodeId)> = Vec::new();
+        if !self.at(TokenKind::Lt) {
+            return Ok(projections);
+        }
+        self.bump(); // consume `<`
+
+        loop {
+            if self.at(TokenKind::Gt) || self.at_eof() {
+                break;
+            }
+
+            // Lookahead: `Ident =` marks a projection; anything else is a
+            // regular generic type argument. `=` is TokenKind::Assign;
+            // TokenKind::Eq is `==` (pre-fix, the parser tested `Eq` here
+            // and so never entered the extraction branch — the actual
+            // manifestation of PAS-DEBT-B2-002).
+            let is_projection = matches!(self.peek().map(|t| t.kind), Some(TokenKind::Ident))
+                && matches!(self.peek_at(1).map(|t| t.kind), Some(TokenKind::Assign));
+
+            if is_projection {
+                let name_tok = self.bump().expect("Ident guaranteed by peek");
+                let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+                self.bump(); // consume `=`
+                let ty = self.parse_type()?;
+                projections.push((name_id, ty));
+            } else {
+                // Regular type arg; parse for well-formedness and drop.
+                let _ = self.parse_type()?;
+            }
+
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+            if self.at(TokenKind::Gt) {
+                break;
+            }
+        }
+
+        // Consume the closing `>` of the bound-position list.
+        if self.at(TokenKind::Gt) {
+            self.bump();
+        }
+        Ok(projections)
     }
 
     /// Parse a type name as a path for use in generic bounds.

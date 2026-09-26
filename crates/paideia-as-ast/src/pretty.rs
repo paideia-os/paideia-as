@@ -10,9 +10,35 @@ use crate::{
 };
 
 /// Format a single GenericParam for display.
+///
+/// Bounds and associated-type projections are surfaced explicitly so a
+/// Wave-3/4-style silent miss on new bound-structure surface (PAS-DEBT-B2-002,
+/// paideia-as#1496) shows up in every printed dump.
 fn format_generic_param(p: &GenericParam) -> String {
     match p {
-        GenericParam::Type { name, .. } => format!("{}", name),
+        GenericParam::Type { name, bounds } => {
+            if bounds.is_empty() {
+                return format!("{}", name);
+            }
+            let bounds_str = bounds
+                .iter()
+                .map(|b| {
+                    if b.projections.is_empty() {
+                        format!("{}", b.path)
+                    } else {
+                        let projs = b
+                            .projections
+                            .iter()
+                            .map(|(n, t)| format!("{}={}", n, t))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{}<{}>", b.path, projs)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" + ");
+            format!("{}: {}", name, bounds_str)
+        }
         GenericParam::Lifetime { name } => format!("'{}", name),
     }
 }

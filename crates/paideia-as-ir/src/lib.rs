@@ -23,6 +23,7 @@ pub mod constant_pool;
 pub mod data;
 pub mod effect_rewrite;
 pub mod enum_layout;
+pub mod fn_caps;
 pub mod handler_value;
 pub mod instr_owner;
 pub mod instruction;
@@ -77,6 +78,7 @@ pub use enum_layout::{
     MatchDispatchMeta, MatchDispatchMetaSideTable, MatchScrutineeTable, PatternBinding,
     PassingConvention,
 };
+pub use fn_caps::{CallSiteRequiredCapsTable, FnDeclaredCapsTable};
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instr_owner::InstrOwnerTable;
 pub use instruction::{

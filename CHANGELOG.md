@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.36.50 — 2026-09-25 — Wave 10 debt-catalog: B3-002 + B3-005 + B2-002
+
+Wave 10 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed. All three unblocked by Wave 7 / Wave 8 / Wave 9 landings.
+
+**PAS-DEBT-B3-002** (closes #1515) — Tail-call cap/handler boundary:
+
+- New arena-aware `tco_arena_blocker(arena, call_id, ret_id,
+  owner_name)` complements the B3-001 self-recursion gate:
+  - **Handler-install boundary**: any `IrKind::Handle` or
+    `IrKind::HandlerValue` node whose IrNodeId lies strictly between
+    `call_id` and `ret_id`, and any populated `HandlerSideTable`
+    entry whose Handle id or op-body id lands in that range.
+  - **Capability boundary**: `FnDeclaredCapsTable` (owner-symbol
+    keyed) disagrees with `CallSiteRequiredCapsTable` (Call-id
+    keyed) via `BTreeSet` equality.
+- **HandlerSideTable moved into IrArena** so the tail-call pass can
+  query without a cross-crate elaborator handle. Elaborator handover
+  (moving the walker's populated table into the arena) tracked as
+  B3-002b.
+- Two new IR side-tables: `FnDeclaredCapsTable`, `CallSiteRequiredCapsTable`.
+  Both use `BTreeSet<String>` payloads for order-stable equality.
+- Conservative-symmetric: cap check only fires when BOTH tables carry
+  entries. Half-evidence stays silent (avoid false positives in
+  cap-untyped code).
+- Old `tco_blocker` kept as advisory adapter for its legacy test.
+- New O1516 diagnostic. 6 new tests.
+
+**PAS-DEBT-B3-005** (closes #1518) — Schedule pass arena application:
+
+- `InstructionSchedulingPass::apply` no longer discards the
+  permutation. Sorts by `(emission_order, node_id)` (encoder's actual
+  key), computes permutation via `schedule_block`, rewrites
+  `emission_order` values within the permuted window so the encoder
+  emits the new order. Retires `TODO(phase-3-m3-follow-up)`.
+- **Diagnostic fix**: replaced stale `O1503` (already claimed by
+  peephole compare-to-test) with new `O1517`.
+- 3 tests: identity permutation (unchanged, no diag), swap-across-
+  same-class barrier (emission-order swap), barrier blocks hoist
+  (unchanged).
+
+**PAS-DEBT-B2-002** (closes #1496) — Assoc-type projection extraction:
+
+- **Real root cause found**: pre-fix `self.at(TokenKind::Eq)` — `Eq`
+  is `==`, but `=` is `Assign`. The extraction branch never fired
+  because it tested for the wrong token. Marker-Ident hack + depth-
+  tracked skip removed.
+- `paideia-as-ast/src/exprs.rs`: new `TraitBound { path,
+  projections: Vec<(NodeId, NodeId)> }`; `GenericParam::Type::bounds`
+  changed from `Vec<NodeId>` to `Vec<TraitBound>` so projections
+  survive alongside the trait path.
+- `paideia-as-ast/src/pretty.rs`: `format_generic_param` now surfaces
+  `T: Path<Name=Ty, ...>` so a silent-arm-miss on the new shape
+  trips.
+- Elaborator-side validation against the trait's assoc-type set is
+  deferred (requires trait-registry access).
+- 4-test corpus at `tests/assoc_projection.rs`. Note: fixtures use
+  `> >` (space) because the lexer collapses `>>` into `Shr`; a
+  `Gt/Gt` splitter is out of scope.
+
+Workspace + SYSTEM_VERSION 0.36.49 → 0.36.50.
+
 ## 0.36.49 — 2026-09-25 — Wave 9 debt-catalog: B3-003 + B3-009 + B2-001
 
 Wave 9 of the paideia-as debt catalog. Three parallel primitives; three

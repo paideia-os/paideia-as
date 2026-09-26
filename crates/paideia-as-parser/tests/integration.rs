@@ -11,6 +11,7 @@
 //! paths under `tests/snapshots/`.
 
 mod align_attr_errors;
+mod assoc_projection;
 mod empty_fn_args;
 mod endian_attr_snapshots;
 mod fn_type_param_names;

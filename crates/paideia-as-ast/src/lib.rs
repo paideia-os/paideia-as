@@ -38,7 +38,7 @@ pub use item_dsl_parser::ItemDslParserTable;
 pub use item_fingerprint::ItemFingerprintTable;
 pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
-    SharingConstraint,
+    SharingConstraint, TraitBound,
 };
 pub use items::{
     AtomicOrdering, AttrValue, CallingConvention, ImplDecl, InterruptAttr, ItemAttribute,

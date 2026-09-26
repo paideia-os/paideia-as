@@ -3,7 +3,7 @@
 use super::{OptDiagSink, OptPass};
 use crate::IrArena;
 use crate::instruction::{Mnemonic, Operand};
-use crate::node::IrNodeId;
+use crate::node::{IrKind, IrNodeId};
 
 /// The tail-call elimination optimization pass.
 pub struct TailCallPass;
@@ -23,24 +23,90 @@ pub enum TcoBlocker {
 
 /// Phase-3-m2-004: tail-call eligibility checker using InstructionSideTable.
 ///
-/// Takes an instruction side-table and a call site node ID;
-/// returns whether the call is eligible for TCO (None), or the blocker (Some).
-///
-/// Phase-3-m3-005: structural precondition checks only.
-///
-/// Phase-4-m1-004: per-branch walker visibility is in place via Branch walker
-/// support; branch-arm recursion is analysable.
-///
-/// PAS-DEBT-B3-001: recursion identity is now handled by the pass itself via
-/// `instr_owner` + `SymbolRef` name match — see `apply()`. This helper stays
-/// focused on the capability / handler / ABI / frame blockers surfaced by the
-/// side-table; those are still stubbed pending B3-002.
+/// PAS-DEBT-B3-001 landed the self-recursion gate. PAS-DEBT-B3-002 (#1515)
+/// keeps this signature as a thin structural adapter for callers that only
+/// hold an `InstructionSideTable`; the enriched arena+call+ret variant lives
+/// in [`tco_arena_blocker`] and is what the pass actually calls.
 pub fn tco_blocker(
     _side_table: &crate::instruction::InstructionSideTable,
     _call_id: crate::node::IrNodeId,
 ) -> Option<TcoBlocker> {
-    // B3-002: extract blockers from the side-table + call site.
     None
+}
+
+/// PAS-DEBT-B3-002 (#1515): arena-aware tail-call blocker.
+///
+/// Returns `Some(reason)` iff the tail-call at `call_id` (returning at
+/// `ret_id`, owned by `owner_name`) must NOT be rewritten. Checks:
+///
+/// 1. **Handler-install boundary** — any `IrKind::Handle` or
+///    `IrKind::HandlerValue` node whose IrNodeId lies strictly between
+///    `call_id` and `ret_id`. Also any populated `HandlerSideTable` entry
+///    whose Handle id or op-body id falls in that range. Elision would
+///    drop the handler frame's setup/teardown.
+/// 2. **Capability boundary** — the enclosing function's declared cap set
+///    (from `fn_declared_caps`) differs from the callee's required cap set
+///    at this call site (from `call_site_required_caps`). Both tables
+///    unpopulated → silent (no evidence, no block).
+///
+/// ABI mismatch and callee-saves are left to future waves; the
+/// `TcoBlocker` variants exist for them but are not yet surfaced here.
+#[must_use]
+pub fn tco_arena_blocker(
+    arena: &IrArena,
+    call_id: IrNodeId,
+    ret_id: IrNodeId,
+    owner_name: &str,
+) -> Option<TcoBlocker> {
+    let lo = call_id.get().saturating_add(1);
+    let hi = ret_id.get();
+
+    // (1a) Structural handler node in (call_id, ret_id).
+    for i in lo..hi {
+        if let Some(id) = IrNodeId::new(i) {
+            if let Some(data) = arena.get(id) {
+                if matches!(data.kind, IrKind::Handle | IrKind::HandlerValue) {
+                    return Some(TcoBlocker::EffectHandlerInstalling);
+                }
+            }
+        }
+    }
+
+    // (1b) HandlerSideTable entry whose Handle id or op body id lands in range.
+    for (handle_id, info) in arena.handler_side_table().iter() {
+        let h = handle_id.get();
+        if h >= lo && h < hi {
+            return Some(TcoBlocker::EffectHandlerInstalling);
+        }
+        for (_, op_body_id) in &info.ops {
+            let b = op_body_id.get();
+            if b >= lo && b < hi {
+                return Some(TcoBlocker::EffectHandlerInstalling);
+            }
+        }
+    }
+
+    // (2) Cap set disagreement between enclosing fn and this call site.
+    if let (Some(declared), Some(required)) = (
+        arena.fn_declared_caps().get(owner_name),
+        arena.call_site_required_caps().get(call_id),
+    ) {
+        if declared != required {
+            return Some(TcoBlocker::CapabilityBoundary);
+        }
+    }
+
+    None
+}
+
+/// Human-readable reason string for O1516 diagnostics.
+fn blocker_reason(b: TcoBlocker) -> &'static str {
+    match b {
+        TcoBlocker::CapabilityBoundary => "capability-declaration mismatch",
+        TcoBlocker::EffectHandlerInstalling => "handler-install boundary",
+        TcoBlocker::DifferentCallConvention => "ABI mismatch",
+        TcoBlocker::FrameRequiresEpilogue => "frame requires epilogue",
+    }
 }
 
 /// Internal implementation: TCO eligibility check on explicit boolean flags.
@@ -128,9 +194,9 @@ impl OptPass for TailCallPass {
             }
 
             // Self-recursion gate: owner must match the call target.
-            let is_self_recursion = arena
-                .instr_owner()
-                .get(call_id)
+            let owner_snapshot = arena.instr_owner().get(call_id).map(str::to_string);
+            let is_self_recursion = owner_snapshot
+                .as_deref()
                 .map(|owner| owner == target_name.as_str())
                 .unwrap_or(false);
 
@@ -139,8 +205,21 @@ impl OptPass for TailCallPass {
                 continue;
             }
 
-            // Structural blockers (capability boundary, ABI mismatch, ...).
-            if tco_blocker(arena.instructions(), call_id).is_some() {
+            // Owner is Some here (self-recursion required it).
+            let owner_name = owner_snapshot.unwrap();
+
+            // PAS-DEBT-B3-002: capability / handler-install / effect-row blocker.
+            if let Some(reason) = tco_arena_blocker(arena, call_id, next_id, &owner_name) {
+                sink.emit(
+                    "tailcall",
+                    format!(
+                        "O1516: TCO refused for i{} → {} — {} (owner={})",
+                        call_id.get(),
+                        target_name,
+                        blocker_reason(reason),
+                        owner_name,
+                    ),
+                );
                 i += 1;
                 continue;
             }
@@ -175,8 +254,15 @@ impl OptPass for TailCallPass {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handler_value::{EffectId, HandlerInfo};
     use crate::instruction::{InstrMode, Instruction, InstructionSideTable, Operand, RegId};
+    use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;
+    use std::collections::BTreeSet;
+
+    fn span() -> Span {
+        Span::new(FileId::new(1).unwrap(), 0, 1)
+    }
 
     // ── Helpers ────────────────────────────────────────────────────
 
@@ -477,5 +563,234 @@ mod tests {
         );
         assert!(arena.instructions().get(IrNodeId::new(4).unwrap()).is_none());
         assert_eq!(sink.diagnostics.len(), 2);
+    }
+
+    // ── PAS-DEBT-B3-002 (#1515) — capability/handler-install guards ───
+
+    /// Positive regression: self-recursion with matching caps still rewrites.
+    /// Confirms the B3-002 guard does not over-fire on well-formed input.
+    #[test]
+    fn b3_002_self_recursion_with_matching_caps_still_rewrites() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let call_id = IrNodeId::new(1).unwrap();
+        let ret_id = IrNodeId::new(2).unwrap();
+
+        arena.instructions_mut().insert(call_id, call_to("factorial"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "factorial".to_string());
+
+        let mut caps = BTreeSet::new();
+        caps.insert("Fs".to_string());
+        arena
+            .fn_declared_caps_mut()
+            .insert("factorial".to_string(), caps.clone());
+        arena
+            .call_site_required_caps_mut()
+            .insert(call_id, caps);
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
+
+        assert!(changed, "matching caps must not block self-recursion TCO");
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Jmp
+        );
+        assert!(arena.instructions().get(ret_id).is_none());
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1514"));
+    }
+
+    /// Negative: an `IrKind::Handle` node between Call and Ret blocks TCO;
+    /// O1516 names the handler-install boundary.
+    #[test]
+    fn b3_002_intervening_handle_node_blocks_tco() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        // Allocate arena nodes at ids 1, 2, 3 — the middle one is a Handle.
+        let call_node = arena.alloc(IrKind::App, span());
+        let handle_node = arena.alloc(IrKind::Handle, span());
+        let ret_node = arena.alloc(IrKind::Placeholder, span());
+        assert_eq!(call_node.get(), 1);
+        assert_eq!(handle_node.get(), 2);
+        assert_eq!(ret_node.get(), 3);
+
+        arena
+            .instructions_mut()
+            .insert(call_node, call_to("factorial"));
+        arena.instructions_mut().insert(ret_node, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_node, "factorial".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(4).unwrap(), &mut sink);
+
+        assert!(!changed, "handler-install boundary must block TCO");
+        assert_eq!(
+            arena.instructions().get(call_node).unwrap().mnemonic,
+            Mnemonic::Call
+        );
+        assert!(arena.instructions().get(ret_node).is_some());
+        assert_eq!(sink.diagnostics.len(), 1);
+        let msg = &sink.diagnostics[0].message;
+        assert!(msg.contains("O1516"), "missing O1516: {}", msg);
+        assert!(
+            msg.contains("handler-install boundary"),
+            "missing reason: {}",
+            msg
+        );
+        assert!(msg.contains("factorial"));
+    }
+
+    /// Negative variant: a populated `HandlerSideTable` entry whose Handle id
+    /// falls in the Call..Ret range also blocks — even without a raw node.
+    #[test]
+    fn b3_002_handler_side_table_entry_blocks_tco() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        // Reserve ids 1..=3 in the arena to expose a Handle-id slot at 2.
+        let _n1 = arena.alloc(IrKind::App, span());
+        let n2 = arena.alloc(IrKind::Placeholder, span());
+        let _n3 = arena.alloc(IrKind::Placeholder, span());
+
+        let call_id = IrNodeId::new(1).unwrap();
+        let ret_id = IrNodeId::new(3).unwrap();
+
+        arena.instructions_mut().insert(call_id, call_to("factorial"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "factorial".to_string());
+
+        // Populate a HandlerInfo whose op body lives at n2 (id 2, in range).
+        arena.handler_side_table_mut().insert(
+            IrNodeId::new(100).unwrap(),
+            HandlerInfo {
+                effect: EffectId(1),
+                ops: vec![("op".to_string(), n2)],
+                ret: None,
+                finally: None,
+            },
+        );
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(4).unwrap(), &mut sink);
+
+        assert!(!changed, "HandlerSideTable op-body in range must block TCO");
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1516"));
+        assert!(sink.diagnostics[0]
+            .message
+            .contains("handler-install boundary"));
+    }
+
+    /// Negative: enclosing fn declares caps the callee requirement disagrees
+    /// with → TCO refused, O1516 names the capability-declaration mismatch.
+    #[test]
+    fn b3_002_cap_mismatch_blocks_tco() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let call_id = IrNodeId::new(1).unwrap();
+        let ret_id = IrNodeId::new(2).unwrap();
+
+        arena.instructions_mut().insert(call_id, call_to("worker"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "worker".to_string());
+
+        // Caller declares {Fs, Net}; call site requires only {Fs} — mismatch.
+        let mut declared = BTreeSet::new();
+        declared.insert("Fs".to_string());
+        declared.insert("Net".to_string());
+        arena
+            .fn_declared_caps_mut()
+            .insert("worker".to_string(), declared);
+
+        let mut required = BTreeSet::new();
+        required.insert("Fs".to_string());
+        arena
+            .call_site_required_caps_mut()
+            .insert(call_id, required);
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
+
+        assert!(!changed, "cap mismatch must block TCO");
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
+        );
+        assert!(arena.instructions().get(ret_id).is_some());
+        assert_eq!(sink.diagnostics.len(), 1);
+        let msg = &sink.diagnostics[0].message;
+        assert!(msg.contains("O1516"), "missing O1516: {}", msg);
+        assert!(
+            msg.contains("capability-declaration mismatch"),
+            "missing reason: {}",
+            msg
+        );
+        assert!(msg.contains("worker"));
+    }
+
+    /// One-sided cap evidence (only declared, or only required) is treated as
+    /// silent — the pass never blocks on a half-populated table.
+    #[test]
+    fn b3_002_half_populated_cap_tables_do_not_block() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let call_id = IrNodeId::new(1).unwrap();
+        let ret_id = IrNodeId::new(2).unwrap();
+
+        arena.instructions_mut().insert(call_id, call_to("worker"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "worker".to_string());
+
+        // Only declared side is populated — call site is silent.
+        let mut declared = BTreeSet::new();
+        declared.insert("Fs".to_string());
+        arena
+            .fn_declared_caps_mut()
+            .insert("worker".to_string(), declared);
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
+
+        assert!(changed, "half-populated cap tables must not block TCO");
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Jmp
+        );
+    }
+
+    /// The arena blocker helper is stand-alone testable: an out-of-range
+    /// Handle node (before the Call or after the Ret) does not block.
+    #[test]
+    fn b3_002_out_of_range_handle_node_does_not_block() {
+        let mut arena = IrArena::new();
+
+        // Layout: id 1 Handle (before call), 2 Call, 3 Ret, 4 Handle (after ret).
+        let handle_before = arena.alloc(IrKind::Handle, span());
+        let call_id = arena.alloc(IrKind::App, span());
+        let ret_id = arena.alloc(IrKind::Placeholder, span());
+        let handle_after = arena.alloc(IrKind::Handle, span());
+        assert_eq!(handle_before.get(), 1);
+        assert_eq!(call_id.get(), 2);
+        assert_eq!(ret_id.get(), 3);
+        assert_eq!(handle_after.get(), 4);
+
+        let blocker = tco_arena_blocker(&arena, call_id, ret_id, "factorial");
+        assert_eq!(blocker, None);
     }
 }

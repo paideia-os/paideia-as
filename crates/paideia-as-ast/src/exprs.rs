@@ -30,6 +30,30 @@ pub struct MatchAttrs {
     pub jump_table: bool,
 }
 
+/// One trait bound in a generic parameter's bound list.
+///
+/// Wraps the trait path together with any associated-type projections
+/// written inside its bound-position `<...>` — for example the
+/// `Item = u64` in `T: Iterator<Item = u64>`. Introduced with
+/// paideia-as#1496 (PAS-DEBT-B2-002); pre-fix, the parser lex-accepted
+/// projections and then dropped both the projection name and the RHS
+/// type (a synthetic marker Ident was pushed into the flat bounds
+/// list and the type body was depth-skipped).
+///
+/// The elaborator will later validate `projections[i].0` against the
+/// referenced trait's actual associated-type set; that step needs
+/// trait-registry access and is not a parser-phase concern.
+#[derive(Clone, Debug)]
+pub struct TraitBound {
+    /// Trait path node (typically an `ExprPath`).
+    pub path: NodeId,
+    /// Associated-type projections in `<Name = Type, ...>` order. Each
+    /// entry is `(assoc_name_ident_node, ty_node)`. Empty when the
+    /// bound has no `<...>` list or when the `<...>` list contains only
+    /// regular type arguments.
+    pub projections: Vec<(NodeId, NodeId)>,
+}
+
 /// Generic parameter declaration.
 ///
 /// Represents either a type parameter or lifetime parameter in a generic function
@@ -38,16 +62,18 @@ pub struct MatchAttrs {
 /// Examples:
 /// - `T` in `fn foo<T: Trait>(x: T)` (Type variant)
 /// - `U: Clone` in `fn bar<U: Clone>` (Type variant with bounds)
+/// - `T: Iterator<Item = u64>` (Type variant with a projection on a bound)
 /// - `'a` in `fn baz<'a>(x: &'a T)` (Lifetime variant)
 #[derive(Clone, Debug)]
 pub enum GenericParam {
-    /// Type parameter: `T` or `T: Bound1 + Bound2 + ...`
+    /// Type parameter: `T` or `T: Bound1, Bound2, ...`
     Type {
         /// Parameter name (Ident node).
         name: NodeId,
-        /// Trait bounds (type-name/path nodes for trait bounds).
-        /// Empty if no bounds specified.
-        bounds: Vec<NodeId>,
+        /// Trait bounds. Each entry wraps the trait path together with any
+        /// associated-type projections that appear in its bound-position
+        /// `<...>`. Empty if no bounds specified.
+        bounds: Vec<TraitBound>,
     },
     /// Lifetime parameter: `'a`, `'b`, etc.
     /// The name is stored as a String (e.g., "a", "b") without the leading quote.

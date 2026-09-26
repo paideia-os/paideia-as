@@ -224,46 +224,67 @@ impl OptPass for InstructionSchedulingPass {
         "schedule"
     }
 
+    /// PAS-DEBT-B3-005: apply the computed schedule to the arena instead of
+    /// discarding it. The encoder sorts by `(emission_order, node_id)`, so we
+    /// mutate `emission_order` values in the permuted positions to make the
+    /// scheduler's output the actual emitted order.
     fn apply(&self, arena: &mut IrArena, _function_root: IrNodeId, sink: &mut OptDiagSink) -> bool {
-        // Phase-3-m3: Walk the instruction side-table and schedule reorderable sequences.
-        // Collect all instruction node IDs; since the IR lacks explicit basic block
-        // structure, we treat contiguous reorderable sequences within the table.
-        let ids: Vec<IrNodeId> = {
+        // Sort by (emission_order, node_id) — the encoder's actual sort key.
+        // Running the heuristic against this order matches the emitted sequence.
+        let mut ids_with_order: Vec<(u32, IrNodeId)> = {
             let table = arena.instructions();
-            table.entries().keys().copied().collect()
+            table
+                .entries()
+                .iter()
+                .map(|(&nid, ins)| (ins.emission_order, nid))
+                .collect()
         };
 
-        if ids.is_empty() {
+        if ids_with_order.is_empty() {
             return false;
         }
 
-        let mut changed = false;
+        ids_with_order.sort();
+        let ids: Vec<IrNodeId> = ids_with_order.iter().map(|&(_, nid)| nid).collect();
+        let orig_orders: Vec<u32> = ids_with_order.iter().map(|&(eo, _)| eo).collect();
 
-        // For each sequence of instructions, run the scheduling heuristic.
         let permutation = {
             let table = arena.instructions();
             schedule_block(table, &ids)
         };
 
-        // Check if the permutation is non-identity (i.e., some reordering occurred).
-        if permutation != (0..ids.len()).collect::<Vec<_>>() {
-            changed = true;
-
-            // Emit O1503 diagnostic for the reordering.
-            sink.emit(
-                "schedule",
-                format!("O1503 (schedule): reordered {} instruction(s)", ids.len()),
-            );
-
-            // TODO(phase-3-m3-follow-up): Implement actual block reordering via arena.
-            // The permutation tells us the new order, but the current IR arena
-            // does not support mid-block reordering of instruction sequences
-            // without explicit block structure. Document and defer to a future PR.
-            //
-            // For now, we emit the diagnostic and accept the permutation as validated.
+        // Identity permutation → nothing to apply.
+        if permutation.iter().enumerate().all(|(i, &p)| i == p) {
+            return false;
         }
 
-        changed
+        // Apply: instruction now at destination i (originally at perm[i]) takes
+        // the emission_order value that was at position i. Values within the
+        // permuted window get swapped; fixed positions are left untouched.
+        {
+            let table = arena.instructions_mut();
+            for (dest_idx, &src_idx) in permutation.iter().enumerate() {
+                if dest_idx == src_idx {
+                    continue;
+                }
+                let src_nid = ids[src_idx];
+                let new_order = orig_orders[dest_idx];
+                if let Some(instr) = table.get_mut(src_nid) {
+                    instr.emission_order = new_order;
+                }
+            }
+        }
+
+        // O1517 (B3-005): schedule pass fired and applied reorder to arena.
+        sink.emit(
+            "schedule",
+            format!(
+                "O1517 (schedule): reordered {} instruction(s), applied to arena",
+                permutation.len()
+            ),
+        );
+
+        true
     }
 }
 
@@ -1251,5 +1272,146 @@ mod tests {
         // Schedule should respect the barrier and preserve [0, 1, 2] order.
         let result = schedule_block(&table, &[n0, n1, n2]);
         assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    // ── B3-005: schedule pass applies its permutation to the arena ──
+
+    /// Helper: build an instruction with given mnemonic and emission_order.
+    /// Operands are a single Reg — enough for latency classification.
+    #[cfg(test)]
+    fn make_instr(mnemonic: Mnemonic, emission_order: u32) -> crate::instruction::Instruction {
+        use crate::instruction::{Instruction, Operand, RegId};
+        use smallvec::SmallVec;
+        Instruction {
+            mnemonic,
+            operands: {
+                let mut ops = SmallVec::new();
+                ops.push(Operand::Reg(RegId(0)));
+                ops
+            },
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order,
+        }
+    }
+
+    /// B3-005 AC 1: straight-line same-class instructions produce identity
+    /// permutation — the pass returns false and leaves the arena untouched.
+    #[test]
+    fn schedule_pass_leaves_straight_line_unchanged() {
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let pass = InstructionSchedulingPass;
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        {
+            let t = arena.instructions_mut();
+            t.insert(n0, make_instr(Mnemonic::Add, 10));
+            t.insert(n1, make_instr(Mnemonic::Sub, 20));
+            t.insert(n2, make_instr(Mnemonic::Xor, 30));
+        }
+
+        let dummy = IrNodeId::new(99).unwrap();
+        let changed = pass.apply(&mut arena, dummy, &mut sink);
+
+        assert!(!changed, "same-class straight-line must be identity");
+        assert_eq!(sink.diagnostics.len(), 0);
+        // Emission orders unchanged.
+        assert_eq!(arena.instructions().get(n0).unwrap().emission_order, 10);
+        assert_eq!(arena.instructions().get(n1).unwrap().emission_order, 20);
+        assert_eq!(arena.instructions().get(n2).unwrap().emission_order, 30);
+    }
+
+    /// B3-005 AC 2: two independent instructions where the second has higher
+    /// latency — the pass hoists it and REWRITES emission_order values so the
+    /// encoder's (emission_order, node_id) sort produces the new order.
+    /// Prefetcht0 classifies as Other (latency 3, non-barrier); Add is
+    /// AluReg (latency 1). Result: Prefetcht0 hoisted before Add.
+    #[test]
+    fn schedule_pass_applies_swap_via_emission_order_rewrite() {
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let pass = InstructionSchedulingPass;
+
+        let n_alu = IrNodeId::new(1).unwrap();
+        let n_load = IrNodeId::new(2).unwrap();
+
+        {
+            let t = arena.instructions_mut();
+            t.insert(n_alu, make_instr(Mnemonic::Add, 10));
+            t.insert(n_load, make_instr(Mnemonic::Prefetcht0, 20));
+        }
+
+        let dummy = IrNodeId::new(99).unwrap();
+        let changed = pass.apply(&mut arena, dummy, &mut sink);
+
+        assert!(changed, "AluReg+Other must produce non-identity permutation");
+
+        // Exactly one O1517 diagnostic emitted.
+        let o1517 = sink
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("O1517"))
+            .count();
+        assert_eq!(o1517, 1, "expected exactly one O1517 diagnostic");
+
+        // Emission orders swapped: the Other-class instruction now has the
+        // lower emission_order (10), so it sorts before the AluReg (which
+        // now has 20). Encoder's (emission_order, node_id) sort emits it first.
+        assert_eq!(
+            arena.instructions().get(n_load).unwrap().emission_order,
+            10,
+            "hoisted Other-class instruction takes the earlier emission slot"
+        );
+        assert_eq!(
+            arena.instructions().get(n_alu).unwrap().emission_order,
+            20,
+            "displaced AluReg takes the later emission slot"
+        );
+    }
+
+    /// B3-005 AC 3: a barrier between two candidates prevents reordering —
+    /// the pass returns false and emission_order values are untouched.
+    #[test]
+    fn schedule_pass_does_not_reorder_across_barrier() {
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+        let pass = InstructionSchedulingPass;
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n_barrier = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        {
+            let t = arena.instructions_mut();
+            // AluReg, then LOCK barrier, then a higher-latency Other. Without
+            // the barrier the Other would be hoisted; with it, order is fixed.
+            t.insert(n0, make_instr(Mnemonic::Add, 10));
+            t.insert(n_barrier, make_instr(Mnemonic::Mfence, 20));
+            t.insert(n2, make_instr(Mnemonic::Prefetcht0, 30));
+        }
+
+        let dummy = IrNodeId::new(99).unwrap();
+        let changed = pass.apply(&mut arena, dummy, &mut sink);
+
+        assert!(!changed, "barrier must suppress reordering");
+        // No O1517 diagnostic emitted.
+        assert!(
+            sink.diagnostics
+                .iter()
+                .all(|d| !d.message.contains("O1517")),
+            "no O1517 must be emitted when nothing was applied"
+        );
+        // Emission orders unchanged.
+        assert_eq!(arena.instructions().get(n0).unwrap().emission_order, 10);
+        assert_eq!(
+            arena.instructions().get(n_barrier).unwrap().emission_order,
+            20
+        );
+        assert_eq!(arena.instructions().get(n2).unwrap().emission_order, 30);
     }
 }
