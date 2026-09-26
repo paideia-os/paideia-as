@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.36.49 — 2026-09-25 — Wave 9 debt-catalog: B3-003 + B3-009 + B2-001
+
+Wave 9 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed. All three previously unblocked by Wave 7 / Wave 8 landings.
+
+**PAS-DEBT-B3-003** (closes #1516) — Unroll body-duplication + remainder:
+
+- Retired both `TODO: actual body-duplication` markers in
+  `opt::unroll`. When a Loop node has a compile-time-known trip count,
+  the pass duplicates the body child `factor` times (default 4),
+  reduces main-loop trip to `N / factor`, and allocates a fresh
+  `IrKind::Loop` remainder node carrying `N % factor` iterations when
+  the division is not exact.
+- **Two new IR side-tables**:
+  - `TripCountTable` (sparse `HashMap<IrNodeId, u32>`, Loop id → trip
+    count).
+  - `UnrollInfoTable` (post-rewrite metadata: factor, main iters,
+    remainder). Downstream stages read the unrolled shape without
+    re-inferring.
+- Safety gate preserves the pre-existing `Call` / `RepMovsb` /
+  `RepStosb` / `RepMovsq` blockers.
+- New O1515 diagnostic names factor + trip + main-iters + remainder.
+  Falls back to O1511 recognition line when trip absent or trip <
+  factor.
+- 5 new tests (divisible trip=8/k=4, indivisible trip=10/k=4, missing
+  trip count, trip<factor, unsafe Loop with Call).
+- **Deferred as B3-003b**: deep-clone of body subtree (duplicated
+  body children currently alias the original body's IrNodeId — safe
+  pre-emission since the encoder does not yet iterate a Loop's
+  children per iteration, but a deep-clone utility must materialise
+  distinct instruction ids per copy once emission grows unroll-aware).
+- **Deferred as B3-003c**: elaborator hook to populate
+  `TripCountTable` from `for i in 0..N` range-bound recognition.
+
+**PAS-DEBT-B3-009** (closes #1522) — IrKind::HandlerValue:
+
+- `crates/paideia-as-ir/src/node.rs`: new `IrKind::HandlerValue`
+  variant. `IrKind` is already `#[non_exhaustive]` so downstream
+  match sites (all carry `_` arms) are source-compatible.
+- `crates/paideia-as-elaborator/src/lower/kind_map.rs`:
+  `NodeKind::ExprHandlerValue → IrKind::HandlerValue` (was
+  `IrKind::Action`). Retires the phase-1 ride-along.
+- Enabled by B3-008 landing HandlerSideTable in Wave 8.
+- New `lower_handler_value_produces_handler_value_kind` test asserts
+  the lowered kind is neither `Action` nor `Placeholder`.
+- `check_linearity` intentionally not touched — HandlerValue arms
+  don't participate in outer linearity scope in phase-1; follow-up
+  when arm bodies get validated.
+
+**PAS-DEBT-B2-001** (closes #1538) — For-loop pattern:
+
+- `parse_loop_for` now routes through the general `Parser::parse_pattern`
+  (made `pub` by Wave 7 B2-013) instead of the private Ident-only
+  helper. `parse_for_pattern` deleted (net -22 LOC in parse_control.rs).
+- All pattern shapes the pattern-parser accepts — wildcard, tuple,
+  reference, slice/rest (from B2-013), struct, enum-variant, or,
+  binding, range — are now valid `for`-loop binders. Previously any
+  non-Ident header silently returned `ParseError` with no diagnostic.
+- `ExprData::For.pattern` was already a general `NodeId`; no AST
+  change required.
+- Feeds PAS-DEBT-B1-004 (MS x64 bridge_thunk lambda walker widening).
+- 5-fixture corpus at `tests/for_pattern_extensions.rs`.
+
+Workspace + SYSTEM_VERSION 0.36.48 → 0.36.49.
+
 ## 0.36.48 — 2026-09-25 — Wave 8 debt-catalog: B3-001 + B3-008 + B2-009
 
 Wave 8 of the paideia-as debt catalog. Three parallel primitives; three

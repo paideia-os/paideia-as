@@ -55,10 +55,10 @@ pub(super) fn map_node_kind(kind: NodeKind) -> IrKind {
         // Resume expressions (phase-1 placeholder)
         NodeKind::ExprResume => IrKind::App,
 
-        // Handler-value construction (phase-1: placeholder mapped to Action)
-        // TODO: phase-2 will introduce a dedicated IrKind::HandlerValue when elaborator
-        // validates handler arm coverage and parameter binding.
-        NodeKind::ExprHandlerValue => IrKind::Action,
+        // Handler-value construction: dedicated IrKind::HandlerValue (PAS-DEBT-B3-009 / #1522).
+        // Retires the phase-1 Action ride-along now that the elaborator carries
+        // HandlerSideTable (B3-008) for arm coverage + parameter binding.
+        NodeKind::ExprHandlerValue => IrKind::HandlerValue,
 
         // Unsafe block escape hatch
         NodeKind::ExprUnsafe => IrKind::Unsafe,

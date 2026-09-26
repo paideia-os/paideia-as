@@ -32,6 +32,8 @@ use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 use crate::record_layout::{FieldAccessSideTable, RecordLayoutTable, FinalisedLayoutTable};
 use crate::symbol::SymbolTable;
+use crate::trip_count::TripCountTable;
+use crate::unroll_info::UnrollInfoTable;
 
 /// Slab-allocated IR storage for one source file.
 ///
@@ -55,6 +57,16 @@ pub struct IrArena {
     instr_owner_table: InstrOwnerTable,
     /// Side-table: loop metadata (entry/exit labels) indexed by Loop node ID.
     loop_meta_table: LoopMetaTable,
+    /// Side-table: compile-time-known trip counts indexed by Loop node ID.
+    /// PAS-DEBT-B3-003 (#1516): consumed by `opt::unroll` to decide when
+    /// (and by how much) to unroll a loop. Absent entry → symbolic /
+    /// unknown → pass refuses to rewrite.
+    trip_count_table: TripCountTable,
+    /// Side-table: post-rewrite unroll metadata indexed by original Loop
+    /// node ID. PAS-DEBT-B3-003 (#1516): written by `opt::unroll` after
+    /// it duplicates a loop body; downstream stages consult it to reason
+    /// about the unrolled shape + optional remainder-loop node.
+    unroll_info_table: UnrollInfoTable,
     /// Side-table: constant pool for repeated 64-bit immediates (m1-010 pool-constants pass).
     constant_pool_table: ConstantPoolTable,
     /// Side-table: literal values (i64) indexed by Literal node ID.
@@ -175,6 +187,8 @@ impl IrArena {
             instruction_table: InstructionSideTable::new(),
             instr_owner_table: InstrOwnerTable::new(),
             loop_meta_table: LoopMetaTable::new(),
+            trip_count_table: TripCountTable::new(),
+            unroll_info_table: UnrollInfoTable::new(),
             constant_pool_table: ConstantPoolTable::new(),
             literal_value_table: LiteralValueTable::new(),
             literal_bytes_table: LiteralBytesTable::new(),
@@ -320,6 +334,30 @@ impl IrArena {
     /// Borrow the loop metadata side-table (mutable).
     pub fn loop_meta_mut(&mut self) -> &mut LoopMetaTable {
         &mut self.loop_meta_table
+    }
+
+    /// Borrow the trip-count side-table (read-only).
+    /// PAS-DEBT-B3-003 (#1516): maps a Loop IrNodeId → known trip count.
+    #[must_use]
+    pub fn trip_counts(&self) -> &TripCountTable {
+        &self.trip_count_table
+    }
+
+    /// Borrow the trip-count side-table (mutable).
+    pub fn trip_counts_mut(&mut self) -> &mut TripCountTable {
+        &mut self.trip_count_table
+    }
+
+    /// Borrow the unroll-info side-table (read-only).
+    /// PAS-DEBT-B3-003 (#1516): populated by `opt::unroll`.
+    #[must_use]
+    pub fn unroll_info(&self) -> &UnrollInfoTable {
+        &self.unroll_info_table
+    }
+
+    /// Borrow the unroll-info side-table (mutable).
+    pub fn unroll_info_mut(&mut self) -> &mut UnrollInfoTable {
+        &mut self.unroll_info_table
     }
 
     /// Borrow the constant pool side-table (read-only).

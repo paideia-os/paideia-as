@@ -3,13 +3,31 @@
 //! **Phase-4-m8-006 integration note**: The Loop, Break, and Continue IR kinds
 //! (see `crate::loop_meta`) now give unroll a direct handle to identify loop
 //! structures in the IR, rather than relying on tail-recursion + TCO substitutes.
-//! A future upgrade to this unroll body (m3-006 follow-up) will consume the Loop
-//! node directly to extract trip-count information and perform the unroll
-//! transformation on the IR before encoding.
+//!
+//! **PAS-DEBT-B3-003 (Wave 9, #1516)** — the two `TODO: actual body-duplication`
+//! markers that lived here have been retired. When a Loop node has a
+//! compile-time-known trip count recorded in `arena.trip_counts()`, this pass
+//! now performs the real IR rewrite:
+//!
+//! 1. Extend the Loop's child list from `[body]` to `[body, body, ..., body]`
+//!    (`factor` copies).
+//! 2. Reduce the trip count entry to `N / factor` (main-loop iterations).
+//! 3. When `N % factor > 0`, allocate a fresh `IrKind::Loop` node carrying the
+//!    same body child and record its trip count as the remainder — the
+//!    residual loop that runs the leftover iterations.
+//! 4. Record post-rewrite metadata (factor, main iterations, remainder
+//!    iterations, remainder-loop id) in `arena.unroll_info()` for downstream.
+//! 5. Emit an `O1515` diagnostic naming factor + trip + iterations + remainder.
+//!
+//! Loops without a trip-count entry keep the pre-existing `O1511` recognition
+//! behavior (diagnostic emitted, no rewrite). Populating `trip_counts` from
+//! range-literal bounds (`for i in 0..N { ... }`) is deferred to B3-003c on
+//! the elaborator side, once the parser's for-pattern work (B2-001) lands.
 
 use super::{OptDiagSink, OptPass};
 use crate::IrArena;
 use crate::node::IrNodeId;
+use crate::unroll_info::UnrollInfo;
 
 #[cfg(test)]
 use crate::instruction::InstrMode;
@@ -112,6 +130,61 @@ pub fn is_unroll_safe_impl(trip: TripCount, factor: u32) -> bool {
     }
 }
 
+/// PAS-DEBT-B3-003: perform the actual body-duplication rewrite on a Loop
+/// node that has a known trip count. Returns the freshly-allocated remainder
+/// loop id when `trip % factor > 0`, else `None`.
+///
+/// Rewrite steps:
+/// - The Loop's children go from `[body]` to `[body; factor]`.
+/// - Its trip-count entry is reduced to `trip / factor` (main iterations).
+/// - When `trip % factor > 0`, a fresh `IrKind::Loop` node is allocated
+///   sharing the same body child, with trip count = `trip % factor`.
+///
+/// The caller is responsible for recording the resulting `UnrollInfo` in
+/// `arena.unroll_info_mut()`.
+fn duplicate_body_and_split_remainder(
+    arena: &mut IrArena,
+    loop_id: IrNodeId,
+    body_id: IrNodeId,
+    factor: u32,
+    trip: u32,
+) -> (u32, u32, Option<IrNodeId>) {
+    debug_assert!(factor > 0, "factor must be positive");
+    debug_assert!(trip >= factor, "trip must be >= factor for a real rewrite");
+
+    let main_iters = trip / factor;
+    let remainder_iters = trip % factor;
+
+    // Body duplication: append (factor - 1) additional body references to
+    // the Loop's children list. Aliased subtree references are safe pre-
+    // emission; a downstream deep-clone pass (B3-003b) will materialise
+    // distinct per-copy instruction ids when emission grows unroll aware.
+    if let Some(children) = arena.children_mut(loop_id) {
+        for _ in 1..factor {
+            children.push(body_id);
+        }
+    }
+
+    // Reduce the main-loop trip count.
+    arena.trip_counts_mut().insert(loop_id, main_iters);
+
+    // Remainder loop: allocate a fresh Loop node with the same body child
+    // and its own trip count entry.
+    let remainder_loop = if remainder_iters > 0 {
+        let span = arena
+            .get(loop_id)
+            .map(|n| n.span)
+            .expect("Loop node must exist to reach duplication");
+        let rem_id = arena.alloc_with_children(crate::node::IrKind::Loop, span, [body_id]);
+        arena.trip_counts_mut().insert(rem_id, remainder_iters);
+        Some(rem_id)
+    } else {
+        None
+    };
+
+    (main_iters, remainder_iters, remainder_loop)
+}
+
 impl OptPass for UnrollPass {
     fn name(&self) -> &'static str {
         "unroll"
@@ -120,13 +193,13 @@ impl OptPass for UnrollPass {
     fn apply(&self, arena: &mut IrArena, _root: IrNodeId, sink: &mut OptDiagSink) -> bool {
         use crate::node::IrKind;
 
-        // Phase-4-m8-007: iterate over all nodes in the arena, looking for IrKind::Loop.
-        // For each Loop node found, check if unroll is safe and emit diagnostics.
-        // Actual IR mutation (body duplication + remainder-loop emission) is m3-006 closure follow-up.
+        let default_factor = 4u32; // PAS-DEBT-B3-003: default factor absent a per-loop annotation.
+        let mut changed = false;
 
-        let default_factor = 4u32; // Placeholder unroll factor
-
-        // Collect all loop node IDs first to avoid borrowing conflicts.
+        // Collect all loop node IDs first to avoid borrowing conflicts. The
+        // remainder loop we may allocate below is appended past this snapshot,
+        // so it will not be revisited within the same pass invocation
+        // (correct: it already carries its final trip count).
         let loop_ids: Vec<IrNodeId> = arena
             .as_slice()
             .iter()
@@ -140,41 +213,87 @@ impl OptPass for UnrollPass {
             })
             .collect();
 
-        // Process each Loop node.
         for loop_id in loop_ids {
+            // Safety check first: honour the phase-4-m8-007 rule that a Call
+            // or REP-string mnemonic recorded at the loop id itself forbids
+            // unroll.
             let plan = is_unroll_safe(arena.instructions(), loop_id, default_factor);
+            if matches!(plan, UnrollPlan::Unsafe { .. }) {
+                continue;
+            }
 
-            match plan {
-                UnrollPlan::Inline { factor } => {
+            let trip = arena.trip_counts().get(loop_id);
+            let body_id = arena.children(loop_id).first().copied();
+
+            match (trip, body_id) {
+                // No trip count → keep the pre-existing recognition-only path.
+                // Preserves the O1511 "would-fire" diagnostic surface tested
+                // by `unroll_pass_emits_o1511_per_rewrite` +
+                // `unroll_pass_fires_on_explicit_loop`.
+                (None, _) => {
                     sink.emit(
                         "unroll",
                         format!(
                             "O1511 would-fire on explicit IrKind::Loop (factor={}): would-fire on explicit IrKind::Loop",
-                            factor
+                            default_factor
                         ),
                     );
-                    // TODO: actual body-duplication in m3-006 closure
                 }
-                UnrollPlan::InlineWithRemainder {
-                    factor,
-                    remainder_iters,
-                } => {
+                // Trip smaller than the factor: unroll would run zero main
+                // iterations, so degrade to the recognition path rather than
+                // synthesise an empty main loop + full-length remainder.
+                (Some(trip), _) if trip < default_factor => {
                     sink.emit(
                         "unroll",
                         format!(
-                            "O1511 would-fire on explicit IrKind::Loop with remainder (factor={}, remainder={}): would-fire on explicit IrKind::Loop",
-                            factor, remainder_iters
+                            "O1511 would-fire on explicit IrKind::Loop (factor={}, trip={}): trip < factor",
+                            default_factor, trip
                         ),
                     );
-                    // TODO: actual body-duplication + remainder-loop emission in m3-006 closure
                 }
-                UnrollPlan::Unsafe { reason: _ } => {
-                    // No diagnostic for unsafe loops
+                // No body child (Loop inside an unsafe block — child transfer
+                // skipped). Nothing to duplicate; leave alone.
+                (Some(_), None) => {
+                    continue;
+                }
+                // The real rewrite: known trip + real body → duplicate.
+                (Some(trip), Some(body_id)) => {
+                    let (main_iters, remainder_iters, remainder_loop) =
+                        duplicate_body_and_split_remainder(
+                            arena,
+                            loop_id,
+                            body_id,
+                            default_factor,
+                            trip,
+                        );
+
+                    arena.unroll_info_mut().insert(
+                        loop_id,
+                        UnrollInfo {
+                            factor: default_factor,
+                            main_iters,
+                            remainder_iters,
+                            remainder_loop,
+                        },
+                    );
+
+                    sink.emit(
+                        "unroll",
+                        format!(
+                            "O1515 unrolled Loop i{} (factor={}, trip={}, main_iters={}, remainder={})",
+                            loop_id.get(),
+                            default_factor,
+                            trip,
+                            main_iters,
+                            remainder_iters,
+                        ),
+                    );
+                    changed = true;
                 }
             }
         }
 
-        false
+        changed
     }
 }
 
@@ -341,9 +460,10 @@ mod tests {
 
         let changed = pass.apply(&mut arena, loop_id, &mut sink);
 
+        // No trip-count entry → recognition-only path, no rewrite.
         assert!(
             !changed,
-            "UnrollPass should return false (no IR mutation yet)"
+            "UnrollPass should return false when trip count is unknown"
         );
         assert_eq!(sink.diagnostics.len(), 1, "Expected one diagnostic emitted");
         assert_eq!(sink.diagnostics[0].pass, "unroll");
@@ -482,5 +602,213 @@ mod tests {
             fixture_path.ends_with(".pdx"),
             "Fixture should be a .pdx file"
         );
+    }
+
+    // --- PAS-DEBT-B3-003 (#1516) body-duplication tests -----------------
+
+    /// Allocate a Loop node with a single body child and a safe instruction
+    /// at its side-table entry. Returns (loop_id, body_id).
+    #[cfg(test)]
+    fn alloc_safe_loop_with_body(arena: &mut IrArena) -> (IrNodeId, IrNodeId) {
+        use crate::instruction::{Instruction, Mnemonic, Operand, RegId};
+        use paideia_as_diagnostics::{FileId, Span};
+        use smallvec::SmallVec;
+
+        let span = Span::new(FileId::new(1).unwrap(), 0, 1);
+        let body_id = arena.alloc(crate::node::IrKind::Action, span);
+        let loop_id =
+            arena.alloc_with_children(crate::node::IrKind::Loop, span, [body_id]);
+
+        // Safe body instruction so is_unroll_safe returns Inline (not Unsafe).
+        arena.instructions_mut().insert(
+            loop_id,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::Reg(RegId(1)));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+                emission_order: 0,
+            },
+        );
+
+        (loop_id, body_id)
+    }
+
+    #[test]
+    fn unroll_pass_duplicates_body_for_divisible_trip() {
+        // for i in 0..8 with factor=4 → 2 main iters, no remainder.
+        let pass = UnrollPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let (loop_id, body_id) = alloc_safe_loop_with_body(&mut arena);
+        arena.trip_counts_mut().insert(loop_id, 8);
+
+        let changed = pass.apply(&mut arena, loop_id, &mut sink);
+        assert!(changed, "unroll must report a rewrite when trip is known");
+
+        // Loop's children are now [body, body, body, body].
+        let children = arena.children(loop_id);
+        assert_eq!(children.len(), 4, "children should be duplicated to factor=4");
+        assert!(
+            children.iter().all(|c| *c == body_id),
+            "every duplicated child references the original body"
+        );
+
+        // Trip count is reduced to N / k = 2.
+        assert_eq!(arena.trip_counts().get(loop_id), Some(2));
+
+        // No remainder loop was allocated.
+        let info = arena.unroll_info().get(loop_id).unwrap();
+        assert_eq!(info.factor, 4);
+        assert_eq!(info.main_iters, 2);
+        assert_eq!(info.remainder_iters, 0);
+        assert_eq!(info.remainder_loop, None);
+
+        // O1515 diagnostic emitted.
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(
+            sink.diagnostics[0].message.contains("O1515"),
+            "diagnostic must name O1515: {}",
+            sink.diagnostics[0].message
+        );
+        assert!(sink.diagnostics[0].message.contains("factor=4"));
+        assert!(sink.diagnostics[0].message.contains("trip=8"));
+        assert!(sink.diagnostics[0].message.contains("main_iters=2"));
+        assert!(sink.diagnostics[0].message.contains("remainder=0"));
+    }
+
+    #[test]
+    fn unroll_pass_emits_remainder_loop_for_indivisible_trip() {
+        // for i in 0..10 with factor=4 → 2 main iters + 2-iter remainder loop.
+        let pass = UnrollPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let (loop_id, body_id) = alloc_safe_loop_with_body(&mut arena);
+        arena.trip_counts_mut().insert(loop_id, 10);
+
+        let changed = pass.apply(&mut arena, loop_id, &mut sink);
+        assert!(changed);
+
+        // Main loop was unrolled.
+        assert_eq!(arena.children(loop_id).len(), 4);
+        assert_eq!(arena.trip_counts().get(loop_id), Some(2));
+
+        // Remainder loop was allocated.
+        let info = arena.unroll_info().get(loop_id).expect("info recorded");
+        assert_eq!(info.factor, 4);
+        assert_eq!(info.main_iters, 2);
+        assert_eq!(info.remainder_iters, 2);
+        let rem_id = info.remainder_loop.expect("remainder loop allocated");
+
+        // Remainder loop points to the same body and carries trip = 2.
+        let rem_children = arena.children(rem_id);
+        assert_eq!(rem_children.len(), 1);
+        assert_eq!(rem_children[0], body_id);
+        assert_eq!(arena.trip_counts().get(rem_id), Some(2));
+
+        assert!(
+            sink.diagnostics.iter().any(|d| d.message.contains("O1515")
+                && d.message.contains("remainder=2")),
+            "must emit O1515 with remainder=2: {:?}",
+            sink.diagnostics
+        );
+    }
+
+    #[test]
+    fn unroll_pass_skips_loop_without_trip_count() {
+        // Non-constant / absent trip count → keep recognition-only O1511.
+        let pass = UnrollPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let (loop_id, body_id) = alloc_safe_loop_with_body(&mut arena);
+        // Intentionally do NOT insert a trip count.
+
+        let changed = pass.apply(&mut arena, loop_id, &mut sink);
+        assert!(!changed, "pass must not mutate a loop without a trip count");
+
+        // Children left untouched — still just [body].
+        assert_eq!(arena.children(loop_id), &[body_id]);
+
+        // No UnrollInfo recorded.
+        assert_eq!(arena.unroll_info().get(loop_id), None);
+
+        // Diagnostic is O1511, not O1515.
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1511"));
+        assert!(!sink.diagnostics[0].message.contains("O1515"));
+    }
+
+    #[test]
+    fn unroll_pass_falls_back_when_trip_smaller_than_factor() {
+        // trip=2, factor=4 → main_iters would be 0; refuse to rewrite and
+        // emit an O1511 recognition line naming the small trip.
+        let pass = UnrollPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let (loop_id, _body_id) = alloc_safe_loop_with_body(&mut arena);
+        arena.trip_counts_mut().insert(loop_id, 2);
+
+        let changed = pass.apply(&mut arena, loop_id, &mut sink);
+        assert!(!changed, "trip < factor must not rewrite");
+
+        // Trip count is left at 2.
+        assert_eq!(arena.trip_counts().get(loop_id), Some(2));
+        // No UnrollInfo emitted.
+        assert!(arena.unroll_info().is_empty());
+        // Diagnostic is O1511 with trip note.
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1511"));
+        assert!(sink.diagnostics[0].message.contains("trip=2"));
+    }
+
+    #[test]
+    fn unroll_pass_leaves_unsafe_loop_alone() {
+        // A loop whose loop-id instruction is Call must not be rewritten,
+        // even when a trip count is present.
+        use crate::instruction::{Instruction, Mnemonic, Operand};
+        use paideia_as_diagnostics::{FileId, Span};
+        use smallvec::SmallVec;
+
+        let pass = UnrollPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let span = Span::new(FileId::new(1).unwrap(), 0, 1);
+        let body_id = arena.alloc(crate::node::IrKind::Action, span);
+        let loop_id =
+            arena.alloc_with_children(crate::node::IrKind::Loop, span, [body_id]);
+
+        arena.instructions_mut().insert(
+            loop_id,
+            Instruction {
+                mnemonic: Mnemonic::Call,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Imm64(0x1000));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+                emission_order: 0,
+            },
+        );
+        arena.trip_counts_mut().insert(loop_id, 8);
+
+        let changed = pass.apply(&mut arena, loop_id, &mut sink);
+        assert!(!changed);
+        assert_eq!(arena.children(loop_id), &[body_id]);
+        assert!(arena.unroll_info().is_empty());
+        assert!(sink.diagnostics.is_empty(), "no diagnostic for unsafe loop");
     }
 }

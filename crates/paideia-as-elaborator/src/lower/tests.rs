@@ -2703,3 +2703,50 @@ fn bare_variant_arm_leaves_pattern_binding_none() {
     );
 }
 
+// PAS-DEBT-B3-009 (#1522): ExprHandlerValue lowers to IrKind::HandlerValue
+// (no longer piggybacks on Action / Placeholder).
+#[test]
+fn lower_handler_value_produces_handler_value_kind() {
+    use paideia_as_ast::HandlerArm;
+
+    let (source_map, mut sink) = create_test_source_map_and_sink();
+    let mut ast = AstArena::new();
+
+    // Effect name (Ident) + one op arm: `op read => body`.
+    let effect_id = ast.alloc(NodeKind::Ident, span());
+    let op_name_id = ast.alloc(NodeKind::Ident, span());
+    let op_body_id = ast.alloc(NodeKind::ExprLiteral, span());
+    let cleanup_id = ast.alloc(NodeKind::ExprLiteral, span());
+
+    let hv_id = ast.alloc_expr(
+        NodeKind::ExprHandlerValue,
+        span(),
+        ExprData::HandlerValue {
+            effect: effect_id,
+            arms: vec![
+                HandlerArm::Op { op: op_name_id, handler: op_body_id },
+                HandlerArm::Finally { cleanup: cleanup_id },
+            ],
+        },
+    );
+
+    let result = lower_ast_to_ir(
+        &ast,
+        &source_map,
+        &mut sink,
+        &crate::StructRegistry::empty(),
+        &crate::EnumRegistry::empty(),
+        &std::collections::HashMap::new(),
+    );
+
+    let ir_hv_id = result.ast_to_ir[&hv_id];
+    assert_eq!(
+        result.ir[ir_hv_id].kind,
+        IrKind::HandlerValue,
+        "ExprHandlerValue must lower to IrKind::HandlerValue (not Action / Placeholder)"
+    );
+    // Guard against regressions to the old ride-along kinds.
+    assert_ne!(result.ir[ir_hv_id].kind, IrKind::Action);
+    assert_ne!(result.ir[ir_hv_id].kind, IrKind::Placeholder);
+}
+

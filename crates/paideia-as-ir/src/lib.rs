@@ -46,6 +46,8 @@ pub mod section_attr;
 pub mod side_table;
 pub mod string_literal;
 pub mod symbol;
+pub mod trip_count;
+pub mod unroll_info;
 pub mod walker;
 pub mod walker_ctx;
 
@@ -102,6 +104,8 @@ pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, FieldLayout, Reco
 pub use section_attr::{SectionAttr, SectionAttrTable};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Visibility};
+pub use trip_count::TripCountTable;
+pub use unroll_info::{UnrollInfo, UnrollInfoTable};
 pub use walker::{IrWalker, walk};
 pub use walker_ctx::WalkerCtx;
 

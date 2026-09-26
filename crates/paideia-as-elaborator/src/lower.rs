@@ -34,7 +34,7 @@
 //! | ExprPerform | Perform | Effect operation invocation |
 //! | ExprResume | App | Resume continuation (desugared to app; phase-1 placeholder) |
 //! | ExprWithHandler | Handle | Handler installation |
-//! | ExprHandlerValue | Action | Handler-value construction (phase-1 placeholder) |
+//! | ExprHandlerValue | HandlerValue | Handler-value construction (PAS-DEBT-B3-009 / #1522) |
 //! | ExprUnsafe | Unsafe | Unsafe block escape hatch |
 //! | StmtLet | Let | Let binding |
 //! | StmtExpr | Action | Statement-as-action |

@@ -242,8 +242,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let for_tok = self.expect(TokenKind::KwFor)?;
         let for_span = for_tok.span;
 
-        // Parse pattern
-        let pattern = self.parse_for_pattern()?;
+        // Parse pattern (general — Ident, wildcard, tuple, ref, slice, …).
+        // PAS-DEBT-B2-001 (#1538): was Ident-only.
+        let pattern = self.parse_pattern()?;
 
         // Expect `in`
         self.expect(TokenKind::KwIn)?;
@@ -270,28 +271,6 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 body,
             },
         ))
-    }
-
-    /// Parse a pattern for `for` loops (simplified for phase-1).
-    fn parse_for_pattern(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
-        if let Some(tok) = self.peek() {
-            if tok.kind == TokenKind::Ident {
-                let ident_tok = self.bump().unwrap();
-                let ident_id = self.arena_mut().alloc(NodeKind::Ident, ident_tok.span);
-                Ok(self.arena_mut().alloc_pattern(
-                    NodeKind::PatIdent,
-                    ident_tok.span,
-                    paideia_as_ast::PatternData::Ident {
-                        name: ident_id,
-                        mutable: false,
-                    },
-                ))
-            } else {
-                Err(ParseError)
-            }
-        } else {
-            Err(ParseError)
-        }
     }
 
     /// Thin wrapper calling `parse_block_kind(BlockKind::Value)`.

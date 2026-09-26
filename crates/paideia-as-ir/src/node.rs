@@ -206,6 +206,13 @@ pub enum IrKind {
     /// Side-table entry in ClosureMetaTable records the closure body's symbol and captures.
     /// Side-table entry in ClosureFrameMetaTable records stack slot assignments for fat pair + env.
     ClosureCons,
+    /// Handler-value construction: `handle Effect { op ... ; finally => ... }`.
+    /// Children: [arm_body_0, arm_body_1, ...] in declaration order (Op | Finally bodies).
+    /// Side-table (HandlerSideTable, indexed by this IrNodeId in a later phase) will
+    /// carry the handled EffectId, op-name → body id map, and finally-clause id.
+    /// PAS-DEBT-B3-009 (#1522): retires the `Placeholder` / `Action` ride-along that
+    /// phase-1 used before the elaborator validated arm coverage + parameter binding.
+    HandlerValue,
 }
 
 /// Per-node IR storage.
