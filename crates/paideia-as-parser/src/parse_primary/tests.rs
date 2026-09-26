@@ -185,6 +185,9 @@ fn parses_unit_literal() {
 
 #[test]
 fn parses_tuple_three_elements() {
+    // PAS-DEBT-B2-007 (#1500): tuples now produce a real `ExprTuple` node
+    // carrying the parsed elements — previously this returned a bare
+    // `Placeholder` and dropped every element on the floor.
     let tokens = vec![
         tok(TokenKind::LParen, 0, 1),
         tok(TokenKind::IntLit, 1, 1),
@@ -204,7 +207,13 @@ fn parses_tuple_three_elements() {
     let expr_id = result.unwrap();
 
     let node = arena.get(expr_id).unwrap();
-    assert_eq!(node.kind, NodeKind::Placeholder);
+    assert_eq!(node.kind, NodeKind::ExprTuple);
+    match arena.expr_data(expr_id) {
+        Some(ExprData::Tuple { elements }) => {
+            assert_eq!(elements.len(), 3);
+        }
+        other => panic!("expected ExprData::Tuple, got {:?}", other),
+    }
 }
 
 #[test]

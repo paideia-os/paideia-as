@@ -517,6 +517,27 @@ pub enum ExprData {
         /// Optional end expression (`None` for open-end forms `start..` and `..`).
         end: Option<NodeId>,
     },
+
+    /// `(e1, e2, ..., eN)` — heterogeneous tuple.
+    ///
+    /// Distinctions the parser preserves and this variant relies on:
+    /// - `()`     — unit literal, produced as `ExprLiteral { lit: Placeholder }`;
+    ///              never a zero-element tuple.
+    /// - `(x)`    — parenthesized single expression (grouping); the parser
+    ///              returns the inner expression unwrapped, never a 1-tuple.
+    /// - `(x,)`   — 1-tuple; the trailing comma is what promotes a single
+    ///              parenthesized expression into a tuple.
+    /// - `(x, y)`, `(x, y, z)`, ... — N-tuples for N >= 2, trailing comma
+    ///              optional.
+    ///
+    /// Elements are lowered/type-checked positionally by later passes.
+    /// PAS-DEBT-B2-007 (paideia-as#1500).
+    Tuple {
+        /// The tuple's element expressions in source order. Always non-empty:
+        /// `elements.len() == 1` iff the source form was `(x,)`; otherwise
+        /// `elements.len() >= 2`.
+        elements: Vec<NodeId>,
+    },
 }
 
 /// A single arm in a match expression.

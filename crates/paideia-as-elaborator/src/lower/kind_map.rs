@@ -79,6 +79,14 @@ pub(super) fn map_node_kind(kind: NodeKind) -> IrKind {
         // Array literal (Phase 8 m2-002): sequence of element expressions.
         // cmd_build walks children, packs to bytes per element width.
         NodeKind::ExprArrayLit => IrKind::ArrayLit,
+        // PAS-DEBT-B2-007 close-out: tuples map to ArrayLit at IR level
+        // (aggregate literal; heterogeneous typing is a downstream concern
+        // handled by the type checker, not the kind map).
+        NodeKind::ExprTuple => IrKind::ArrayLit,
+        // PAS-DEBT-B2-005 close-out: ranges map to App (like other
+        // binary/unary operator expressions). A dedicated IrKind::Range
+        // is a future refinement if range iteration/desugaring needs it.
+        NodeKind::ExprRange => IrKind::App,
 
         // Array repeat (Phase 9 m1-002): `[expr; count]` → ArrayLit with N copies of expr.
         // During lowering, this is expanded by extract_repeat_count and expand_array_repeat.

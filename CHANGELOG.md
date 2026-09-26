@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.36.44 — 2026-09-25 — Wave 4 debt-catalog: B1-001 + B2-007 + B2-020
+
+Wave 4 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed.
+
+**PAS-DEBT-B1-001** (closes #1485) — Un-`#[ignore]` `field_access_cap_set_rights`:
+
+- `crates/paideia-as/tests/build_emit/field_read.rs`: renamed to
+  `field_access_cap_set_rights_emits_mov_qword_rdi_plus_16_rsi`,
+  dropped `#[ignore]`, and replaced its vacuous `cargo_run(_output)`
+  body with a real build_emit assertion in the shape of
+  `field_read_u32` / `unsafe_field_write_no_redundant_load`: builds
+  `cap_set_rights.pdx` to ELF64, parses the object, asserts `.text` is
+  exactly `48 89 77 10` (`mov [rdi + 16], rsi`, 4-byte disp8 store),
+  and confirms `fn_set_rights` symbol presence.
+- **No walker/elaborator/encoder change was required**. B2-004
+  (v0.36.43) landed the `struct` type-def parser gate that had been
+  blocking the fixture, and the fixture uses direct assembly (`mov
+  [rdi + 16], rsi`), not semantic `(*p).rights = v`. Pure test-hygiene
+  close, as the debt catalog's dependency-edge framing anticipated.
+
+**PAS-DEBT-B2-007** (closes #1500) — Parser tuple expressions:
+
+- `paideia-as-ast`: new `ExprData::Tuple { elements: Vec<NodeId> }` +
+  `NodeKind::ExprTuple` + `TermHead::Tuple`. Mirrors B2-005's Range
+  dispatch: `pretty::print_expr_internal`, `reflect::Term::head`,
+  `reflect::Term::children`, `visit::walk_expr`, and
+  `ExprVisitor::visit_expr_tuple` all get the arm (defensive coverage
+  against the two wildcards the Wave-3 debugger flagged as silent-miss
+  hazards).
+- `paideia-as-parser::parse_primary::collection`: the previously
+  stubbed tuple arm no longer walks elements into `let _elements` +
+  discards + returns `Placeholder`. Now allocates
+  `alloc_expr(NodeKind::ExprTuple, span, ExprData::Tuple { elements })`.
+  Comma handling and `P0101` mismatched-delimiter path unchanged.
+- **Disambiguation** (matches Rust/Python and preserves the existing
+  unit-vs-tuple distinction):
+  - `()` → `ExprLiteral { lit: Placeholder }` (unit; never 0-tuple)
+  - `(x)` → inner expression (grouping)
+  - `(x,)` → 1-tuple
+  - `(x, y)` / `(x, y, z)` / `(x, y, z,)` → N-tuple
+- 7-fixture test corpus at `crates/paideia-as-parser/tests/tuple_expr.rs`,
+  registered in `tests/integration.rs`. The crate uses `autotests =
+  false` + a consolidated integration binary, so `mod tuple_expr;`
+  MUST be added or the file is orphaned (fixed on the debugger's
+  Wave-4 review — pre-fix, the 7 tests never executed and cargo
+  reported success on a filter-match-nothing).
+- **Elaborator wiring** (added on debugger review, closes the same
+  scope gap Wave 3's B2-005 also had): `lower/kind_map.rs` maps
+  `NodeKind::ExprTuple` and `NodeKind::ExprRange` to `IrKind::ArrayLit`
+  and `IrKind::App` respectively; `lower/children.rs` returns the
+  tuple's elements + the range's present endpoints (either side may
+  be absent for `a..`, `..b`, `..`). Without this, tuple/range AST
+  nodes would lower to zero-child IR nodes — same net effect as the
+  pre-B2-007 Placeholder shape, but silent. Dedicated `IrKind::Tuple`
+  / `IrKind::Range` are future refinements when downstream
+  desugaring / type-driven codegen demand a distinct shape.
+
+**PAS-DEBT-B2-020** (closes #1513) — Lexer nested block comments:
+
+- `crates/paideia-as-lexer/src/scan_comment.rs`: rewrote
+  `scan_block_comment` from a first-`*/` scan to a depth-tracking walk
+  (`/*` +1, `*/` -1, close at 0). Matches Rust. Pre-fix, `/* outer /*
+  inner */ still outer */` spuriously re-tokenized after the inner
+  `*/`, dropping `still outer */` into the token stream as garbage.
+- Unterminated-comment path unchanged in shape: on EOF with depth > 0,
+  one E0004 diagnostic per outer opener with a full-range span.
+- Doc-block (`/** ... */`) detection still triggers on the outermost
+  opener only; nesting doesn't affect `is_doc`.
+- 4 unit tests + 4 real-Lexer integration tests (routed through
+  `Lexer::collect_tokens`, not hand-built): two-deep + three-deep
+  nesting, trailing-bytes bound, unterminated-nested single-diag,
+  flat-comment regression.
+
+Workspace + SYSTEM_VERSION 0.36.43 → 0.36.44.
+
 ## 0.36.43 — 2026-09-25 — Wave 3 debt-catalog: B2-005 + B4-001 + B2-004
 
 Wave 3 of the paideia-as debt catalog. Three parallel primitives; four

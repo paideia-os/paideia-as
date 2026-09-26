@@ -141,6 +141,11 @@ pub enum NodeKind {
     /// Parser production landed with paideia-as#1498 (PAS-DEBT-B2-005) atop the
     /// `DotDot` lexer terminal shipped in v0.36.42 (PAS-DEBT-B2-021, #1540).
     ExprRange,
+    /// `(e1, e2, ..., eN)` — heterogeneous tuple expression (N >= 1 with trailing
+    /// comma, or N >= 2 without). `()` remains a unit literal and `(e)` a
+    /// grouping, never a tuple. Parser production landed with paideia-as#1500
+    /// (PAS-DEBT-B2-007).
+    ExprTuple,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt | LabelStmt)
     /// `let name: ty? = expr;`.

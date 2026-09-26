@@ -6,10 +6,11 @@
 //! - `/// doc-line` — [`TriviaKind::DocLineComment`]
 //! - `/** doc-block */` — [`TriviaKind::DocBlockComment`]
 //!
-//! Block comments are **flat** (non-nested) in phase 1: the scanner stops
-//! at the first `*/` it sees. §2.2 does not specify nesting and Rust's
-//! convention is non-binding here; nested block comments are a deferred
-//! follow-up if needed.
+//! Block comments **nest** (PAS-DEBT-B2-020, issue #1513): each inner
+//! `/*` opens a new level and only the matching `*/` closes it; the
+//! outer comment closes when depth returns to zero. Matches Rust's
+//! block-comment behavior; `syntax-reference.md` §2.2 is silent, so we
+//! adopt the strictly-more-general rule (flat inputs remain unaffected).
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, FileId, Severity, Span};
 
@@ -89,28 +90,41 @@ fn scan_line_comment(content: &str, byte_offset: u32) -> CommentScan {
     }
 }
 
-/// Scan `/* ... */` or `/** ... */`. Phase-1 non-nested.
+/// Scan `/* ... */` or `/** ... */`. Depth-tracking: `/*` opens a new
+/// level, `*/` closes; the comment terminates when depth returns to 0.
 fn scan_block_comment(file: FileId, content: &str, byte_offset: u32) -> CommentScan {
     let start = byte_offset as usize;
     let bytes = content.as_bytes();
 
     // `/**` is a doc-block comment only if the third byte exists, is
     // `*`, and the fourth byte is not `/` (which would make `/**/`,
-    // an empty regular block comment).
+    // an empty regular block comment). Nesting does not affect this —
+    // only the outermost opener determines doc-ness.
     let is_doc = bytes.get(start + 2) == Some(&b'*') && bytes.get(start + 3) != Some(&b'/');
 
-    // Walk forward, looking for `*/`.
+    // Depth-tracking walk. `/*` and `*/` are mutually exclusive at a
+    // single position (different first byte), so order of the two
+    // checks does not matter.
+    let mut depth: u32 = 1;
     let mut i = start + 2;
-    let mut closed = false;
     while i + 1 < bytes.len() {
-        if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+        if bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            depth += 1;
             i += 2;
-            closed = true;
-            break;
+            continue;
+        }
+        if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                break;
+            }
+            continue;
         }
         i += 1;
     }
 
+    let closed = depth == 0;
     if !closed {
         // Walk to EOF.
         i = bytes.len();
@@ -194,13 +208,41 @@ mod tests {
     }
 
     #[test]
-    fn nested_looking_block_comment_is_flat() {
-        // §2.2 silent on nesting; phase-1 takes the flat path: the first
-        // `*/` closes the comment. The trailing `c */` is NOT part of
-        // this comment.
+    fn nested_block_comment_two_deep_regression_1513() {
+        // PAS-DEBT-B2-020: `/* a /* b */ c */` nests; the whole thing
+        // is a single BlockComment. Pre-fix, `byte_len` was 12 (stopped
+        // at the inner `*/`), silently splitting the outer.
         let r = scan_comment(file(), "/* a /* b */ c */", 0);
         assert_eq!(r.kind, TriviaKind::BlockComment);
-        assert_eq!(r.byte_len, 12); // "/* a /* b */"
+        assert!(r.diagnostic.is_none());
+        assert_eq!(r.byte_len, 17);
+    }
+
+    #[test]
+    fn nested_block_comment_three_deep_regression_1513() {
+        let r = scan_comment(file(), "/* /* /* deep */ */ */", 0);
+        assert_eq!(r.kind, TriviaKind::BlockComment);
+        assert!(r.diagnostic.is_none());
+        assert_eq!(r.byte_len, 22);
+    }
+
+    #[test]
+    fn nested_block_comment_leaves_trailing_bytes_regression_1513() {
+        // Confirm scanner does not over-consume past the outer close.
+        let src = "/* a /* b */ c */tail";
+        let r = scan_comment(file(), src, 0);
+        assert_eq!(r.byte_len, 17);
+        assert_eq!(&src[r.byte_len as usize..], "tail");
+    }
+
+    #[test]
+    fn unterminated_nested_block_emits_single_diagnostic_regression_1513() {
+        // Inner `*/` closes the inner level; outer is still open at EOF.
+        // Exactly one diagnostic, span covering the consumed range.
+        let src = "/* unterminated /* inner */ EOF";
+        let r = scan_comment(file(), src, 0);
+        assert!(r.diagnostic.is_some());
+        assert_eq!(r.byte_len, src.len() as u32);
     }
 
     #[test]

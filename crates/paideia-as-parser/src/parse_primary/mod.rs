@@ -52,7 +52,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - **LBracket**: parse as array literal `[expr, expr, ...]`. Empty array requires
     ///   explicit type annotation and emits P0210.
     /// - **LParen**: disambiguate between `()` (unit), `(expr)` (parenthesized),
-    ///   and `(a, b, c)` (tuple; currently stubbed as Placeholder).
+    ///   and `(a, b, c)` / `(a,)` (tuple; PAS-DEBT-B2-007 / #1500).
     /// - **Otherwise**: emit P0100 "expected expression" and return Err.
     ///
     /// Note: Block expressions, lambdas, and control-flow constructs are

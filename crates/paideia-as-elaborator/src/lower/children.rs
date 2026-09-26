@@ -188,6 +188,23 @@ fn expr_children(
             children
         }
         ExprData::ArrayLit(elements) => elements.clone(),
+        // PAS-DEBT-B2-007 close-out: tuple elements are children (mirrors
+        // ArrayLit's aggregate shape). Kept out of the same match arm so a
+        // future divergence (heterogeneous typing, sret marshalling) has
+        // room to land without churning ArrayLit.
+        ExprData::Tuple { elements } => elements.clone(),
+        // PAS-DEBT-B2-005 close-out: range endpoints are children when
+        // present (either side may be absent for `a..`, `..b`, `..`).
+        ExprData::Range { start, end } => {
+            let mut children = Vec::with_capacity(2);
+            if let Some(s) = start {
+                children.push(*s);
+            }
+            if let Some(e) = end {
+                children.push(*e);
+            }
+            children
+        }
         ExprData::ArrayRepeat { expr, count } => {
             // ArrayRepeat (#1308): expand `[expr; count]` to N copies of expr.
             // A non-constant or out-of-range count yields no children and a

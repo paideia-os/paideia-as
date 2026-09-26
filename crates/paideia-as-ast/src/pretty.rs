@@ -713,6 +713,15 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::Range { start, end } => {
             format!("Range {{ start: {:?}, end: {:?} }}", start, end)
         }
+
+        ExprData::Tuple { elements } => {
+            let elements_str = elements
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Tuple([{}])", elements_str)
+        }
     };
 
     use std::fmt::Write;

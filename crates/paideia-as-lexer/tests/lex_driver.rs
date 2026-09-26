@@ -230,6 +230,83 @@ fn lex_int_dotdot_ident_regression_1498() {
     );
 }
 
+// ── B2-020: nested block comments (issue #1513) ───────────────────────
+
+fn lex_with_trivia(
+    input: &str,
+) -> (Vec<Token>, Vec<paideia_as_lexer::Trivia>, paideia_as_diagnostics::VecSink) {
+    let st = SourceText::from_bytes(file_id(), input.as_bytes()).unwrap();
+    let mut lexer = Lexer::new(file_id(), &st);
+    let mut sink = VecSink::new();
+    let mut tokens = Vec::new();
+    let mut trivia = Vec::new();
+    loop {
+        let tok = lexer.next_token(&mut sink);
+        trivia.extend(lexer.take_trivia());
+        let done = tok.kind == TokenKind::Eof;
+        tokens.push(tok);
+        if done {
+            break;
+        }
+    }
+    (tokens, trivia, sink)
+}
+
+#[test]
+fn lex_nested_block_comment_regression_1513() {
+    // Pre-fix: inner `*/` closed the outer, so `still outer */ tail`
+    // spuriously re-tokenized. Post-fix: the outer BlockComment spans
+    // its full extent (35 bytes) and `tail` follows cleanly.
+    let src = "/* outer /* inner */ still outer */ tail";
+    let (tokens, trivia, sink) = lex_with_trivia(src);
+    assert_eq!(sink.error_count(), 0);
+    let block = trivia
+        .iter()
+        .find(|t| t.kind == TriviaKind::BlockComment)
+        .expect("outer block comment preserved as trivia");
+    assert_eq!(block.span.byte_len(), 35);
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, vec![TokenKind::Ident, TokenKind::Eof]);
+}
+
+#[test]
+fn lex_deeply_nested_block_comment_regression_1513() {
+    let src = "/* /* /* deep */ */ */ x";
+    let (tokens, trivia, sink) = lex_with_trivia(src);
+    assert_eq!(sink.error_count(), 0);
+    let block = trivia
+        .iter()
+        .find(|t| t.kind == TriviaKind::BlockComment)
+        .expect("depth-3 block comment preserved");
+    assert_eq!(block.span.byte_len(), 22);
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, vec![TokenKind::Ident, TokenKind::Eof]);
+}
+
+#[test]
+fn lex_unterminated_nested_block_emits_one_diagnostic_regression_1513() {
+    // Inner `*/` closes only the inner level; outer stays open.
+    let src = "/* unterminated /* inner */ EOF";
+    let (_tokens, _trivia, sink) = lex_with_trivia(src);
+    assert_eq!(sink.error_count(), 1);
+}
+
+#[test]
+fn lex_flat_block_comment_regression_1513() {
+    // Non-nested regression: the depth-tracking rewrite must not
+    // disturb the common single-level case.
+    let src = "/* simple */ y";
+    let (tokens, trivia, sink) = lex_with_trivia(src);
+    assert_eq!(sink.error_count(), 0);
+    let block = trivia
+        .iter()
+        .find(|t| t.kind == TriviaKind::BlockComment)
+        .expect("flat block comment preserved");
+    assert_eq!(block.span.byte_len(), 12);
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, vec![TokenKind::Ident, TokenKind::Eof]);
+}
+
 #[test]
 fn lex_mixed_tokens() {
     let (tokens, _sink) = lex("fn main() { let x = 10; }");

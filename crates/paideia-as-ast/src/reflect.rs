@@ -95,6 +95,8 @@ pub enum TermHead {
     TypeClosure,
     /// `a..b` / `a..` / `..b` / `..` (range expression). PAS-DEBT-B2-005.
     Range,
+    /// `(a, b, ...)` (tuple expression). PAS-DEBT-B2-007.
+    Tuple,
 }
 
 /// A typed handle to an AST expression node.
@@ -192,6 +194,7 @@ impl<'a> Term<'a> {
                 NodeKind::TypeFnPtr => TermHead::TypeFnPtr,
                 NodeKind::TypeClosure => TermHead::TypeClosure,
                 NodeKind::ExprRange => TermHead::Range,
+                NodeKind::ExprTuple => TermHead::Tuple,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -472,6 +475,11 @@ impl<'a> Term<'a> {
                     }
                     if let Some(e) = end {
                         result.push(Term::new(self.arena, *e));
+                    }
+                }
+                ExprData::Tuple { elements } => {
+                    for &elem in elements {
+                        result.push(Term::new(self.arena, elem));
                     }
                 }
             }

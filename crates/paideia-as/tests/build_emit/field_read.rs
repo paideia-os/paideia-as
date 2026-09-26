@@ -1,19 +1,26 @@
 //! Phase 6 m3-005: Byte-sequence assertion test for field-access expression inside unsafe blocks.
 //!
-//! This test verifies that field access expressions inside unsafe blocks emit correct x86-64 bytes.
-//! The parse_deref_operand function in unsafe_walker.rs resolves field offsets via RecordLayoutTable.
+//! Verifies cap_set_rights.pdx builds and emits the expected
+//! `48 89 77 10` (mov [rdi + 16], rsi) sequence for its unsafe-block
+//! field-store shape.
 //!
-//! Test fixtures:
-//! - cap_set_rights.pdx: (*p).rights field write inside unsafe block
-//!   Expected: mov [rdi + 16], rsi → 48 89 77 10
-//! - cap_read_kind.pdx: (*p).kind field read (aspirational, requires struct syntax)
+//! Fixture: `tests/build-emit/cap_set_rights.pdx`
+//!   `struct Capability { kind, target, rights, generation: u64 }` +
+//!   `fn_set_rights` whose unsafe block writes `mov [rdi + 16], rsi`.
+//!   Expected .text: `48 89 77 10`.
 //!
-//! Unit tests in unsafe_walker.rs validate:
-//! - parse_deref_field_access_with_offset_zero: field at offset 0
-//! - parse_deref_field_access_with_offset_16: field at offset 16
-//! - parse_deref_field_offset_unresolved_missing_type: U1608 diagnostic on missing type
-//! - parse_deref_plain_dereference_zero_offset: plain *p without field access
+//! History:
+//! - Blocked on PAS-DEBT-B2-004 (parser struct type-def) until
+//!   v0.36.43, when B2-004 landed struct decl parsing at both file
+//!   scope and inside `structure { ... }` (see
+//!   crates/paideia-as-parser/tests/struct_type_def.rs). The fixture
+//!   here uses direct assembly (`mov [rdi + 16], rsi`), not the
+//!   semantic `(*p).rights = v` shape, so no field-access walker
+//!   work was required beyond what already exists.
+//! - PAS-DEBT-B1-001 (v0.36.44): un-ignored and turned into a real
+//!   byte-sequence assertion instead of a vacuous cargo_run().
 
+use object::{Object, ObjectSection, ObjectSymbol};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -31,31 +38,55 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
     cmd.output().expect("failed to run cargo")
 }
 
-// PAS-DEBT-B1-001 (blocked-on PAS-DEBT-B2-004, closed 2026-09-25): the
-// cap_set_rights.pdx fixture now includes the `struct Capability` decl
-// and parses cleanly; struct type-definition syntax is accepted at both
-// file scope and inside `structure { ... }` (see
-// crates/paideia-as-parser/tests/struct_type_def.rs). What remains is
-// the field-access lowering that turns `(*p).rights = ...` inside an
-// unsafe block into `48 89 77 10` — that walker/emit path is B1-001's
-// territory. Keep this test `#[ignore]`d until B1-001 lands; un-ignoring
-// belongs to that issue, not to B2-004.
 #[test]
-#[ignore]
-fn field_access_cap_set_rights_deferred_pending_parser_support() {
-    // This test would verify that cap_set_rights.pdx builds and emits correct bytes.
-    // Ignored while B1-001 (walker field-offset emission) is outstanding.
+fn field_access_cap_set_rights_emits_mov_qword_rdi_plus_16_rsi() {
+    // PAS-DEBT-B1-001: cap_set_rights.pdx builds and emits the
+    // 4-byte SIB-less displacement store `48 89 77 10`
+    // (mov [rdi + 16], rsi) as the sole instruction of `fn_set_rights`.
     let input = build_emit_data("cap_set_rights.pdx");
-    let _output = cargo_run(&[
+    let tmp = std::env::temp_dir().join("paideia_as_cap_set_rights_emit.o");
+    let _ = std::fs::remove_file(&tmp);
+
+    let out = cargo_run(&[
         "build",
         input.to_str().unwrap(),
         "--emit",
         "elf64",
         "-o",
-        "/tmp/test_field_access_cap_set_rights.o",
+        tmp.to_str().unwrap(),
     ]);
 
-    // When parser support arrives, uncomment and verify:
-    // - Successful build
-    // - Correct bytecode emission for field access operation
+    assert!(
+        out.status.success(),
+        "build --emit elf64 failed for cap_set_rights.pdx: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let bytes = std::fs::read(&tmp).expect("output ELF should exist");
+    let file = object::File::parse(&*bytes).expect("object should parse the ELF");
+
+    // .text must contain exactly the 4-byte store instruction.
+    let text_bytes = file
+        .sections()
+        .find(|s| s.name().unwrap_or("") == ".text")
+        .and_then(|s| s.data().ok().map(<[u8]>::to_vec))
+        .expect(".text section must exist");
+
+    let expected: [u8; 4] = [0x48, 0x89, 0x77, 0x10];
+    assert_eq!(
+        text_bytes, expected,
+        ".text mismatch: expected {:02X?} (mov [rdi+16], rsi), got {:02X?}",
+        expected, text_bytes
+    );
+
+    // `fn_set_rights` symbol must be present (STT_FUNC).
+    let found = file
+        .symbols()
+        .any(|s| s.name().unwrap_or("") == "fn_set_rights");
+    assert!(
+        found,
+        "expected symbol `fn_set_rights` in ELF symbol table"
+    );
+
+    let _ = std::fs::remove_file(&tmp);
 }

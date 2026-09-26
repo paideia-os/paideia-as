@@ -1,11 +1,15 @@
 //! Bracketed / parenthesized primary expressions: array literals
 //! (`[e, ...]`, `[e; count]`), the unit literal `()`, single-expression
-//! parenthesized groupings, and the (stubbed-as-Placeholder) tuple form
-//! `(a, b, c)`.
+//! parenthesized groupings, and tuple expressions `(a, b, c)` / `(a,)`.
 //!
 //! Extracted from `parse_primary/mod.rs` (issue #1407 God-file split).
 //! Both entry points share a delimiter-recovery flow that reports
 //! P0101 on mismatched close, and array-empty reports P0210.
+//!
+//! Tuple production landed with PAS-DEBT-B2-007 (paideia-as#1500): the
+//! trailing comma is what distinguishes a 1-tuple `(x,)` from a grouped
+//! parenthesized expression `(x)`. `()` stays a unit literal, never a
+//! zero-element tuple.
 
 use paideia_as_ast::{ExprData, NodeKind};
 use paideia_as_diagnostics::{Diagnostic, Span};
@@ -113,15 +117,21 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         ))
     }
 
-    /// Parse parenthesized expressions: `()`, `(expr)`, or `(a, b, c)`.
+    /// Parse parenthesized expressions: `()`, `(expr)`, `(expr,)`, or `(a, b, ...)`.
     ///
-    /// - `()` allocates a Placeholder and wraps it in ExprLiteral.
-    /// - `(expr)` returns the inner expression (parens are syntactic sugar).
-    /// - `(a, b, c)` allocates a Placeholder node (tuples deferred to a later PR).
+    /// Disambiguation (PAS-DEBT-B2-007):
+    /// - `()`         — unit literal (`ExprLiteral { lit: Placeholder }`); the
+    ///                  language already has a distinct unit type, so this is
+    ///                  never a zero-element tuple.
+    /// - `(expr)`     — parenthesized grouping; the inner expression is
+    ///                  returned unwrapped (parens are syntactic sugar).
+    /// - `(expr,)`    — 1-tuple; the trailing comma is what makes it a tuple
+    ///                  rather than a grouping.
+    /// - `(a, b, ...)`— N-tuple for N >= 2; trailing comma optional.
     pub(super) fn parse_paren_expr(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let lparen_span = self.expect(TokenKind::LParen)?.span;
 
-        // Check for empty parens: `()`
+        // `()` — unit literal (NOT a zero-element tuple).
         if self.at(TokenKind::RParen) {
             self.bump();
             let lit_id = self.arena_mut().alloc(NodeKind::Placeholder, lparen_span);
@@ -132,23 +142,22 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             ));
         }
 
-        // Parse the first expression with full infix/prefix/postfix support
+        // Parse the first expression with full infix/prefix/postfix support.
         let first_expr = self.parse_expr()?;
 
-        // Check for comma: tuple case or parenthesized single expr?
+        // Comma seen after first expr => tuple form.
         if self.at(TokenKind::Comma) {
-            // Tuple: collect remaining elements
-            let mut _elements = vec![first_expr];
+            let mut elements = vec![first_expr];
 
             while self.at(TokenKind::Comma) {
                 self.bump(); // consume comma
 
-                // Check for trailing comma before closing paren
+                // Trailing comma before `)` is allowed.
                 if self.at(TokenKind::RParen) {
                     break;
                 }
 
-                _elements.push(self.parse_expr()?);
+                elements.push(self.parse_expr()?);
             }
 
             if !self.at(TokenKind::RParen) {
@@ -157,18 +166,21 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             let rparen_tok = self.expect(TokenKind::RParen)?;
             let rparen_span = rparen_tok.span;
 
-            // Allocate tuple as Placeholder (deferred to future PR).
-            // Span covers the entire tuple, from `(` to `)`.
+            // Span covers `(` through `)`.
             let tuple_span = Span::new(
                 lparen_span.file(),
                 lparen_span.byte_start(),
                 rparen_span.byte_start() + rparen_span.byte_len() - lparen_span.byte_start(),
             );
 
-            return Ok(self.arena_mut().alloc(NodeKind::Placeholder, tuple_span));
+            return Ok(self.arena_mut().alloc_expr(
+                NodeKind::ExprTuple,
+                tuple_span,
+                ExprData::Tuple { elements },
+            ));
         }
 
-        // Parenthesized single expression: expect RParen and return inner expr
+        // `(expr)` — parenthesized grouping; return inner unwrapped.
         if !self.at(TokenKind::RParen) {
             return self.error_mismatched_delimiter(lparen_span);
         }
