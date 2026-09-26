@@ -1,6 +1,0 @@
----
-source: crates/paideia-as-parser/tests/endian_attr_snapshots.rs
-assertion_line: 155
-expression: snapshot
----
-field0.attrs = [Endian(Le)]
