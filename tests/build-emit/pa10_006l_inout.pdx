@@ -1,5 +1,9 @@
 module Pa10006lInout = structure {
-  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+  // PAS-DEBT-B1-010 (#1492): body performs port I/O (in_al/out_al) so
+  // the lambda type must declare !{PortIo} @{paideia.port_io} to satisfy
+  // C1301 (effect_cap_coupling::check_fn_shape). Golden reference:
+  // boot_observable.pdx.
+  let _start : () -> () !{PortIo} @{paideia.port_io} = fn(_: ()) -> unsafe {
     effects: {},
     capabilities: {},
     justification: "PA10-006l: in_al/out_al I/O port instructions",

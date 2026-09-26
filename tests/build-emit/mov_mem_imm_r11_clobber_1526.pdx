@@ -1,0 +1,9 @@
+module MovMemImmR11Clobber = structure {
+  pub let f: () -> () !{} @{} = fn() -> unsafe {
+    effects: {}, capabilities: {}, justification: "PAS-DEBT-B4-004 R11 collision guard: [r11+disp], imm64-out-of-i32-range must be rejected because the movabs r11, imm64 lowering would clobber the address register before dereferencing it",
+    block: {
+      mov r11, 0
+      mov [r11 + 8], 4294967296
+    }
+  }
+}

@@ -158,14 +158,19 @@ pub(super) fn build_elf_object(
         }
     }
 
-    // Phase-7-m1-003: emit_walker's `estimated_offset` is now ADVISORY (the
-    // authoritative byte position is the per-Instruction `byte_offset_in_text`
-    // recorded by the encoder pass). The walker's estimate diverges from the
-    // encoder's reality in many legitimate shapes (e.g., let-fn bodies with
-    // calls expand under encoding). Don't assert equality — just emit a
-    // debug log on divergence so regressions are visible without aborting.
+    // Phase-7-m1-003 / PAS-DEBT-B1-011: emit_walker's `estimated_offset`
+    // is ADVISORY only — the authoritative byte position is the
+    // per-Instruction `byte_offset_in_text` recorded by the encoder pass.
+    // The walker's estimate diverges from the encoder's reality in many
+    // legitimate shapes (e.g., let-fn bodies with calls expand under
+    // encoding), so any divergence log emitted here is expected noise, not
+    // a regression signal. Gate the trace behind PAIDEIA_TRACE_ENCODER so
+    // stderr stays quiet on green builds (previously the unconditional
+    // eprintln! polluted every build_emit test's stderr and — because
+    // typed_encoder_diagnostics greps stderr for B1706 — masked whether
+    // the diagnostic pipe was actually firing).
     let estimated = emit_walker.state().estimated_offset() as usize;
-    if cfg!(debug_assertions) && estimated != text_bytes.len() {
+    if estimated != text_bytes.len() && std::env::var_os("PAIDEIA_TRACE_ENCODER").is_some() {
         eprintln!(
             "[m1-003] estimated_offset {estimated} != encoded text_bytes {} \
              (expected for advisory tracker — encoder owns the truth via \

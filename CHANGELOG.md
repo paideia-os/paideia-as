@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.36.42 — 2026-09-25 — Wave 2 debt-catalog: B2-021 + B4-004 + B1-009/010 + B1-011/012/013
+
+Wave 2 of the paideia-as debt catalog. Four parallel primitives; six issues
+closed (three pairs share root causes).
+
+**PAS-DEBT-B2-021** (closes #1540) — Lexer: `DotDot` terminal for range operator:
+
+- `TokenKind::DotDot` variant added (position: after `Dot`).
+- `scan_op::two_char_ascii` recognizes `..`; `.` remains `Dot`; `...`
+  tokenizes greedy 2+1 (`DotDot` then `Dot`, mirroring Rust). No
+  `DotDotDot` in phase 1.
+- Unit tests + integration tests for `a..b`, `a.b` (regression),
+  `a...b`.
+- Parser wiring for range expressions deferred to B2-005 (blocked-by
+  relation preserved).
+
+**PAS-DEBT-B4-004** (closes #1526) — `encode_mov [MemSib, Imm64]` true-imm64 lowering:
+
+- Both `[MemSib, Imm64]` arms in `encode_mov` (index None + index Some)
+  now lower true imm64 (out of `i32` sign-ext range) to `movabs r11,
+  imm64` + `mov [mem], r11` (SDM Vol 2A `REX.W B8+rd io` then `REX.W
+  89 /r`). Compact `C7 /0 id` form kept for i32-fits case.
+- **R11 collision guard** (added on debugger-driven review): both new
+  arms reject with `EncodeError::Unsupported` when the destination
+  address itself uses R11 as base or index, because the lowering
+  writes imm into R11 before dereferencing the address regs — without
+  the guard, `mov [r11+8], 0x1_0000_0000` would silently store the
+  wrong value at the wrong address. Mirrors the existing
+  `imm64_expand.rs` / U1615 pattern for the analogous register-dest
+  case. Surfaces as B1705 through the standard encoder-error pipe.
+- `emit_store_record.rs` record-field zero-store retires the direct-
+  insert + `estimated_offset += 8` workaround; now routes through
+  `emit_inst` which bumps offset via the real encoder's
+  `estimated_bytes`.
+- **Behaviour change**: previously-rejected `mov [mem], imm64` with
+  imm out of i32 sign-ext range now succeeds via the two-instruction
+  lowering. The pre-existing test `mov_mem_imm_overflow_diag`
+  (renamed to `..._overflow_now_supported_1526`) has been flipped to
+  assert success, and a new test `mov_mem_imm_r11_clobber_1526_diag`
+  covers the R11-guard reject path.
+- New encoder tests `mov_mem_true_imm64_1526.rs` — byte-exact pins for
+  the 14-byte base+disp8, the 18-byte SIB-indexed sibling, the 8-byte
+  i32-fits compact regression guard, and an `estimated_bytes` vs
+  `encode_instruction` cross-check.
+
+**PAS-DEBT-B1-009 + B1-010** (closes #1491, closes #1492) — effect-row author-fix for fixtures:
+
+- `tests/build-emit/control_flow/jz_backward_local.pdx`: lambda `poll`
+  type widened from `!{} @{}` to `!{PortIo} @{paideia.port_io}` —
+  body performs `in_al` inside `unsafe {}`, which C1301
+  (`effect_cap_coupling::check_fn_shape`, #1312) requires the declared
+  row to name.
+- `tests/build-emit/pa10_006l_inout.pdx`: same fix for `_start` (body
+  performs `in_al` + `out_al`).
+- **Root-cause reframing** (correcting the debt-catalog conjecture):
+  the elaborator does NOT auto-widen the declared row (that would
+  defeat R29 structural-witness — a driver's effect row is the
+  authored contract, checked at both elaboration and link time). The
+  two failing fixtures were authored before #1312's usage-driven
+  port-I/O check landed; pure author bugs. Confirmed by two positive
+  unit tests that pin the intended contract:
+  `reject_in_al_usage_without_effect_or_cap_emits_c1301` and
+  `accept_port_io_usage_with_effect_and_cap_emits_nothing`. Inner
+  `unsafe { effects: {}, capabilities: {} }` kept empty in both
+  fixtures, matching the golden reference `boot_observable.pdx`.
+- No elaborator code changed.
+
+**PAS-DEBT-B1-011 + B1-012 + B1-013** (closes #1493, closes #1494, closes #1495) — encoder-diagnostic pipe restored:
+
+- `tests/build-emit/encoder_strict_unsupported.pdx`: retire the
+  `jmp does_not_exist_label` body — after #900/#1319,
+  `parse_operand_from_ast` routes unresolved identifiers through the
+  SymbolRef + PLT32 reloc fallback, so `encode_jmp` succeeds and no
+  B1705 fires. Replaced with `imul rax, rax, 4294967296`, which
+  `encode_imul` rejects as `EncodeError::Unsupported("imul r64, r64,
+  imm64: immediate out of range for 32-bit sign extension")`;
+  `cmd_build/elf.rs` surfaces this as B1705 (default → exit 2) or
+  B1706 (`--encoder-warn` → exit 0), the exact shape the
+  `typed_encoder_diagnostics` corpus was written for.
+- `cmd_build/elf.rs`: gate the m1-003 advisory tracker's `eprintln!`
+  behind `PAIDEIA_TRACE_ENCODER=1` (was `cfg!(debug_assertions)`).
+  The tracker's own message admits divergence is "expected for advisory
+  tracker" (walker's `estimated_offset` is not authoritative;
+  `InstructionSideTable::byte_offset_in_text` is), so unconditionally
+  pumping the divergence to stderr on every debug build was pure noise
+  — and specifically polluted the stderr the tests grep for B1706.
+- **Root-cause reframing**: the debt-catalog conjecture ("m1-003
+  tracker panics and shortcircuits") was outdated — the tracker was
+  already downgraded to `eprintln!`, so no shortcircuit. The real bug
+  was the fixture no longer triggering the encoder-error path at all.
+- Three previously-failing tests now pass:
+  `encoder_failure_typed_diagnostic_in_sarif`,
+  `encoder_warn_typed_diagnostic_in_sarif`,
+  `encoder_warn_diagnostic_appears_in_stderr_when_no_sarif`.
+
+Workspace + SYSTEM_VERSION 0.36.41 → 0.36.42.
+
 ## 0.36.41 — 2026-09-25 — PAS-DEBT-B6-001 crypto_shim split + B6-002 ml-dsa no_std unblock
 
 Wave 1 of the paideia-as debt catalog (#1396) landing. Both P0

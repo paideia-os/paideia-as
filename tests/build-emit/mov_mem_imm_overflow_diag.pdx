@@ -1,6 +1,6 @@
 module MovMemImmOverflowDiag = structure {
   pub let f: () -> () !{} @{} = fn() -> unsafe {
-    effects: {}, capabilities: {}, justification: "mov [rax], imm too large for i32",
+    effects: {}, capabilities: {}, justification: "mov [mem], imm64 out of i32 range: PAS-DEBT-B4-004 now supports via movabs r11 + store",
     block: {
       mov rax, 0
       mov [rax], 4294967296

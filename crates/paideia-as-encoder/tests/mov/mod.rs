@@ -11,6 +11,7 @@ mod mov_mem_narrow_store;
 mod mov_ms_x64_args;
 mod mov_narrow;
 mod mov_q_mmio_atomic_1315;
+mod mov_mem_true_imm64_1526;
 mod mov_r32_load;
 mod movnti_store;
 mod movzx_movsx_reg_1329;

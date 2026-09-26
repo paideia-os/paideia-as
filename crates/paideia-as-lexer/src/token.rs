@@ -258,6 +258,8 @@ pub enum TokenKind {
     Colon,
     /// `.`
     Dot,
+    /// `..` — range operator (B2-021; parser wiring lands in B2-005).
+    DotDot,
 
     // ── Effect / capability brackets (§2.3) ─────────────────────────────
     /// `!{` — effect bracket open.

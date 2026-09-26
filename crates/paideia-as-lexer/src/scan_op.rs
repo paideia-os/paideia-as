@@ -135,6 +135,9 @@ fn two_char_ascii(rest: &str) -> Option<TokenKind> {
         (b'>', b'>') => TokenKind::Shr,
         (b'!', b'{') => TokenKind::EffectOpen,
         (b'@', b'{') => TokenKind::CapOpen,
+        // §6 range operator (B2-021). `...` is greedy: DotDot + Dot,
+        // matching Rust's tokenizer; no DotDotDot in the phase-1 set.
+        (b'.', b'.') => TokenKind::DotDot,
         _ => return None,
     })
 }
@@ -220,6 +223,27 @@ mod tests {
     fn longest_match_fat_arrow_vs_assign() {
         let r = scan("=>");
         assert_eq!(r.kind, TokenKind::FatArrow);
+        assert_eq!(r.byte_len, 2);
+    }
+
+    #[test]
+    fn longest_match_dotdot_vs_dot() {
+        // B2-021: `..` is the range terminal; `.` remains member access.
+        let r = scan("..");
+        assert_eq!(r.kind, TokenKind::DotDot);
+        assert_eq!(r.byte_len, 2);
+
+        let r = scan(".x");
+        assert_eq!(r.kind, TokenKind::Dot);
+        assert_eq!(r.byte_len, 1);
+    }
+
+    #[test]
+    fn triple_dot_is_greedy_dotdot_then_dot() {
+        // First call over "..." consumes 2 bytes as DotDot; caller must
+        // re-invoke on the remaining "." for Dot. Mirrors Rust's tokenizer.
+        let r = scan("...");
+        assert_eq!(r.kind, TokenKind::DotDot);
         assert_eq!(r.byte_len, 2);
     }
 

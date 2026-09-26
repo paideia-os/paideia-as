@@ -62,20 +62,38 @@ fn mov_mem_imm_neg_sxt() {
     out.assert_ok();
 }
 
-/// Test: mov [rax], 0x100000000 (immediate too large for i32 sign-ext)
-/// Should fail with diagnostic referencing movabs fixup.
+/// Test: mov [rax], 0x100000000 (immediate too large for i32 sign-ext).
+/// PAS-DEBT-B4-004: this used to be rejected with B1705; now lowered to
+/// `movabs r11, imm64; mov [rax], r11`. Fixture body unchanged; assertion
+/// flipped from failure-expected to success. The still-unsupported case
+/// (R11 as destination base/index) is covered by
+/// `mov_mem_imm_r11_clobber_1526_diag` below.
 #[test]
-fn mov_mem_imm_overflow_diag() {
+fn mov_mem_imm_overflow_now_supported_1526() {
     let out = run_build(build_emit("mov_mem_imm_overflow_diag.pdx"));
-    // This should fail; we check that it does
+    out.assert_ok();
+}
+
+/// Test: mov [r11 + 8], 0x100000000 — the two-instruction lowering added
+/// by PAS-DEBT-B4-004 uses R11 as scratch, so a destination address that
+/// itself uses R11 would silently miscompile (address reg is clobbered
+/// before dereference). Encoder must reject with B1705 rather than emit
+/// wrong bytes. Guard mirrors the imm64_expand.rs / U1615 pattern.
+#[test]
+fn mov_mem_imm_r11_clobber_1526_diag() {
+    let out = run_build(build_emit("mov_mem_imm_r11_clobber_1526.pdx"));
     assert!(
         !out.status.success(),
-        "expected build to fail for immediate too large for i32 sign-ext range"
+        "expected build to fail for [r11+disp], imm64-out-of-i32-range (R11 scratch collision)"
     );
-    // The encoder should produce a B1705 error with a message about movabs
     assert!(
         out.stderr_contains("B1705"),
         "diagnostic should be B1705 encoder error; got:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr_contains("r11"),
+        "diagnostic should mention r11 scratch collision; got:\n{}",
         out.stderr
     );
 }

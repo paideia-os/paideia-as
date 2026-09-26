@@ -503,7 +503,13 @@ pub(super) fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Enc
             );
             Ok(EncodeOutput::new())
         }
-        // Fix #1240: mov [base + disp], imm64 (no index, just base + displacement)
+        // Fix #1240: mov [base + disp], imm64 (no index, just base + displacement).
+        // #1526 (PAS-DEBT-B4-004): when imm exceeds i32 sign-ext range, lower to
+        // `movabs r11, imm64; mov [base+disp], r11` (SDM Vol 2A: `MOV r64, imm64`
+        // opcode `REX.W B8+rd io` — the only x86 form that carries a true imm64 —
+        // followed by `MOV r/m64, r64` opcode `REX.W 89 /r`). R11 is the
+        // caller-saved scratch documented across the emitter for this lowering
+        // (see also emit_store_record.rs record-field stores).
         [
             Operand::MemSib {
                 base,
@@ -513,18 +519,30 @@ pub(super) fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Enc
             },
             Operand::Imm64(imm),
         ] => {
-            // mov [base + disp], imm — W64 form with sign-extended i32 immediate
             let base_reg = reg64_from(*base)?;
             let disp32 = *disp;
-            if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
-                return Err(EncodeError::Unsupported(
-                    "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
-                ));
+            if *imm >= i32::MIN as i64 && *imm <= i32::MAX as i64 {
+                // Compact form: C7 /0 id (sign-extends to r/m64).
+                mov_mem_base_disp_imm32_sxt(buf, base_reg, disp32, *imm as i32);
+            } else {
+                // Two-instruction lowering; total 10 + N bytes.
+                // #1526 R11 clobber guard (mirrors imm64_expand.rs U1615): the
+                // lowering writes imm into r11 BEFORE dereferencing base_reg,
+                // so if the address itself is r11 we would read a corrupted
+                // pointer. Reject so the elaborator can surface a diagnostic
+                // rather than emitting a silent miscompile.
+                if base_reg == Reg64::R11 {
+                    return Err(EncodeError::Unsupported(
+                        "mov [r11 + disp], imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different base register",
+                    ));
+                }
+                mov_reg64_imm64(buf, Reg64::R11, *imm as u64);
+                mov_mem_reg64_disp_reg64(buf, base_reg, disp32, Reg64::R11);
             }
-            mov_mem_base_disp_imm32_sxt(buf, base_reg, disp32, *imm as i32);
             Ok(EncodeOutput::new())
         }
-        // Fix #1240: mov [base + index*scale + disp], imm64 (SIB with index + displacement)
+        // Fix #1240: mov [base + index*scale + disp], imm64 (SIB with index + displacement).
+        // #1526: mirror the true-imm64 lowering for the SIB-indexed form.
         [
             Operand::MemSib {
                 base,
@@ -534,7 +552,6 @@ pub(super) fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Enc
             },
             Operand::Imm64(imm),
         ] => {
-            // mov [base + index*scale + disp], imm — W64 form with sign-extended i32 immediate
             let base_reg = reg64_from(*base)?;
             let index_reg = reg64_from(*idx)?;
             let scale_bits = match scale {
@@ -544,12 +561,20 @@ pub(super) fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Enc
                 Scale::X8 => 3,
             };
             let disp32 = *disp;
-            if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
-                return Err(EncodeError::Unsupported(
-                    "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
-                ));
+            if *imm >= i32::MIN as i64 && *imm <= i32::MAX as i64 {
+                mov_mem_sib_disp_imm32_sxt(buf, base_reg, index_reg, scale_bits, disp32, *imm as i32);
+            } else {
+                // #1526 R11 clobber guard — see base-only arm above. Both
+                // base and index feed the address computation, so either
+                // being r11 is a silent-miscompile hazard.
+                if base_reg == Reg64::R11 || index_reg == Reg64::R11 {
+                    return Err(EncodeError::Unsupported(
+                        "mov [r11 or ...+r11*s + disp], imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different base/index register",
+                    ));
+                }
+                mov_reg64_imm64(buf, Reg64::R11, *imm as u64);
+                mov_mem_sib_disp_reg64(buf, base_reg, index_reg, scale_bits, disp32, Reg64::R11);
             }
-            mov_mem_sib_disp_imm32_sxt(buf, base_reg, index_reg, scale_bits, disp32, *imm as i32);
             Ok(EncodeOutput::new())
         }
         // Fix #1240: mov [rip + sym], imm64 (RIP-relative memory with symbol)

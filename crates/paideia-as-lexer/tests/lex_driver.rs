@@ -143,6 +143,54 @@ fn lex_byte_string() {
     assert_eq!(tokens[1].kind, TokenKind::Eof);
 }
 
+// ── B2-021: DotDot range terminal ─────────────────────────────────────
+
+#[test]
+fn lex_dotdot_between_idents() {
+    // `a..b` — companion to B2-005 (parser wiring).
+    let (tokens, _sink) = lex("a..b");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![TokenKind::Ident, TokenKind::DotDot, TokenKind::Ident, TokenKind::Eof]
+    );
+    // Spans: `a`=1, `..`=2, `b`=1.
+    assert_eq!(tokens[0].span.byte_len(), 1);
+    assert_eq!(tokens[1].span.byte_len(), 2);
+    assert_eq!(tokens[2].span.byte_len(), 1);
+}
+
+#[test]
+fn lex_single_dot_regression() {
+    // `a.b` — single `.` remains a Dot (member access).
+    let (tokens, _sink) = lex("a.b");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![TokenKind::Ident, TokenKind::Dot, TokenKind::Ident, TokenKind::Eof]
+    );
+    assert_eq!(tokens[1].span.byte_len(), 1);
+}
+
+#[test]
+fn lex_triple_dot_greedy_dotdot_then_dot() {
+    // `a...b` — greedy 2-char match: DotDot + Dot (mirrors Rust).
+    let (tokens, _sink) = lex("a...b");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::Ident,
+            TokenKind::DotDot,
+            TokenKind::Dot,
+            TokenKind::Ident,
+            TokenKind::Eof,
+        ]
+    );
+    assert_eq!(tokens[1].span.byte_len(), 2);
+    assert_eq!(tokens[2].span.byte_len(), 1);
+}
+
 #[test]
 fn lex_mixed_tokens() {
     let (tokens, _sink) = lex("fn main() { let x = 10; }");

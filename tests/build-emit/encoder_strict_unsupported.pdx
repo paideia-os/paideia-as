@@ -1,10 +1,19 @@
 module EncoderStrictUnsupported = structure {
+  // PAS-DEBT-B1-011/012/013: `jmp does_not_exist_label` (previous body)
+  // no longer trips the encoder — parse_operand_from_ast routes an
+  // unresolved identifier for `jmp` through the SymbolRef+PLT32 reloc
+  // fallback (unsafe_walker/operand.rs), so encoding succeeds and the
+  // link-time symbol is left dangling. Use `imul r64, r64, imm64` with
+  // an imm that does not fit i32 sign-extension: encode_imul rejects
+  // it as `EncodeError::Unsupported`, which cmd_build/elf.rs surfaces
+  // as B1705 (default) or B1706 (--encoder-warn) — the shape the
+  // typed_encoder_diagnostics tests were written to exercise.
   let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
     effects: {},
     capabilities: {},
-    justification: "encoder strict test - trigger encoder failure",
+    justification: "encoder strict test - trigger encoder failure via out-of-range imul imm64",
     block: {
-      jmp does_not_exist_label
+      imul rax, rax, 4294967296
     }
   }
 }

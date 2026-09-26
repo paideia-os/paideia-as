@@ -539,7 +539,7 @@ impl EmitWalker {
                 // PA8-m3-001 (generic Mov retained): memory-store immediate
                 // (`mov [rdi+off], 0`). Destination is memory; MovSized encodes a
                 // register-destination immediate move only, so it does not apply.
-                let mut inst = Instruction {
+                let inst = Instruction {
                     mnemonic: Mnemonic::Mov,
                     operands,
                     encoding_hint: None,
@@ -551,16 +551,12 @@ impl EmitWalker {
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
                     .expect("virtual id");
-                // TODO(step5-encoder): encode_mov does not yet handle
-                // [MemSib, Imm64] (only MovSized does), so estimated_bytes
-                // would return 0 here. Keep the hardcoded literal until
-                // encode_mov gains this arm. Bytes: 48 C7 47 NN 00 00 00 00
-                // = 8 bytes for small offsets.
-                // #1140: Set emission_order before direct insert to match emit_inst behavior.
-                inst.emission_order = self.state.next_emission_order;
-                self.state.next_emission_order += 1;
-                self.state.instructions.insert(inst_id, inst);
-                self.state.estimated_offset += 8;
+                // #1526 (PAS-DEBT-B4-004): encode_mov now accepts [MemSib, Imm64]
+                // (Fix #1240 plus this issue's true-imm64 lowering), so
+                // estimated_bytes reports the encoder's real byte count and
+                // emit_inst is the canonical sink. The prior direct-insert +
+                // `estimated_offset += 8` workaround was stale.
+                self.emit_inst(inst_id, inst);
             } else {
                 // Emit: mov [rdi + offset], arg_reg via MemSib.
                 // Encoding: 48 89 47 NN (4 bytes for small offsets)
