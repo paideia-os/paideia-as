@@ -48,6 +48,7 @@
 use std::collections::{HashMap, HashSet};
 
 use paideia_as_effects::{EffectId, EffectRow, RowVarId, SignatureId};
+use paideia_as_ir::handler_value::{EffectId as IrEffectId, HandlerInfo, HandlerSideTable};
 use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, WalkerCtx};
 
 use crate::{
@@ -106,6 +107,15 @@ pub struct EffectRowWalker {
     /// Lambdas in this set must not perform any effects; their body rows
     /// are checked by F1106 validation.
     pure_contexts: HashSet<IrNodeId>,
+    /// PAS-DEBT-B3-008 (#1521): per-Handle op-body IrNodeIds keyed by Handle id.
+    /// Zipped positionally with `handler_impls[handle_id]` when populating
+    /// `HandlerSideTable`; entries fall back to the Handle id itself when a
+    /// caller has no per-op lambda id yet (phase-3 will embed these in the IR).
+    handler_op_bodies: HashMap<IrNodeId, Vec<IrNodeId>>,
+    /// PAS-DEBT-B3-008 (#1521): side-table populated at Handle post_visit.
+    /// One `HandlerInfo` entry per Handle node, carrying the handled effect
+    /// and (op_name, op_body_id) list drawn from injected metadata.
+    handler_side_table: HandlerSideTable,
     /// Counter for generating fresh row variables at each call site.
     next_fresh_row_var: u32,
 }
@@ -125,6 +135,8 @@ impl EffectRowWalker {
             handler_impls: HashMap::new(),
             effect_decls: HashMap::new(),
             pure_contexts: HashSet::new(),
+            handler_op_bodies: HashMap::new(),
+            handler_side_table: HandlerSideTable::new(),
             next_fresh_row_var: 1,
         }
     }
@@ -178,6 +190,25 @@ impl EffectRowWalker {
     /// Mark a Lambda node as a pure context (phase-2-m1, F1106 checking).
     pub fn mark_pure_context(&mut self, lambda_id: IrNodeId) {
         self.pure_contexts.insert(lambda_id);
+    }
+
+    /// Inject per-op body IrNodeIds for a Handle node (PAS-DEBT-B3-008, #1521).
+    ///
+    /// The list is zipped positionally with the handler impls injected via
+    /// [`inject_handler_impls`](Self::inject_handler_impls) when the walker
+    /// pushes a `HandlerInfo` into its side-table on Handle post-visit.
+    /// Injection is optional: absent bodies fall back to the Handle id.
+    pub fn inject_handler_op_bodies(&mut self, node_id: IrNodeId, bodies: Vec<IrNodeId>) {
+        self.handler_op_bodies.insert(node_id, bodies);
+    }
+
+    /// Handler side-table populated during walk (PAS-DEBT-B3-008, #1521).
+    ///
+    /// After [`walk`](paideia_as_ir::walk) returns, callers can query per-Handle
+    /// metadata via `handler_side_table().get(handle_id)`.
+    #[must_use]
+    pub fn handler_side_table(&self) -> &HandlerSideTable {
+        &self.handler_side_table
     }
 
     /// Generate a fresh row variable for use in instantiation.
@@ -300,6 +331,36 @@ impl IrWalker for EffectRowWalker {
                     }
                 }
 
+                // PAS-DEBT-B3-008 (#1521): push HandlerInfo into the walker's
+                // HandlerSideTable so downstream passes can query effect + op
+                // list per Handle node. Ops are zipped positionally with the
+                // injected op-body IrNodeIds; absent bodies fall back to the
+                // Handle id itself (phase-3 will embed real ids in the IR).
+                if let Some(handled_id) = self.handle_effects.get(&id).copied() {
+                    let ops: Vec<(String, IrNodeId)> = if let Some(impls) = self.handler_impls.get(&id) {
+                        let bodies = self.handler_op_bodies.get(&id);
+                        impls
+                            .iter()
+                            .enumerate()
+                            .map(|(i, imp)| {
+                                let body = bodies
+                                    .and_then(|b| b.get(i).copied())
+                                    .unwrap_or(id);
+                                (imp.op_name.clone(), body)
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let info = HandlerInfo {
+                        effect: IrEffectId(handled_id.get()),
+                        ops,
+                        ret: None,
+                        finally: None,
+                    };
+                    self.handler_side_table.insert(id, info);
+                }
+
                 // Subtract the handled effect from current_row.
                 if let Some(handled_id) = self.handle_effects.get(&id) {
                     self.current_row = handle_row(&self.current_row, *handled_id);
@@ -390,21 +451,16 @@ impl IrWalker for EffectRowWalker {
 
     /// Called before visiting a handler operation clause's body.
     ///
-    /// Tracks effect-row state at clause entry for later analysis.
-    /// Phase-4-m1-003: prepares for HandlerSideTable population.
-    fn enter_handler_clause(&mut self, _clause_index: usize, _ctx: &mut WalkerCtx<'_>) {
-        // TODO: phase-4-m1-003 will save the current effect row for this clause
-        // to enable tracking the effect row consumed per operation.
-    }
+    /// No-op today: the walker in `paideia-as-ir` does not yet invoke this
+    /// hook (see the Handle branch in `walk`); per-op row snapshots depend on
+    /// that wiring. Handler-level metadata (effect, op set) is recorded at
+    /// Handle post-visit via `HandlerSideTable` — see PAS-DEBT-B3-008 (#1521).
+    fn enter_handler_clause(&mut self, _clause_index: usize, _ctx: &mut WalkerCtx<'_>) {}
 
     /// Called after visiting a handler operation clause's body.
     ///
-    /// Records the effect-row state after clause traversal.
-    /// Phase-4-m1-003: enables HandlerSideTable to track (handler_id, effect_row_consumed).
-    fn exit_handler_clause(&mut self, _clause_index: usize, _ctx: &mut WalkerCtx<'_>) {
-        // TODO: phase-4-m1-003 will record the effect row after the clause
-        // allowing the walker to populate HandlerSideTable with the consumed row.
-    }
+    /// No-op today for the same reason as `enter_handler_clause`.
+    fn exit_handler_clause(&mut self, _clause_index: usize, _ctx: &mut WalkerCtx<'_>) {}
 }
 
 #[cfg(test)]
@@ -1108,6 +1164,101 @@ mod tests {
             .filter(|d| d.code().number() == crate::F_ROW_MISMATCH)
             .count();
         assert_eq!(f1105_count, 1);
+    }
+
+    // ── PAS-DEBT-B3-008 (#1521): HandlerSideTable population ────────────
+
+    /// Simple `with h handle e { i; }`: after walking, the HandlerSideTable
+    /// carries an entry for the Handle node with the injected effect id.
+    #[test]
+    fn walker_pushes_handler_side_table_entry_on_handle() {
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let handler_lambda = arena.alloc(IrKind::Lambda, s);
+        let body_action = arena.alloc(IrKind::Action, s);
+        let handle_id = arena.alloc_with_children(IrKind::Handle, s, [handler_lambda, body_action]);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [handle_id]);
+
+        let mut walker = EffectRowWalker::new();
+        walker.inject_handle_effect(handle_id, eff(7));
+        let impl_read = crate::HandlerImpl {
+            op_name: "read".to_string(),
+            signature: 101,
+            span: s,
+        };
+        walker.inject_handler_impls(handle_id, vec![impl_read]);
+        walker.inject_handler_op_bodies(handle_id, vec![handler_lambda]);
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        let entry = walker
+            .handler_side_table()
+            .get(handle_id)
+            .expect("HandlerSideTable should carry an entry for the Handle node");
+        assert_eq!(entry.effect.0, 7, "effect id should round-trip");
+        assert_eq!(entry.ops.len(), 1, "single-op handler → one op entry");
+        assert_eq!(entry.ops[0].0, "read");
+        assert_eq!(entry.ops[0].1, handler_lambda);
+        assert_eq!(entry.ret, None);
+        assert_eq!(entry.finally, None);
+    }
+
+    /// A handler with multiple ops (arms) → the HandlerSideTable entry's
+    /// ops list carries one row per op with distinct names/bodies.
+    #[test]
+    fn walker_records_one_op_per_arm_in_handler_side_table() {
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let op_read_body = arena.alloc(IrKind::Lambda, s);
+        let op_write_body = arena.alloc(IrKind::Lambda, s);
+        let op_close_body = arena.alloc(IrKind::Lambda, s);
+        let handler_lambda = arena.alloc(IrKind::Lambda, s);
+        let body_action = arena.alloc(IrKind::Action, s);
+        let handle_id = arena.alloc_with_children(IrKind::Handle, s, [handler_lambda, body_action]);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [handle_id]);
+
+        let mut walker = EffectRowWalker::new();
+        walker.inject_handle_effect(handle_id, eff(3));
+        walker.inject_handler_impls(
+            handle_id,
+            vec![
+                crate::HandlerImpl { op_name: "read".to_string(),  signature: 201, span: s },
+                crate::HandlerImpl { op_name: "write".to_string(), signature: 202, span: s },
+                crate::HandlerImpl { op_name: "close".to_string(), signature: 203, span: s },
+            ],
+        );
+        walker.inject_handler_op_bodies(
+            handle_id,
+            vec![op_read_body, op_write_body, op_close_body],
+        );
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        let entry = walker
+            .handler_side_table()
+            .get(handle_id)
+            .expect("HandlerSideTable entry expected");
+        assert_eq!(entry.effect.0, 3);
+        assert_eq!(entry.ops.len(), 3, "three arms → three op entries");
+        let names: Vec<&str> = entry.ops.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["read", "write", "close"]);
+        // Each arm's body id is preserved distinctly (no collapse).
+        let bodies: Vec<IrNodeId> = entry.ops.iter().map(|(_, b)| *b).collect();
+        assert_eq!(bodies, vec![op_read_body, op_write_body, op_close_body]);
+        assert!(
+            bodies[0] != bodies[1] && bodies[1] != bodies[2] && bodies[0] != bodies[2],
+            "distinct op bodies (fingerprints)"
+        );
     }
 
     /// AC (d) round-trip case: an explicit caller declaring `{mem, sched}`

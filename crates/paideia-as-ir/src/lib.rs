@@ -24,6 +24,7 @@ pub mod data;
 pub mod effect_rewrite;
 pub mod enum_layout;
 pub mod handler_value;
+pub mod instr_owner;
 pub mod instruction;
 pub mod int_match;
 pub mod lambda_param;
@@ -75,6 +76,7 @@ pub use enum_layout::{
     PassingConvention,
 };
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
+pub use instr_owner::InstrOwnerTable;
 pub use instruction::{
     Cond, CpuFeature, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand,
     RegId, Scale, SegPrefix, SegReg,

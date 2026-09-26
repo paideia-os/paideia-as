@@ -20,6 +20,7 @@ use crate::enum_layout::{
     EnumConsSideTable, EnumDiscriminantSideTable, EnumVariantPayloadTable, EnumVariantPrimitiveWidthTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
     MatchDispatchMetaSideTable, MatchJumpTableArmValuesSideTable, MatchScrutineeTable,
 };
+use crate::instr_owner::InstrOwnerTable;
 use crate::instruction::InstructionSideTable;
 use crate::int_match::IntMatchScrutineeTable;
 use crate::lambda_param::LambdaParamTable;
@@ -47,6 +48,11 @@ pub struct IrArena {
     children_table: Vec<SmallVec<[IrNodeId; 4]>>,
     /// Side-table: per-node instruction payloads (m9 opt passes).
     instruction_table: InstructionSideTable,
+    /// Side-table: instruction IrNodeId → owning function symbol name.
+    /// PAS-DEBT-B3-001: consumed by `opt::tailcall` for self-recursion
+    /// detection; elaborator populates it from `instr_to_lambda` +
+    /// `SymbolTable`.
+    instr_owner_table: InstrOwnerTable,
     /// Side-table: loop metadata (entry/exit labels) indexed by Loop node ID.
     loop_meta_table: LoopMetaTable,
     /// Side-table: constant pool for repeated 64-bit immediates (m1-010 pool-constants pass).
@@ -167,6 +173,7 @@ impl IrArena {
             nodes: Vec::with_capacity(n),
             children_table: Vec::with_capacity(n),
             instruction_table: InstructionSideTable::new(),
+            instr_owner_table: InstrOwnerTable::new(),
             loop_meta_table: LoopMetaTable::new(),
             constant_pool_table: ConstantPoolTable::new(),
             literal_value_table: LiteralValueTable::new(),
@@ -290,6 +297,18 @@ impl IrArena {
     /// Borrow the instruction side-table (mutable).
     pub fn instructions_mut(&mut self) -> &mut InstructionSideTable {
         &mut self.instruction_table
+    }
+
+    /// Borrow the instruction-owner side-table (read-only).
+    /// PAS-DEBT-B3-001: maps instruction IrNodeId → owning function name.
+    #[must_use]
+    pub fn instr_owner(&self) -> &InstrOwnerTable {
+        &self.instr_owner_table
+    }
+
+    /// Borrow the instruction-owner side-table (mutable).
+    pub fn instr_owner_mut(&mut self) -> &mut InstrOwnerTable {
+        &mut self.instr_owner_table
     }
 
     /// Borrow the loop metadata side-table (read-only).

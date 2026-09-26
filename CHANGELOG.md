@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.36.48 — 2026-09-25 — Wave 8 debt-catalog: B3-001 + B3-008 + B2-009
+
+Wave 8 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed. Two of three previously unblocked by Wave 7 landings
+(B3-006 for B3-001; the fresh instruction-owner side-table for both).
+
+**PAS-DEBT-B3-001** (closes #1514) — Tail-call self-recursion:
+
+- **Correctness note**: pre-fix, `opt::tailcall::apply` rewrote every
+  `Call + Ret` pair with no gate on target identity — a bug that
+  stayed dormant only because the pass is opt-in (annotation-driven,
+  no real callers). Post-fix, the pass rewrites only `Call
+  SymbolRef{name}; Ret` where `name` == the enclosing function's
+  symbol. Mutual recursion, indirect calls, non-tail self-calls are
+  left alone.
+- **New IR side-table** `crates/paideia-as-ir/src/instr_owner.rs` —
+  `InstrOwnerTable` (sparse `HashMap<IrNodeId, String>`, instruction
+  id → owning function symbol). Same shape as `BindingNameTable`.
+  `IrArena` gains `instr_owner_table` + `instr_owner()` /
+  `instr_owner_mut()` accessors.
+- New O1514 diagnostic. 7 tests replacing the 4 old ones (positive
+  self-recursion rewrite, negatives for mutual/indirect/non-tail/no-
+  evidence, bulk two-pairs, retained blocker + empty-arena).
+- **Deferred as B3-001b**: elaborator population of `InstrOwnerTable`
+  from `instr_to_lambda` + `SymbolTable` reverse lookup. The pass
+  stays dormant in real builds (evidence absent = conservative skip);
+  file a follow-up when a real user-facing pipeline requests it.
+
+**PAS-DEBT-B3-008** (closes #1521) — Effect-walker handler save/record:
+
+- `EffectRowWalker` now owns a `HandlerSideTable` and populates one
+  `HandlerInfo` entry per `Handle` node on post-visit, drawing
+  effect-id from `handle_effects` and the op list from injected
+  `handler_impls`.
+- New injection API `inject_handler_op_bodies(handle_id,
+  Vec<IrNodeId>)` — zips positionally with `handler_impls[handle_id]`
+  so `HandlerInfo.ops` carries per-op lambda ids; absent bodies fall
+  back to the Handle id (phase-3 will embed real ids).
+- New accessor `handler_side_table() -> &HandlerSideTable`.
+- `enter_handler_clause` / `exit_handler_clause` upgraded from TODO
+  stubs to documented no-ops explaining the primary save/record now
+  happens at Handle post-visit; per-op row snapshots remain deferred
+  pending `paideia-as-ir::walk` invoking these hooks (separate
+  follow-up in `walker.rs:293`).
+- 2 tests (single-op round trip, three-op distinct bodies).
+
+**PAS-DEBT-B2-009** (closes #1502) — Fn-type param names:
+
+- `TypeData::FnPtr` extended with `param_names: Vec<Option<NodeId>>`
+  so `(bar: MmioRegion, off: u32) -> u32` round-trips through the AST
+  instead of being silently discarded. Backwards-compat shorthand:
+  empty `param_names` means "all params unnamed", so `(u64) -> u64`
+  is untouched.
+- `parse_type_or_named_param` returns `(NodeId, Option<NodeId>)` and
+  allocates a fresh `NodeKind::Ident` at the name span. `parse_type_
+  paren` threads names in parallel with param types into all three
+  FnPtr construction paths.
+- Defensive coverage per Waves 3-5 lesson: `reflect::children` emits
+  Some-name Idents ahead of param types, `pretty::print_type`
+  surfaces `param_names`, `lower_type_ast` destructure uses `..` (elab
+  ignores names — phase-1 typing is name-agnostic).
+- 8-fixture test corpus at `tests/fn_type_param_names.rs` (registered
+  in `tests/integration.rs`).
+
+Workspace + SYSTEM_VERSION 0.36.47 → 0.36.48.
+
 ## 0.36.47 — 2026-09-25 — Wave 7 debt-catalog: B3-004 + B3-006 + B2-013
 
 Wave 7 of the paideia-as debt catalog. Three parallel primitives; three

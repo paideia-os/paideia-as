@@ -21,13 +21,26 @@ pub enum TypeData {
         args: Vec<NodeId>,
     },
 
-    /// `(T1, T2, ...) -> T !{...} @{...}`.
+    /// `(T1, T2, ...) -> T !{...} @{...}` or `(name: T, ...) -> R`.
     ///
     /// First-class function-pointer type. Parameter types, return type, optional
     /// effect set, and optional capability set.
+    ///
+    /// Named-parameter form: when a param is written `name: T`, its Ident is
+    /// preserved in `param_names[i] = Some(<Ident>)`; unnamed params have
+    /// `param_names[i] = None`. Invariant: `param_names.len() == params.len()`
+    /// whenever `param_names` is non-empty. An empty `param_names` is the
+    /// backwards-compatible shorthand for "all params unnamed", so consumers
+    /// that do not care about names can ignore it. Landed with
+    /// paideia-as#1502 (PAS-DEBT-B2-009); pre-fix the parser consumed and
+    /// dropped `name`, so `(bar: MmioRegion) -> u32` was AST-indistinguishable
+    /// from `(MmioRegion) -> u32`.
     FnPtr {
         /// Parameter types.
         params: Vec<NodeId>,
+        /// Optional parameter names (Ident nodes). Either empty (no names) or
+        /// same length as `params`.
+        param_names: Vec<Option<NodeId>>,
         /// Return type.
         ret: NodeId,
         /// Optional effect row.
@@ -234,6 +247,7 @@ mod tests {
         let eff = make_nodeid(4);
         let ty = TypeData::FnPtr {
             params: vec![param1, param2],
+            param_names: vec![],
             ret,
             effects: Some(eff),
             capabilities: None,
@@ -241,14 +255,43 @@ mod tests {
         match ty {
             TypeData::FnPtr {
                 params: p,
+                param_names: n,
                 ret: r,
                 effects: e,
                 capabilities: c,
             } => {
                 assert_eq!(p.len(), 2);
+                assert!(n.is_empty(), "no names in this fixture");
                 assert_eq!(r, ret);
                 assert_eq!(e, Some(eff));
                 assert!(c.is_none());
+            }
+            _ => panic!("expected FnPtr variant"),
+        }
+    }
+
+    #[test]
+    fn type_fn_ptr_with_names_constructs() {
+        // PAS-DEBT-B2-009: name preservation.
+        let name = make_nodeid(10);
+        let param = make_nodeid(11);
+        let ret = make_nodeid(12);
+        let ty = TypeData::FnPtr {
+            params: vec![param],
+            param_names: vec![Some(name)],
+            ret,
+            effects: None,
+            capabilities: None,
+        };
+        match ty {
+            TypeData::FnPtr {
+                params: p,
+                param_names: n,
+                ..
+            } => {
+                assert_eq!(p.len(), 1);
+                assert_eq!(n.len(), 1);
+                assert_eq!(n[0], Some(name));
             }
             _ => panic!("expected FnPtr variant"),
         }

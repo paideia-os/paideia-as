@@ -2,11 +2,8 @@
 
 use super::{OptDiagSink, OptPass};
 use crate::IrArena;
-use crate::instruction::Mnemonic;
+use crate::instruction::{Mnemonic, Operand};
 use crate::node::IrNodeId;
-
-#[cfg(test)]
-use crate::instruction::InstrMode;
 
 /// The tail-call elimination optimization pass.
 pub struct TailCallPass;
@@ -29,21 +26,20 @@ pub enum TcoBlocker {
 /// Takes an instruction side-table and a call site node ID;
 /// returns whether the call is eligible for TCO (None), or the blocker (Some).
 ///
-/// Phase-3-m3-005: Minimum implementation checks structural preconditions.
-/// Recursion detection (call target == enclosing function symbol) is TODO
-/// pending elaborator chokepoint that surfaces call-target symbol in IR.
+/// Phase-3-m3-005: structural precondition checks only.
 ///
-/// Phase-4-m1-004: Per-branch walker visibility is now in place via Branch walker
-/// support. Recursion checks can now properly account for conditional branches
-/// where recursion occurs only in specific arms (then-arm or else-arm).
+/// Phase-4-m1-004: per-branch walker visibility is in place via Branch walker
+/// support; branch-arm recursion is analysable.
+///
+/// PAS-DEBT-B3-001: recursion identity is now handled by the pass itself via
+/// `instr_owner` + `SymbolRef` name match — see `apply()`. This helper stays
+/// focused on the capability / handler / ABI / frame blockers surfaced by the
+/// side-table; those are still stubbed pending B3-002.
 pub fn tco_blocker(
     _side_table: &crate::instruction::InstructionSideTable,
     _call_id: crate::node::IrNodeId,
 ) -> Option<TcoBlocker> {
-    // Phase-3-m3-005: TODO extract capability boundary, handler install,
-    // ABI mismatch, and frame layout info from the side-table and call site.
-    // For now: always eligible (None), placeholder for blockers.
-    // Phase-4-m1-004: Recursion detection gate is lifting; branch-aware analysis pending.
+    // B3-002: extract blockers from the side-table + call site.
     None
 }
 
@@ -73,52 +69,57 @@ pub fn tco_blocker_impl(
     None
 }
 
+/// Extract the target symbol name from a `Call` instruction, if the operand
+/// is a direct `SymbolRef`. Register / memory targets are indirect and never
+/// match self-recursion by name.
+fn call_target_symbol(inst: &crate::instruction::Instruction) -> Option<&str> {
+    match inst.operands.first()? {
+        Operand::SymbolRef { name, .. } => Some(name.as_str()),
+        _ => None,
+    }
+}
+
 impl OptPass for TailCallPass {
     fn name(&self) -> &'static str {
         "tailcall"
     }
 
+    /// PAS-DEBT-B3-001: rewrite only `Call target; Ret` where `target` is a
+    /// direct `SymbolRef` naming the enclosing function (self-recursion).
+    /// Mutual recursion, indirect calls, and non-tail self-calls are left
+    /// alone. Ownership evidence comes from `arena.instr_owner()`; an absent
+    /// owner is treated as "cannot prove self-recursion" and skipped.
     fn apply(&self, arena: &mut IrArena, _root: IrNodeId, sink: &mut OptDiagSink) -> bool {
-        // Collect all instruction node ids from the table and sort by id.
-        let mut ids: Vec<IrNodeId> = {
-            let table = arena.instructions();
-            table.entries().keys().copied().collect()
-        };
+        let mut ids: Vec<IrNodeId> = arena.instructions().entries().keys().copied().collect();
         ids.sort_by_key(|id| id.get());
 
-        if ids.is_empty() {
+        if ids.len() < 2 {
             return false;
         }
 
         let mut changed = false;
 
-        // Iterate through instructions looking for Call + Ret patterns.
         let mut i = 0;
         while i < ids.len() - 1 {
             let call_id = ids[i];
             let next_id = ids[i + 1];
 
-            // Check if current instruction is a Call.
-            let is_call = {
+            // Snapshot call target name + ret-follows before any mutation.
+            let (target_name, is_ret) = {
                 let table = arena.instructions();
-                table
-                    .get(call_id)
-                    .map(|inst| inst.mnemonic == Mnemonic::Call)
-                    .unwrap_or(false)
+                let call_opt = table.get(call_id);
+                let next_opt = table.get(next_id);
+                let name = call_opt
+                    .filter(|c| c.mnemonic == Mnemonic::Call)
+                    .and_then(call_target_symbol)
+                    .map(str::to_string);
+                let ret = next_opt.map(|n| n.mnemonic == Mnemonic::Ret).unwrap_or(false);
+                (name, ret)
             };
 
-            if !is_call {
+            let Some(target_name) = target_name else {
                 i += 1;
                 continue;
-            }
-
-            // Check if next instruction is a Ret.
-            let is_ret = {
-                let table = arena.instructions();
-                table
-                    .get(next_id)
-                    .map(|inst| inst.mnemonic == Mnemonic::Ret)
-                    .unwrap_or(false)
             };
 
             if !is_ret {
@@ -126,41 +127,45 @@ impl OptPass for TailCallPass {
                 continue;
             }
 
-            // Check for blockers on this call.
-            let blocked = {
-                let table = arena.instructions();
-                tco_blocker(table, call_id).is_some()
-            };
+            // Self-recursion gate: owner must match the call target.
+            let is_self_recursion = arena
+                .instr_owner()
+                .get(call_id)
+                .map(|owner| owner == target_name.as_str())
+                .unwrap_or(false);
 
-            if blocked {
+            if !is_self_recursion {
                 i += 1;
                 continue;
             }
 
-            // Pattern matched: Call followed by Ret and not blocked.
-            // Rewrite Call → Jmp and remove Ret.
-            {
-                let table = arena.instructions_mut();
-                if let Some(inst) = table.get_mut(call_id) {
-                    inst.mnemonic = Mnemonic::Jmp;
-                }
+            // Structural blockers (capability boundary, ABI mismatch, ...).
+            if tco_blocker(arena.instructions(), call_id).is_some() {
+                i += 1;
+                continue;
             }
 
-            // Remove the Ret instruction.
+            // Rewrite: Call → Jmp; drop the trailing Ret.
+            if let Some(inst) = arena.instructions_mut().get_mut(call_id) {
+                inst.mnemonic = Mnemonic::Jmp;
+            }
             arena.instructions_mut().remove(next_id);
 
             sink.emit(
                 "tailcall",
                 format!(
-                    "O1510: TCO rewrite Call→Jmp i{} + remove Ret i{}",
+                    "O1514: TCO self-recursion Call→Jmp i{} + remove Ret i{} (owner={}, target={})",
                     call_id.get(),
-                    next_id.get()
+                    next_id.get(),
+                    target_name,
+                    target_name,
                 ),
             );
 
             changed = true;
-            // Don't increment i; re-check from the same position in case
-            // the next instruction has shifted.
+            // Re-check the same index: ids[i+1] was removed from the table
+            // but the local ids vec still references it, so advance past it.
+            i += 2;
         }
 
         changed
@@ -173,66 +178,100 @@ mod tests {
     use crate::instruction::{InstrMode, Instruction, InstructionSideTable, Operand, RegId};
     use smallvec::SmallVec;
 
+    // ── Helpers ────────────────────────────────────────────────────
+
+    fn call_to(sym: &str) -> Instruction {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::SymbolRef {
+            name: sym.to_string(),
+            addend: 0,
+        });
+        Instruction {
+            mnemonic: Mnemonic::Call,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    fn ret_inst() -> Instruction {
+        Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    fn mov_inst() -> Instruction {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(RegId(0)));
+        ops.push(Operand::Reg(RegId(1)));
+        Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    // ── Blocker unit tests ─────────────────────────────────────────
+
     #[test]
     fn tco_blocker_returns_none_when_eligible() {
-        let result = tco_blocker_impl(false, false, false, false);
-        assert_eq!(result, None);
+        assert_eq!(tco_blocker_impl(false, false, false, false), None);
     }
 
     #[test]
     fn tco_blocker_returns_capability_boundary() {
-        let result = tco_blocker_impl(true, false, false, false);
-        assert_eq!(result, Some(TcoBlocker::CapabilityBoundary));
+        assert_eq!(
+            tco_blocker_impl(true, false, false, false),
+            Some(TcoBlocker::CapabilityBoundary)
+        );
     }
 
     #[test]
     fn tco_blocker_returns_effect_handler_installing() {
-        let result = tco_blocker_impl(false, true, false, false);
-        assert_eq!(result, Some(TcoBlocker::EffectHandlerInstalling));
+        assert_eq!(
+            tco_blocker_impl(false, true, false, false),
+            Some(TcoBlocker::EffectHandlerInstalling)
+        );
     }
 
     #[test]
     fn tco_blocker_returns_different_call_convention() {
-        let result = tco_blocker_impl(false, false, true, false);
-        assert_eq!(result, Some(TcoBlocker::DifferentCallConvention));
+        assert_eq!(
+            tco_blocker_impl(false, false, true, false),
+            Some(TcoBlocker::DifferentCallConvention)
+        );
     }
 
     #[test]
     fn tco_blocker_returns_frame_requires_epilogue() {
-        let result = tco_blocker_impl(false, false, false, true);
-        assert_eq!(result, Some(TcoBlocker::FrameRequiresEpilogue));
+        assert_eq!(
+            tco_blocker_impl(false, false, false, true),
+            Some(TcoBlocker::FrameRequiresEpilogue)
+        );
     }
 
     #[test]
     fn tco_blocker_with_instruction_side_table() {
         let mut table = InstructionSideTable::new();
-
         let call_id = IrNodeId::new(1).unwrap();
-
-        // Populate table with a call instruction
-        table.insert(
-            call_id,
-            Instruction {
-                mnemonic: Mnemonic::Call,
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::Reg(RegId(0)));
-                    ops
-                },
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-},
-        );
-
-        // Call the new signature; verify it accepts the table.
-        let _result = tco_blocker(&table, call_id);
-        // Phase-3-m3-005 stub: currently always returns None (eligible).
+        table.insert(call_id, call_to("f"));
+        assert_eq!(tco_blocker(&table, call_id), None);
     }
 
+    // ── Positive: self-recursion is rewritten ──────────────────────
+
     #[test]
-    fn tco_pass_rewrites_call_followed_by_ret_to_jmp() {
+    fn tco_rewrites_self_recursion_call_ret() {
         let pass = TailCallPass;
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
@@ -240,52 +279,88 @@ mod tests {
         let call_id = IrNodeId::new(1).unwrap();
         let ret_id = IrNodeId::new(2).unwrap();
 
-        // Add Call instruction.
-        arena.instructions_mut().insert(
-            call_id,
-            Instruction {
-                mnemonic: Mnemonic::Call,
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::Reg(RegId(0)));
-                    ops
-                },
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-},
-        );
+        arena.instructions_mut().insert(call_id, call_to("factorial"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "factorial".to_string());
 
-        // Add Ret instruction after Call.
-        arena.instructions_mut().insert(
-            ret_id,
-            Instruction {
-                mnemonic: Mnemonic::Ret,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-},
-        );
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
 
-        let dummy_root = IrNodeId::new(3).unwrap();
-        let changed = pass.apply(&mut arena, dummy_root, &mut sink);
-
-        assert!(changed, "TailCallPass should rewrite Call+Ret");
-        // Call should be converted to Jmp.
-        let call_inst = arena.instructions().get(call_id).unwrap();
-        assert_eq!(call_inst.mnemonic, Mnemonic::Jmp);
-        // Ret should be removed.
-        assert!(
-            arena.instructions().get(ret_id).is_none(),
-            "Ret instruction should be removed"
+        assert!(changed, "self-recursion Call+Ret must rewrite");
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Jmp
         );
+        assert!(arena.instructions().get(ret_id).is_none());
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1514"));
+        assert!(sink.diagnostics[0].message.contains("factorial"));
     }
 
+    // ── Negative: mutual recursion is preserved ────────────────────
+
     #[test]
-    fn tco_pass_emits_o1510_per_rewrite() {
+    fn tco_preserves_mutual_recursion() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        // In function `f`, call `g` in tail position — must NOT rewrite.
+        let call_id = IrNodeId::new(1).unwrap();
+        let ret_id = IrNodeId::new(2).unwrap();
+
+        arena.instructions_mut().insert(call_id, call_to("g"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena.instr_owner_mut().insert(call_id, "f".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
+
+        assert!(!changed, "mutual recursion must not be rewritten by TCO");
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
+        );
+        assert!(arena.instructions().get(ret_id).is_some());
+        assert!(sink.diagnostics.is_empty());
+    }
+
+    // ── Negative: non-tail self-call is preserved ──────────────────
+
+    #[test]
+    fn tco_preserves_non_tail_self_call() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        // Call foo; Mov ...; Ret — the Call is not immediately followed by Ret.
+        let call_id = IrNodeId::new(1).unwrap();
+        let mov_id = IrNodeId::new(2).unwrap();
+        let ret_id = IrNodeId::new(3).unwrap();
+
+        arena.instructions_mut().insert(call_id, call_to("foo"));
+        arena.instructions_mut().insert(mov_id, mov_inst());
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena.instr_owner_mut().insert(call_id, "foo".to_string());
+        arena.instr_owner_mut().insert(mov_id, "foo".to_string());
+        arena.instr_owner_mut().insert(ret_id, "foo".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(4).unwrap(), &mut sink);
+
+        assert!(!changed, "non-tail self-call must not be rewritten");
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
+        );
+        assert!(arena.instructions().get(mov_id).is_some());
+        assert!(arena.instructions().get(ret_id).is_some());
+        assert!(sink.diagnostics.is_empty());
+    }
+
+    // ── Negative: indirect (register) call is preserved ────────────
+
+    #[test]
+    fn tco_preserves_indirect_call() {
         let pass = TailCallPass;
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
@@ -293,117 +368,60 @@ mod tests {
         let call_id = IrNodeId::new(1).unwrap();
         let ret_id = IrNodeId::new(2).unwrap();
 
-        // Add Call instruction.
+        // Indirect call: register operand, not SymbolRef.
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(RegId(0)));
         arena.instructions_mut().insert(
             call_id,
             Instruction {
                 mnemonic: Mnemonic::Call,
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::Reg(RegId(0)));
-                    ops
-                },
+                operands: ops,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
                 emission_order: 0,
-},
+            },
         );
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena.instr_owner_mut().insert(call_id, "foo".to_string());
 
-        // Add Ret instruction after Call.
-        arena.instructions_mut().insert(
-            ret_id,
-            Instruction {
-                mnemonic: Mnemonic::Ret,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-},
-        );
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
 
-        let dummy_root = IrNodeId::new(3).unwrap();
-        let changed = pass.apply(&mut arena, dummy_root, &mut sink);
-
-        assert!(changed, "TailCallPass should fire");
+        assert!(!changed, "indirect call must not be rewritten");
         assert_eq!(
-            sink.diagnostics.len(),
-            1,
-            "Should emit exactly one O1510 diagnostic"
-        );
-        assert_eq!(sink.diagnostics[0].pass, "tailcall");
-        assert!(
-            sink.diagnostics[0].message.contains("O1510"),
-            "Diagnostic should mention O1510"
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
         );
     }
 
+    // ── Negative: missing owner evidence is conservative ───────────
+
     #[test]
-    fn tco_pass_preserves_call_not_followed_by_ret() {
+    fn tco_refuses_without_owner_evidence() {
+        // PAS-DEBT-B3-001: without instr_owner data, the pass cannot prove
+        // self-recursion and must leave the pattern alone. Prior behaviour
+        // (rewrite any Call+Ret) was the bug the debt catalog flagged.
         let pass = TailCallPass;
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
 
         let call_id = IrNodeId::new(1).unwrap();
-        let other_id = IrNodeId::new(2).unwrap();
+        let ret_id = IrNodeId::new(2).unwrap();
 
-        // Add Call instruction.
-        arena.instructions_mut().insert(
-            call_id,
-            Instruction {
-                mnemonic: Mnemonic::Call,
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::Reg(RegId(0)));
-                    ops
-                },
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-},
-        );
+        arena.instructions_mut().insert(call_id, call_to("factorial"));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        // No instr_owner entry.
 
-        // Add a non-Ret instruction after Call (e.g., Mov).
-        arena.instructions_mut().insert(
-            other_id,
-            Instruction {
-                mnemonic: Mnemonic::Mov,
-                operands: {
-                    let mut ops = SmallVec::new();
-                    ops.push(Operand::Reg(RegId(0)));
-                    ops.push(Operand::Reg(RegId(1)));
-                    ops
-                },
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: InstrMode::default(),
-                emission_order: 0,
-},
-        );
+        let changed = pass.apply(&mut arena, IrNodeId::new(3).unwrap(), &mut sink);
 
-        let dummy_root = IrNodeId::new(3).unwrap();
-        let changed = pass.apply(&mut arena, dummy_root, &mut sink);
-
-        assert!(
-            !changed,
-            "TailCallPass should not rewrite Call not followed by Ret"
-        );
-        // Call should remain a Call.
-        let call_inst = arena.instructions().get(call_id).unwrap();
-        assert_eq!(call_inst.mnemonic, Mnemonic::Call);
-        // Other instruction should remain.
-        assert!(
-            arena.instructions().get(other_id).is_some(),
-            "Other instruction should be preserved"
-        );
+        assert!(!changed, "pass must not fire without ownership evidence");
         assert_eq!(
-            sink.diagnostics.len(),
-            0,
-            "No diagnostics should be emitted"
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
         );
     }
+
+    // ── Empty arena ────────────────────────────────────────────────
 
     #[test]
     fn tco_pass_emits_no_diagnostics_for_empty_arena() {
@@ -411,14 +429,53 @@ mod tests {
         let mut arena = IrArena::new();
         let mut sink = OptDiagSink::new();
 
-        let dummy_root = IrNodeId::new(1).unwrap();
-        let changed = pass.apply(&mut arena, dummy_root, &mut sink);
+        let changed = pass.apply(&mut arena, IrNodeId::new(1).unwrap(), &mut sink);
 
-        assert!(!changed, "Empty arena should produce no changes");
+        assert!(!changed);
+        assert!(sink.diagnostics.is_empty());
+    }
+
+    // ── Two consecutive self-recursive tail calls (interior order) ─
+
+    #[test]
+    fn tco_handles_two_self_recursive_pairs_in_sequence() {
+        // Layout: [i1 Call foo, i2 Ret, i3 Call foo, i4 Ret]
+        // Both pairs are self-recursive → both rewritten.
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        for (n, name) in [(1u32, "foo"), (3, "foo")] {
+            let call_id = IrNodeId::new(n).unwrap();
+            let ret_id = IrNodeId::new(n + 1).unwrap();
+            arena.instructions_mut().insert(call_id, call_to(name));
+            arena.instructions_mut().insert(ret_id, ret_inst());
+            arena
+                .instr_owner_mut()
+                .insert(call_id, "foo".to_string());
+        }
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(99).unwrap(), &mut sink);
+
+        assert!(changed);
         assert_eq!(
-            sink.diagnostics.len(),
-            0,
-            "Empty arena should produce no diagnostics"
+            arena
+                .instructions()
+                .get(IrNodeId::new(1).unwrap())
+                .unwrap()
+                .mnemonic,
+            Mnemonic::Jmp
         );
+        assert!(arena.instructions().get(IrNodeId::new(2).unwrap()).is_none());
+        assert_eq!(
+            arena
+                .instructions()
+                .get(IrNodeId::new(3).unwrap())
+                .unwrap()
+                .mnemonic,
+            Mnemonic::Jmp
+        );
+        assert!(arena.instructions().get(IrNodeId::new(4).unwrap()).is_none());
+        assert_eq!(sink.diagnostics.len(), 2);
     }
 }

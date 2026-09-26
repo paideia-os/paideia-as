@@ -105,6 +105,7 @@ pub fn lower_type_ast(
             ret,
             effects: eff_node,
             capabilities: cap_node,
+            ..
         } => {
             // Recursively lower each parameter type
             let mut param_types = Vec::new();

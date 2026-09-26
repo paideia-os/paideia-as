@@ -529,11 +529,19 @@ impl<'a> Term<'a> {
         // Handle TypeFnPtr
         if let Some(TypeData::FnPtr {
             params,
+            param_names,
             ret,
             effects,
             capabilities,
         }) = self.arena.type_data(self.id)
         {
+            // PAS-DEBT-B2-009: emit named-param Idents (Some slots) before
+            // their types so downstream walkers reach every allocated node.
+            for name_slot in param_names {
+                if let Some(name_id) = name_slot {
+                    result.push(Term::new(self.arena, *name_id));
+                }
+            }
             for &param in params {
                 result.push(Term::new(self.arena, param));
             }
@@ -827,6 +835,7 @@ mod tests {
             span(),
             TypeData::FnPtr {
                 params: vec![param_id],
+                param_names: vec![],
                 ret: ret_id,
                 effects: None,
                 capabilities: None,
@@ -865,6 +874,7 @@ mod tests {
             span(),
             TypeData::FnPtr {
                 params: vec![t1_id, t2_id],
+                param_names: vec![],
                 ret: r_id,
                 effects: None,
                 capabilities: None,
@@ -909,6 +919,7 @@ mod tests {
             span(),
             TypeData::FnPtr {
                 params: vec![t1_id],
+                param_names: vec![],
                 ret: r_id,
                 effects: Some(e_id),
                 capabilities: None,
@@ -958,6 +969,7 @@ mod tests {
             span(),
             TypeData::FnPtr {
                 params: vec![t1_id],
+                param_names: vec![],
                 ret: r_id,
                 effects: Some(e_id),
                 capabilities: Some(c_id),

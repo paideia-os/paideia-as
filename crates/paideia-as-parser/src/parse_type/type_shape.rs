@@ -63,6 +63,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     span,
                     TypeData::FnPtr {
                         params: vec![],
+                        param_names: vec![],
                         ret,
                         effects,
                         capabilities,
@@ -83,9 +84,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             ));
         }
 
-        // Parse first parameter, checking for named-parameter form (name: Type)
-        let first_type = self.parse_type_or_named_param()?;
+        // Parse first parameter, checking for named-parameter form (name: Type).
+        // PAS-DEBT-B2-009: collect names in parallel so FnPtr construction
+        // below can thread them into `param_names`; a Tuple discards names.
+        let (first_type, first_name) = self.parse_type_or_named_param()?;
         let mut elements = vec![first_type];
+        let mut names: Vec<Option<paideia_as_ast::NodeId>> = vec![first_name];
 
         // Check for comma (tuple) or closing paren
         let mut span_end = self
@@ -105,13 +109,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     break;
                 }
 
-                let elem_type = self.parse_type_or_named_param()?;
+                let (elem_type, elem_name) = self.parse_type_or_named_param()?;
                 span_end = self
                     .arena()
                     .get(elem_type)
                     .map(|nd| nd.span)
                     .unwrap_or(span_end);
                 elements.push(elem_type);
+                names.push(elem_name);
 
                 // Check if there's another comma or if we're done
                 if !self.at(TokenKind::Comma) {
@@ -163,11 +168,20 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     span_start.byte_start(),
                     span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
                 );
+                // PAS-DEBT-B2-009: if any name is Some, hand param_names to
+                // the FnPtr; otherwise leave it empty (backwards-compat shape
+                // consumers may pattern-match).
+                let param_names = if names.iter().any(|n| n.is_some()) {
+                    names.clone()
+                } else {
+                    Vec::new()
+                };
                 return Ok(self.arena_mut().alloc_type(
                     NodeKind::TypeFnPtr,
                     span,
                     TypeData::FnPtr {
                         params: elements,
+                        param_names,
                         ret,
                         effects,
                         capabilities,
@@ -233,11 +247,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 span_start.byte_start(),
                 span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
             );
+            // PAS-DEBT-B2-009: single-param path — preserve name if any.
+            let param_names = if names.iter().any(|n| n.is_some()) {
+                names.clone()
+            } else {
+                Vec::new()
+            };
             return Ok(self.arena_mut().alloc_type(
                 NodeKind::TypeFnPtr,
                 span,
                 TypeData::FnPtr {
                     params: elements,
+                    param_names,
                     ret,
                     effects,
                     capabilities,
@@ -346,29 +367,33 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
     /// Parse a type parameter in function-type position, handling named parameters.
     ///
-    /// This is used when parsing function-type parameter lists. It handles:
-    /// - `name: Type` → parses `name:` and then the type; returns just the type (name discarded in phase-1).
-    /// - `Type` → parses as a regular type.
+    /// Returns `(type_id, name_id_opt)` where `name_id_opt` is `Some(Ident)`
+    /// for the `name: Type` form and `None` for a bare type. Callers that
+    /// consume the result as a tuple element discard the name; callers that
+    /// consume it as a FnPtr parameter thread the name into
+    /// `TypeData::FnPtr::param_names` (PAS-DEBT-B2-009).
     ///
-    /// This allows function types like `(bar: MmioRegion, off: u32) -> u32` to parse
-    /// correctly, with parameter names being syntactically accepted but not stored in
-    /// the AST (since they carry no semantic information in phase-1).
-    pub(super) fn parse_type_or_named_param(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
-        // Peek ahead to check for named-parameter form: `Ident Colon Type`
-        // If the current token is Ident and the next token is Colon, this is a named parameter.
+    /// Pre-fix (2026-09-25 debt-catalog audit) the name was consumed and
+    /// dropped on the floor, so `(bar: MmioRegion) -> u32` was AST-
+    /// indistinguishable from `(MmioRegion) -> u32`.
+    pub(super) fn parse_type_or_named_param(
+        &mut self,
+    ) -> Result<(paideia_as_ast::NodeId, Option<paideia_as_ast::NodeId>), ParseError> {
+        // Peek ahead to check for named-parameter form: `Ident Colon Type`.
         if self.at(TokenKind::Ident)
             && let Some(next_tok) = self.peek_at(1)
             && next_tok.kind == TokenKind::Colon
         {
-            // This is a named parameter: consume the `Ident` and `:`, then parse the type
-            self.bump(); // consume `Ident`
+            let name_tok = self.bump().expect("Ident token guaranteed by at()");
+            let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
             self.bump(); // consume `:`
-            // The type is parsed; the name is implicitly discarded in phase-1
-            return self.parse_type();
+            let ty = self.parse_type()?;
+            return Ok((ty, Some(name_id)));
         }
 
-        // Default: parse as a regular type
-        self.parse_type()
+        // Default: bare type, no name.
+        let ty = self.parse_type()?;
+        Ok((ty, None))
     }
 
     /// Parse a closure type: `|T1, T2, ...| -> R !{...} @{...}`.

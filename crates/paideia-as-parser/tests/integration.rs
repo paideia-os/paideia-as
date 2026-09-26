@@ -13,6 +13,7 @@
 mod align_attr_errors;
 mod empty_fn_args;
 mod endian_attr_snapshots;
+mod fn_type_param_names;
 mod example_files;
 mod functor_attr_binding;
 mod inner_attr_bits;

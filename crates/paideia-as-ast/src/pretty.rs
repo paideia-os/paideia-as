@@ -823,6 +823,7 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         }
         TypeData::FnPtr {
             params,
+            param_names,
             ret,
             effects,
             capabilities,
@@ -832,9 +833,19 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
+            // PAS-DEBT-B2-009: print param_names so a Wave-3/4 style silent
+            // arm mismatch shows up in the dump.
+            let names_str = param_names
+                .iter()
+                .map(|n| match n {
+                    Some(id) => id.to_string(),
+                    None => "_".to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
             format!(
-                "FnPtr {{ params: [{}], ret: {}, effects: {:?}, capabilities: {:?} }}",
-                params_str, ret, effects, capabilities
+                "FnPtr {{ params: [{}], param_names: [{}], ret: {}, effects: {:?}, capabilities: {:?} }}",
+                params_str, names_str, ret, effects, capabilities
             )
         }
         TypeData::Closure {
