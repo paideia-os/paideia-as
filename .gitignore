@@ -43,3 +43,7 @@ test_output.txt
 # DDC (diverse double compilation) runtime artifacts
 tools/ddc/out/
 *.placeholder
+
+# cargo-insta pending-snapshot artifacts from pre-existing test failures
+# (endian_attr_snapshots cluster, see debt catalog follow-up notes).
+**/*.snap.new
