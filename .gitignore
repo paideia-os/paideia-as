@@ -1,5 +1,9 @@
 # Build artifacts
 /target/
+# PAS-DEBT-B6-002 (#1528): `paideia-satellite-runtime` is its
+# own nested cargo workspace root and therefore produces its
+# own `target/` next to its manifest.
+crates/paideia-satellite-runtime/target/
 **/*.rs.bk
 examples/*.o
 examples/*.efi

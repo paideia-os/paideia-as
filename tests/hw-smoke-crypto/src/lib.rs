@@ -67,9 +67,13 @@ pub fn repo_root() -> PathBuf {
 /// satellite host-tool builds:
 ///
 /// 1. `cargo run --release -p paideia-as -- build --emit elf64 <fixture> -o <obj>`
-/// 2. `cargo build --release -p paideia-satellite-runtime` (produces
-///    `libpaideia_satellite_runtime.a`, which resolves the six
-///    `paideia_crypto_*` FFI thunks the fixture calls).
+/// 2. `cargo build --release --manifest-path crates/paideia-satellite-runtime/Cargo.toml`
+///    (produces `libpaideia_satellite_runtime.a` inside that nested
+///    workspace's own `target/release/`, which resolves the six
+///    `paideia_crypto_*` FFI thunks the fixture calls). Since PAS-DEBT-B6-002
+///    (#1528) that crate is no longer a member of the parent workspace,
+///    so `-p paideia-satellite-runtime` at the repo root no longer
+///    resolves; the manifest-path invocation is the supported entry.
 /// 3. `ld -T tests/build-emit/link.ld <obj> <archive> -o <out_elf>`
 ///
 /// # Errors
@@ -109,22 +113,27 @@ pub fn build_kat_elf(root: &Path, out_elf: &Path) -> std::io::Result<()> {
     // It resolves paideia_crypto_argon2id_derive,
     // paideia_crypto_chacha20_poly1305_{seal,open}, and
     // paideia_crypto_ml_kem_768_{keygen,encaps,decaps} -- the six
-    // extern-C thunks the fixture calls.
+    // extern-C thunks the fixture calls. Since PAS-DEBT-B6-002 (#1528)
+    // the satellite crate lives in its own nested cargo workspace, so
+    // we invoke it via `--manifest-path`; the archive lands in that
+    // sub-workspace's own `target/`, not the parent workspace's.
+    let satellite_manifest = root.join("crates/paideia-satellite-runtime/Cargo.toml");
     let runtime_out = Command::new(env!("CARGO"))
         .current_dir(root)
         .arg("build")
         .arg("--release")
         .arg("--quiet")
-        .arg("-p")
-        .arg("paideia-satellite-runtime")
+        .arg("--manifest-path")
+        .arg(&satellite_manifest)
         .output()?;
     if !runtime_out.status.success() {
         return Err(std::io::Error::other(format!(
-            "cargo build -p paideia-satellite-runtime failed: {}",
+            "cargo build --manifest-path {} failed: {}",
+            satellite_manifest.display(),
             String::from_utf8_lossy(&runtime_out.stderr)
         )));
     }
-    let archive = root.join("target/release/libpaideia_satellite_runtime.a");
+    let archive = root.join("crates/paideia-satellite-runtime/target/release/libpaideia_satellite_runtime.a");
     if !archive.exists() {
         return Err(std::io::Error::other(format!(
             "expected archive not found: {}",

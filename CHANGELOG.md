@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.36.54 — 2026-09-26 — Wave 14 debt-catalog: B6-002 (satellite runtime split)
+
+**Milestone**: `cargo build --workspace` succeeds for the first time
+since v0.36.35 (silent break) or earlier. The E0152 `panic_impl`
+collision is gone. Verified by main-side `cargo build --workspace` =
+exit 0.
+
+**PAS-DEBT-B6-002** (closes #1528) — Satellite runtime split into
+nested workspace:
+
+- **Path taken**: (iii) from the v0.36.41 CHANGELOG recovery menu.
+  `paideia-satellite-runtime` promoted to its own nested cargo
+  workspace root. Parent-workspace feature unification no longer
+  applies to it, so `paideia-as-crypto = { default-features = false }`
+  is finally honoured and `crypto-common` stays `no_std`.
+- Path (i) `[workspace.exclude]` and path (ii) `[patch.crates-io]`
+  rejected in favor of (iii) — cleanest surgical shape; nothing else
+  in the workspace depends on `paideia-satellite-runtime`.
+- **Manifest changes**:
+  - `Cargo.toml` (parent): removed `crates/paideia-satellite-runtime`
+    from `[workspace] members`.
+  - `crates/paideia-satellite-runtime/Cargo.toml`: prepended
+    `[workspace]` + `[workspace.package]` (explicit version/edition/
+    etc., no cross-workspace inheritance) + `[profile.release]` +
+    `[profile.dev]` with `panic = "abort"` (sub-workspace profiles
+    don't inherit from parent).
+- **Build tooling**:
+  - NEW `tools/build-satellite-runtime.sh`: runs the sub-workspace
+    build with `cargo build --release --manifest-path
+    crates/paideia-satellite-runtime/Cargo.toml`.
+  - `tools/paideia-as-pre-push.sh`: added `[2/6]` gate invoking the
+    new script.
+- **Downstream fixups**:
+  - `tests/hw-smoke-crypto/src/lib.rs`: switched from `cargo build -p
+    paideia-satellite-runtime` (no longer resolves at parent root) to
+    `--manifest-path` form; updated archive path to nested
+    `target/release/`.
+  - `tests/hw-smoke-crypto/README.md`: recipe updated.
+  - `.gitignore`: added `crates/paideia-satellite-runtime/target/`.
+- **Source unchanged**: no changes to `src/{lib.rs,crypto_shim.rs}`.
+  Fix is entirely at the manifest / workspace-topology layer — the
+  whole point of path (iii).
+- **Cost**: a second `Cargo.lock` for the sub-workspace (bounded and
+  intentional). Design catalog §7.3 rewritten to document the
+  rationale.
+
+Workspace + SYSTEM_VERSION 0.36.53 → 0.36.54.
+
 ## 0.36.53 — 2026-09-26 — Wave 13 debt-catalog: B3-007 Slice 1 (SysV aggregate classifier)
 
 Wave 13 is a dedicated L-sized wave — one primitive on the ABI classifier.

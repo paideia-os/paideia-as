@@ -24,8 +24,11 @@
 //! here.
 //!
 //! This crate closes that gap by shipping a single satellite-linkable
-//! `.a` archive — `target/release/libpaideia_satellite_runtime.a` —
-//! that carries all four symbols AND the small no_std runtime
+//! `.a` archive — since PAS-DEBT-B6-002 (#1528) built inside this
+//! crate's own nested cargo workspace, at
+//! `crates/paideia-satellite-runtime/target/release/libpaideia_satellite_runtime.a`
+//! (built by `bash tools/build-satellite-runtime.sh` at the repo root)
+//! — that carries all four symbols AND the small no_std runtime
 //! infrastructure (bump allocator + panic handler + eh_personality
 //! stub) that lets a satellite `ld -nostdlib` line resolve without
 //! dragging std / libc / `_Unwind_*` scaffolding.

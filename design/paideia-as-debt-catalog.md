@@ -391,7 +391,7 @@ outstanding sub-issue is the mechanical split into a dedicated
 | Entry id          | Site                                                                | Symptom                                                                                                       | Fix category         | Size | Landing wave |
 |-------------------|---------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|----------------------|------|--------------|
 | `PAS-DEBT-B6-001` | `crates/paideia-satellite-runtime/src/lib.rs` (target `crypto_shim.rs`) | Symbol re-exports currently live in `lib.rs`; sub-issue is the split into `src/crypto_shim.rs` per `#1391`.   | `satellite-runtime`  | S    | Wave 1 (`#1391`) |
-| `PAS-DEBT-B6-002` | `crates/paideia-satellite-runtime/src/lib.rs:236-247`               | `pub use paideia_as_crypto::ffi::mldsa65_*` attempted but RustCrypto `ml-dsa` 0.1.1 pulls `std` via `crypto_common`, conflicting with `#![no_std] panic_impl`. Blocks the ml-dsa re-export path and surfaces as a workspace-wide `cargo build --workspace` failure (E0152 `panic_impl`). | `satellite-runtime`  | M    | Wave 2       |
+| `PAS-DEBT-B6-002` | `crates/paideia-satellite-runtime/src/lib.rs:236-247`               | `pub use paideia_as_crypto::ffi::mldsa65_*` attempted but RustCrypto `ml-dsa` 0.1.1 pulls `std` via `crypto_common`, conflicting with `#![no_std] panic_impl`. Blocked `cargo build --workspace` with E0152 `panic_impl`. **RESOLVED in 0.36.54 (Wave 14, #1528)** by path (iii): satellite crate promoted to its own nested workspace root; see §7.3. | `satellite-runtime`  | M    | Wave 14 (RESOLVED) |
 
 ### 7.3 Cross-reference
 
@@ -401,15 +401,50 @@ outstanding sub-issue is the mechanical split into a dedicated
 Entry `PAS-DEBT-B6-001` supersedes `#1348` under the same collapse
 policy as B5-001 vs `#1349`.
 
-`PAS-DEBT-B6-002` was added by the 2026-09-25 audit: it explains why
-`cargo build --workspace` currently fails on a clean checkout (the
-`E0152 panic_impl` collision in `paideia-satellite-runtime`), which
-had been silently gating every per-crate `cargo test` invocation as
-the pre-push script's workaround. Fix options: (a) drop `ml-dsa` from
-the re-export set (satellite tools don't consume it directly today);
-(b) upgrade to a `ml-dsa` version that is truly `no_std`-clean when
-it lands upstream; (c) contribute a `no_std` feature to
-RustCrypto/ml-dsa. Prefer (a) for the immediate landing.
+`PAS-DEBT-B6-002` was added by the 2026-09-25 audit: it explained why
+`cargo build --workspace` failed on a clean checkout (the `E0152
+panic_impl` collision in `paideia-satellite-runtime`), which had been
+silently gating every per-crate `cargo test` invocation as the pre-push
+script's workaround.
+
+**Resolution (0.36.54, Wave 14, #1528 close)** — path (iii) taken:
+`paideia-satellite-runtime` is now its own nested cargo workspace root
+at `crates/paideia-satellite-runtime/Cargo.toml`. The parent workspace
+no longer lists it as a member (see the anchor comment in the parent
+`Cargo.toml` `[workspace] members` block), which means parent-workspace
+feature unification no longer applies to it — its
+`paideia-as-crypto = { default-features = false }` is now honoured
+because no other workspace consumer forces defaults on. `paideia-as-crypto`
+is pulled by path across the workspace boundary; its own `.workspace`
+inheritance resolves against the parent workspace it still belongs to.
+
+`cargo build --workspace` at the repo root now succeeds without any
+E0152 collision. The satellite runtime staticlib is built by a
+dedicated script — `bash tools/build-satellite-runtime.sh` — which
+runs `cargo build --release --manifest-path
+crates/paideia-satellite-runtime/Cargo.toml`. The pre-push gate
+(`tools/paideia-as-pre-push.sh`) runs both.
+
+Trade-offs considered but not taken:
+
+- **(i) `[workspace.exclude]`** — equivalent effect on parent feature
+  unification but the crate remains a workspace non-member sharing the
+  parent `Cargo.lock`. Rejected because (iii) is cleaner: nothing else
+  in the workspace depends on this crate, so it does not need to share
+  the parent lock; and a dedicated nested workspace lets `[profile]`
+  differ (the satellite build wants `panic = "abort"` in both `release`
+  and `dev`, independent of parent policy).
+- **(ii) `[patch.crates-io]`** for `crypto-common` / `digest` — too
+  deep; would require maintaining a fork or waiting on RustCrypto
+  upstream to publish `no_std`-clean variants.
+
+Cost of (iii): a second `Cargo.lock` at `crates/paideia-satellite-runtime/Cargo.lock`.
+Dependency-version divergence between the two workspaces is possible
+in principle but is bounded in practice: the sub-workspace pulls only
+`paideia-as-crypto` (by path), which in turn pins `argon2`, `chacha20poly1305`,
+`ml-kem`, `blake3`, `thiserror` to the same versions the parent workspace
+uses. `cargo update` in the sub-workspace stays local and is a manual
+step for a release check.
 
 ---
 

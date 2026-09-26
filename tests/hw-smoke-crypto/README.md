@@ -99,8 +99,11 @@ cargo test -p paideia-hw-smoke-crypto -- --ignored --nocapture
   - `HwSmokeEnv::probe()` — detect `qemu-system-x86_64` on PATH.
   - `build_kat_elf(root, out_elf)` — `cargo run --release -p paideia-as
     -- build --emit elf64 <fixture> -o <obj>`, then `cargo build
-    --release -p paideia-satellite-runtime`, then `ld -T
-    tests/build-emit/link.ld <obj> <archive> -o <out_elf>`.
+    --release --manifest-path crates/paideia-satellite-runtime/Cargo.toml`
+    (nested workspace, since PAS-DEBT-B6-002 / #1528), then `ld -T
+    tests/build-emit/link.ld <obj> <archive> -o <out_elf>` where
+    `<archive>` is
+    `crates/paideia-satellite-runtime/target/release/libpaideia_satellite_runtime.a`.
   - `boot_and_capture_serial(env, elf)` — spawn QEMU with the same
     flags `tools/run-smoke.sh` uses (`-serial file:<log> -display none
     -no-reboot -no-shutdown -m 32M`), hard-killed via `timeout 10`

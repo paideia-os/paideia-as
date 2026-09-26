@@ -1,3 +1,50 @@
+# Nested cargo workspace root — PAS-DEBT-B6-002 (#1528).
+#
+# This crate is a `staticlib` compiled `#![no_std] + alloc` with
+# its own `#[global_allocator]` and `#[panic_handler]`. When it
+# lived under the parent workspace, workspace feature unification
+# transitively re-enabled `std` in `crypto-common` (via 4 dep
+# paths through `paideia-as-crypto`: argon2->blake2->digest,
+# ml-kem->sha3->digest, chacha20poly1305->aead, chacha20->cipher),
+# which added a second `panic_impl` and broke `cargo build
+# --workspace` with E0152. Making this crate its own workspace
+# root gives it independent feature resolution — its
+# `paideia-as-crypto = { default-features = false }` is now
+# honoured because there is no other consumer in the same
+# workspace to force defaults on.
+#
+# `paideia-as-crypto` is pulled by path across workspace
+# boundaries; its own `.workspace` inheritance resolves against
+# the parent workspace it still belongs to. Build via
+# `bash tools/build-satellite-runtime.sh` at the repo root.
+[workspace]
+resolver = "2"
+
+[workspace.package]
+# Keep in lock-step with parent workspace `Cargo.toml`
+# `[workspace.package].version`. The two must move together;
+# both are bumped by the same release ritual.
+version = "0.36.54"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+authors = ["Santiago Núñez-Corrales <snunezcr@gmail.com>"]
+repository = "https://github.com/paideia-os/paideia-as"
+
+# Same rationale as the parent workspace: the staticlib demands
+# `panic = "abort"` so no `_Unwind_*` scaffolding is emitted
+# into the archive. Sub-workspace `profile` blocks do NOT
+# inherit from the parent, so this is re-declared here.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
+panic = "abort"
+
 [package]
 name = "paideia-satellite-runtime"
 version.workspace = true

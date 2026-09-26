@@ -38,7 +38,15 @@ members = [
     "crates/paideia-fmt",
     "crates/paideia-pq-sign",
     "crates/paideia-as-crypto",
-    "crates/paideia-satellite-runtime",
+    # `paideia-satellite-runtime` intentionally NOT a member —
+    # it lives in its own nested cargo workspace at
+    # `crates/paideia-satellite-runtime/Cargo.toml` so its
+    # `no_std + alloc + panic_handler` staticlib shape is not
+    # subject to parent-workspace feature unification (which
+    # transitively re-enables `std` in `crypto-common` via
+    # 4 dep paths and would raise E0152 `panic_impl`).
+    # PAS-DEBT-B6-002 (#1528). Build it with
+    # `bash tools/build-satellite-runtime.sh`.
     "tests/e2e",
     "tests/end-to-end",
     "tests/effects-corpus",
@@ -74,7 +82,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.53"
+version = "0.36.54"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
