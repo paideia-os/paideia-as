@@ -408,8 +408,8 @@ fn nested_record_simple_two_fields() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         ],
         vec!["x".to_string(), "y".to_string()],
     );
@@ -524,8 +524,8 @@ fn nested_enum_over_record() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         ],
         vec!["x".to_string(), "y".to_string()],
     );
@@ -591,8 +591,8 @@ fn nested_record_over_enum_over_record() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         ],
         vec!["x".to_string(), "y".to_string()],
     );
@@ -600,7 +600,7 @@ fn nested_record_over_enum_over_record() {
     let container_layout = RecordLayout::with_field_names(
         16,
         8,
-        vec![FieldLayout { offset: 0, size: 16, signed: false }],
+        vec![FieldLayout { offset: 0, size: 16, signed: false, is_float: false }],
         vec!["field".to_string()],
     );
 
@@ -652,8 +652,8 @@ fn nested_wildcard_at_leaf() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         ],
         vec!["x".to_string(), "y".to_string()],
     );
@@ -707,10 +707,10 @@ fn nested_record_four_simple_fields_no_exhaustion() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
-            FieldLayout { offset: 16, size: 8, signed: false },
-            FieldLayout { offset: 24, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 16, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 24, size: 8, signed: false, is_float: false },
         ],
         vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()],
     );
@@ -806,8 +806,8 @@ fn nested_byte_exact_enum_over_record_offsets() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 1, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 1, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         ],
         vec!["x".to_string(), "y".to_string()],
     );
@@ -883,7 +883,7 @@ fn nested_byte_exact_record_over_enum_offsets() {
     let container_layout = RecordLayout::with_field_names(
         16,
         8,
-        vec![FieldLayout { offset: 0, size: 8, signed: false }],
+        vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
         vec!["field".to_string()],
     );
 
@@ -948,10 +948,10 @@ fn nested_multiple_sibling_bindings_widths() {
         24,
         8,
         vec![
-            FieldLayout { offset: 0, size: 1, signed: true },
-            FieldLayout { offset: 2, size: 2, signed: true },
-            FieldLayout { offset: 4, size: 4, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 1, signed: true, is_float: false },
+            FieldLayout { offset: 2, size: 2, signed: true, is_float: false },
+            FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         ],
         vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()],
     );
@@ -1056,7 +1056,7 @@ fn nested_wildcard_at_multiple_levels() {
     let container_layout = RecordLayout::with_field_names(
         16,
         8,
-        vec![FieldLayout { offset: 0, size: 16, signed: false }],
+        vec![FieldLayout { offset: 0, size: 16, signed: false, is_float: false }],
         vec!["field".to_string()],
     );
 
@@ -1123,21 +1123,21 @@ fn nested_smoke_no_panic_on_deep_nesting() {
     let a_layout = RecordLayout::with_field_names(
         8,
         8,
-        vec![FieldLayout { offset: 0, size: 8, signed: false }],
+        vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
         vec!["f".to_string()],
     );
 
     let b_layout = RecordLayout::with_field_names(
         8,
         8,
-        vec![FieldLayout { offset: 0, size: 8, signed: false }],
+        vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
         vec!["field".to_string()],
     );
 
     let c_layout = RecordLayout::with_field_names(
         8,
         8,
-        vec![FieldLayout { offset: 0, size: 8, signed: false }],
+        vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
         vec!["field".to_string()],
     );
 

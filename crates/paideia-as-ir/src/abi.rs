@@ -35,12 +35,17 @@
 //! for SysV (independent int/float register counters, per §3.2.3). MS x64's
 //! *unified*-bank slot advancement (single register-index counter spanning
 //! both classes) remains a follow-up — see `map_args`'s MS x64 note.
-//! TODO(#1009): Aggregate type classification and layout-aware slot mapping.
-//! TODO(#1011): MS hidden-pointer aggregate return value handling.
-//! TODO(#1012): SysV RDX:RAX 128-bit return pair for large integers.
+//! DONE(PAS-DEBT-B3-007 Slice 1 / paideia-as#1520): SysV aggregate classifier
+//! (`AggregateClass` + `classify_sysv_aggregate`) per SysV AMD64 psABI §3.2.3.
+//! Foundation for the two return-value slices below.
+//! TODO(PAS-DEBT-B3-007b): MS hidden-pointer aggregate return value handling
+//! (aggregates > 8 bytes returned via caller-allocated buffer in RCX).
+//! TODO(PAS-DEBT-B3-007c): SysV RDX:RAX 128-bit return pair (aggregates
+//! ≤ 16 bytes classified as INTEGER,INTEGER split across RDX:RAX).
 
 use crate::instruction::RegId;
 use crate::let_meta::CallingConvention;
+use crate::record_layout::RecordLayout;
 
 /// SysV integer-return register. First return slot for values that fit.
 pub const RAX: RegId = RegId(0);
@@ -349,9 +354,147 @@ pub fn map_return(class: ArgClass, _cc: CallingConvention) -> ReturnSlot {
     }
 }
 
+/// SysV AMD64 psABI §3.2.3 aggregate-eightbyte class.
+///
+/// An aggregate value ≤ 16 bytes is split into up to two 8-byte "eightbytes",
+/// each independently classified into one of the classes below. The vector of
+/// per-eightbyte classes then drives register vs stack placement:
+///
+/// - `Integer`: eightbyte is passed/returned in a GPR (RDI-R9 for args; RAX,
+///   or RDX:RAX for a 2-eightbyte pair, for returns).
+/// - `SSE`: pure-float eightbyte, passed/returned in an XMM register.
+/// - `Memory`: whole aggregate is passed on the stack / returned via a
+///   caller-provided sret buffer.
+/// - `ComplexX87`: x87 long-double + imaginary long-double (2 × 80-bit).
+///   Emitted but never produced by the current classifier (paideia has no
+///   `long double`); reserved for the psABI vocabulary.
+/// - `Nothing`: no field lives in this eightbyte (padding / trailing tail).
+///   Only appears as an intermediate value during merge; a real classifier
+///   output always resolves to Integer/SSE/Memory (or is empty when the
+///   whole aggregate is zero-sized).
+///
+/// Reference: System V Application Binary Interface, AMD64 Architecture
+/// Processor Supplement, Draft Version 1.0 — §3.2.3 "Parameter Passing".
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum AggregateClass {
+    /// No field occupies this eightbyte (intermediate merge state).
+    Nothing,
+    /// Passed/returned in a GPR.
+    Integer,
+    /// Pure-float eightbyte, passed/returned in an XMM register.
+    SSE,
+    /// x87 80-bit long-double eightbyte pair (reserved; unused today).
+    ComplexX87,
+    /// Passed/returned via memory (aggregate > 16 bytes or contains
+    /// unaligned/misclassifiable fields).
+    Memory,
+}
+
+/// Classify a `RecordLayout` into its per-eightbyte SysV classes.
+///
+/// Implements the SysV AMD64 psABI §3.2.3 classification algorithm for
+/// aggregates and their per-eightbyte return-value placement. Consumers of
+/// this vector (planned in PAS-DEBT-B3-007b/c) select the return register
+/// bank per eightbyte: `Integer` → RAX/RDX, `SSE` → XMM0/XMM1, `Memory` →
+/// caller-allocated sret buffer.
+///
+/// Algorithm:
+///
+/// 1. If `layout.size > 16` → whole aggregate is `[Memory]`.
+/// 2. Otherwise split into `ceil(size/8)` eightbytes (max 2 today), each
+///    initialised to `Nothing`.
+/// 3. For each field, locate its eightbyte(s) by `offset / 8` and
+///    `(offset + size - 1) / 8`. If those two indices differ (a field
+///    straddles an eightbyte boundary), the whole aggregate degrades to
+///    `[Memory]` (psABI §3.2.3 clause 5.a — misaligned fields force
+///    memory).
+/// 4. Otherwise merge the field's class into that eightbyte using the
+///    psABI §3.2.3 merge rule:
+///    - `X + X = X`
+///    - `Nothing + X = X`
+///    - `Memory + anything = Memory`
+///    - `Integer + anything (non-Memory) = Integer` (INTEGER wins over SSE)
+///    - `SSE + SSE = SSE`
+/// 5. If any eightbyte ended up `Memory`, degrade the whole result to
+///    `[Memory]` (post-merge cleanup, psABI §3.2.3 clause 5.c).
+///
+/// Zero-sized aggregates return an empty vector.
+///
+/// Reference: System V Application Binary Interface, AMD64 Architecture
+/// Processor Supplement, §3.2.3 "Parameter Passing", classification
+/// algorithm and merge rule.
+#[must_use]
+pub fn classify_sysv_aggregate(layout: &RecordLayout) -> Vec<AggregateClass> {
+    // §3.2.3 clause 5.a first bullet: aggregates > 16 bytes → MEMORY.
+    if layout.size > 16 {
+        return vec![AggregateClass::Memory];
+    }
+    if layout.size == 0 {
+        return Vec::new();
+    }
+
+    let eightbyte_count = ((layout.size + 7) / 8) as usize;
+    let mut classes = vec![AggregateClass::Nothing; eightbyte_count];
+
+    for field in &layout.fields {
+        if field.size == 0 {
+            continue;
+        }
+        let lo = (field.offset / 8) as usize;
+        let hi = ((field.offset + field.size as u64 - 1) / 8) as usize;
+        if lo >= eightbyte_count || hi >= eightbyte_count {
+            // Field lies outside declared aggregate extent — treat as
+            // unaligned per §3.2.3 clause 5.a.
+            return vec![AggregateClass::Memory];
+        }
+        if lo != hi {
+            // §3.2.3 clause 5.a: field straddles an eightbyte boundary → MEMORY.
+            return vec![AggregateClass::Memory];
+        }
+        let field_class = if field.is_float {
+            AggregateClass::SSE
+        } else {
+            AggregateClass::Integer
+        };
+        classes[lo] = merge_classes(classes[lo], field_class);
+    }
+
+    // §3.2.3 clause 5.c: any MEMORY eightbyte demotes the whole aggregate.
+    if classes.iter().any(|c| matches!(c, AggregateClass::Memory)) {
+        return vec![AggregateClass::Memory];
+    }
+
+    // Eightbytes that stayed `Nothing` (trailing tail padding) collapse away.
+    // The psABI treats those as absent from the return placement schedule.
+    classes.retain(|c| !matches!(c, AggregateClass::Nothing));
+    classes
+}
+
+/// Merge two class assignments for the same eightbyte per SysV §3.2.3.
+///
+/// The rule is asymmetric only between `Memory` (absorbs everything) and
+/// `Integer` (absorbs everything non-Memory); other pairs are commutative.
+fn merge_classes(a: AggregateClass, b: AggregateClass) -> AggregateClass {
+    use AggregateClass::*;
+    match (a, b) {
+        (x, y) if x == y => x,
+        (Nothing, x) | (x, Nothing) => x,
+        (Memory, _) | (_, Memory) => Memory,
+        (Integer, _) | (_, Integer) => Integer,
+        // SSE + ComplexX87 is not producible from paideia types today
+        // (no x87 long-double); fall through to Memory as a conservative
+        // pin per psABI clause 5.d (X87UP without X87 → SSE, but any mix
+        // of SSE with ComplexX87 fields is degraded to Memory here since
+        // the encoder cannot emit an x87 return pair).
+        _ => Memory,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::record_layout::FieldLayout;
 
     #[test]
     fn abi_constants_have_expected_ids() {
@@ -685,5 +828,137 @@ mod tests {
         let classes = [ArgClass::Float];
         let slots = map_args(&classes, CallingConvention::Ms);
         assert_eq!(slots, [ArgSlot::Reg(XMM0)]);
+    }
+
+    // ============================================================================
+    // SysV aggregate classifier (PAS-DEBT-B3-007 Slice 1 / paideia-as#1520)
+    // ============================================================================
+
+    /// `{ x: u64 }` → single INTEGER eightbyte.
+    #[test]
+    fn classify_sysv_single_u64_is_integer() {
+        let layout = RecordLayout::new(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
+        );
+        assert_eq!(classify_sysv_aggregate(&layout), vec![AggregateClass::Integer]);
+    }
+
+    /// `{ x: u64, y: u64 }` → two INTEGER eightbytes (RDX:RAX return pair).
+    #[test]
+    fn classify_sysv_pair_u64_is_integer_integer() {
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(
+            classify_sysv_aggregate(&layout),
+            vec![AggregateClass::Integer, AggregateClass::Integer]
+        );
+    }
+
+    /// `{ x: f32, y: f32 }` → single SSE eightbyte (both floats fit in one).
+    #[test]
+    fn classify_sysv_two_f32_in_one_eightbyte_is_sse() {
+        let layout = RecordLayout::new(
+            8,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: true },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: true },
+            ],
+        );
+        assert_eq!(classify_sysv_aggregate(&layout), vec![AggregateClass::SSE]);
+    }
+
+    /// 24-byte aggregate → MEMORY (single-slot vec, whole aggregate on stack /
+    /// via sret buffer).
+    #[test]
+    fn classify_sysv_over_sixteen_bytes_is_memory() {
+        let layout = RecordLayout::new(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 16, size: 8, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(classify_sysv_aggregate(&layout), vec![AggregateClass::Memory]);
+    }
+
+    /// Mixed int + float in the same eightbyte → INTEGER (INTEGER wins per
+    /// psABI §3.2.3 merge rule).
+    #[test]
+    fn classify_sysv_int_float_in_same_eightbyte_integer_wins() {
+        let layout = RecordLayout::new(
+            8,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: true },
+            ],
+        );
+        assert_eq!(classify_sysv_aggregate(&layout), vec![AggregateClass::Integer]);
+    }
+
+    /// Field straddling an eightbyte boundary → MEMORY (§3.2.3 clause 5.a).
+    /// Regression: a u64 field at odd offset 4 crosses the 0..8 / 8..16 line.
+    #[test]
+    fn classify_sysv_straddling_field_is_memory() {
+        let layout = RecordLayout::new(
+            16,
+            1,
+            vec![FieldLayout { offset: 4, size: 8, signed: false, is_float: false }],
+        );
+        assert_eq!(classify_sysv_aggregate(&layout), vec![AggregateClass::Memory]);
+    }
+
+    /// Zero-size aggregate → empty class vec (no eightbyte to place).
+    #[test]
+    fn classify_sysv_zero_size_returns_empty() {
+        let layout = RecordLayout::new(0, 1, vec![]);
+        assert_eq!(classify_sysv_aggregate(&layout), Vec::<AggregateClass>::new());
+    }
+
+    /// Boundary at exactly 16 bytes → still classified (not MEMORY).
+    /// Two 8-byte integers give `[Integer, Integer]`.
+    #[test]
+    fn classify_sysv_exactly_sixteen_bytes_still_split() {
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+            ],
+        );
+        let classes = classify_sysv_aggregate(&layout);
+        assert_eq!(classes.len(), 2);
+        assert_eq!(classes[0], AggregateClass::Integer);
+        assert_eq!(classes[1], AggregateClass::Integer);
+    }
+
+    /// Int in first eightbyte, float in second → `[Integer, SSE]` mixed return.
+    /// This is the shape B3-007c will need for return-pair register selection.
+    #[test]
+    fn classify_sysv_int_then_float_yields_integer_sse() {
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: true },
+            ],
+        );
+        assert_eq!(
+            classify_sysv_aggregate(&layout),
+            vec![AggregateClass::Integer, AggregateClass::SSE]
+        );
     }
 }

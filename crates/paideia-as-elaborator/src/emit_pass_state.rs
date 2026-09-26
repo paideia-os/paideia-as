@@ -926,6 +926,7 @@ impl EmitPassState {
                     offset: current_offset,
                     size: field_size,
                     signed: is_signed,
+                    is_float: false,
                 });
 
                 field_names_vec.push(field_name.clone());

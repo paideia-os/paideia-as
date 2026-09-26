@@ -42,12 +42,14 @@ fn note_paideia_empty_layouts_omitted() {
 fn note_paideia_capability_struct_layout() {
     // Build a record layout for a Capability struct: 4 × u64 → 32 bytes, align 8.
     let capability_fields = vec![
-        FieldLayout { offset: 0, size: 8, signed: false },
-        FieldLayout { offset: 8, size: 8, signed: false },
+        FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+        FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
         FieldLayout { offset: 16,
-            size: 8, signed: false },
+            size: 8, signed: false ,            is_float: false,
+},
         FieldLayout { offset: 24,
-            size: 8, signed: false },
+            size: 8, signed: false ,            is_float: false,
+},
     ];
     let capability_layout = RecordLayout::new(32, 8, capability_fields);
 
@@ -109,7 +111,7 @@ fn note_paideia_capability_struct_layout() {
 fn note_paideia_header_format() {
     // Verify that the encoded note has the correct ELF note header.
     let mut table = FinalisedLayoutTable::new();
-    let layout = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
+    let layout = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]);
     table.insert(RecordTypeId(42), layout);
 
     let json = serde_json::to_vec(&table).expect("serialize table");
@@ -144,16 +146,18 @@ fn note_paideia_round_trip_deserialization() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
 
-    let layout2 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
+    let layout2 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]);
 
     original_table.insert(RecordTypeId(1), layout1);
     original_table.insert(RecordTypeId(2), layout2);
@@ -239,7 +243,7 @@ fn note_paideia_readelf_compatible() {
     // (This is a structural verification; actual readelf would need a binary.)
 
     let mut table = FinalisedLayoutTable::new();
-    let layout = RecordLayout::new(32, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
+    let layout = RecordLayout::new(32, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]);
     table.insert(RecordTypeId(1), layout);
 
     let json = serde_json::to_vec(&table).expect("serialize table");

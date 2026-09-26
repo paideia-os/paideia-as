@@ -97,6 +97,7 @@ fn emit_indirect_call_via_mem_rip_sym_no_intermediate_mov() {
             offset: 0,
             size: 8,
             signed: false,
+            is_float: false,
         }],
     );
 
@@ -230,16 +231,19 @@ fn emit_indirect_call_via_mem_rip_sym_with_field_offset() {
                 offset: 0,
                 size: 8,
                 signed: false,
+                is_float: false,
             },
             FieldLayout {
                 offset: 8,
                 size: 4,
                 signed: false,
+                is_float: false,
             },
             FieldLayout {
                 offset: 16,
                 size: 8,
                 signed: false,
+                is_float: false,
             },
         ],
     );

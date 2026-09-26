@@ -171,7 +171,7 @@ fn field_access_u64_emits_mov_rax_rdi_offset() {
         .insert(field_access_id, field_info);
 
     // Register record layout: u64 field at offset 0, size 8.
-    let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
+    let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]);
     walker
         .state_mut()
         .record_layouts
@@ -232,8 +232,8 @@ fn field_access_u32_emits_mov_eax_rdi_offset() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 4, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 4, signed: false, is_float: false },
         ],
     );
     walker
@@ -291,10 +291,11 @@ fn field_access_u8_emits_movzx_rax_rdi_offset() {
         16,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 4, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 4, signed: false, is_float: false },
             FieldLayout { offset: 12,
-                size: 1, signed: false },
+                size: 1, signed: false ,                is_float: false,
+},
         ],
     );
     walker
@@ -354,12 +355,14 @@ fn field_access_pointer_field_emits_mov_rax_rdi_offset() {
         24,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 4, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 4, signed: false, is_float: false },
             FieldLayout { offset: 12,
-                size: 1, signed: false },
+                size: 1, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker
@@ -437,9 +440,10 @@ fn emit_walker_m3_003_2_stmt_body_assigns_rax_rcx() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker
@@ -519,12 +523,14 @@ fn emit_walker_m3_003_4_stmt_body_assigns_rax_rcx_rdx_r8() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker
@@ -595,14 +601,17 @@ fn emit_walker_m3_003_5_stmt_body_fires_t0517() {
         40,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 32,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker
@@ -666,7 +675,7 @@ fn emit_walker_t0529_unsupported_field_width_u16() {
         2,
         2,
         vec![
-            FieldLayout { offset: 0, size: 2, signed: false },
+            FieldLayout { offset: 0, size: 2, signed: false, is_float: false },
         ],
     );
     walker
@@ -728,12 +737,14 @@ fn emit_walker_m3_004_cap_mint_4_stores_from_arg_regs() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker.state_mut().insert_record_layout(type_id, layout);
@@ -814,12 +825,14 @@ fn emit_walker_m3_004_cap_mint_with_arg_registers() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker.state_mut().insert_record_layout(type_id, layout);
@@ -887,10 +900,11 @@ fn emit_walker_m3_004_cap_mint_wrong_field_count_fires_t0518() {
         24,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker.state_mut().insert_record_layout(type_id, layout);
@@ -939,12 +953,14 @@ fn emit_walker_m3_004_cap_mint_wrong_field_size_fires_t0518() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 4, signed: false }, // u32, wrong!
-            FieldLayout { offset: 4, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 4, signed: false, is_float: false }, // u32, wrong!
+            FieldLayout { offset: 4, size: 8, signed: false, is_float: false },
             FieldLayout { offset: 12,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 20,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker.state_mut().insert_record_layout(type_id, layout);
@@ -993,12 +1009,14 @@ fn emit_walker_m3_004_cap_mint_wrong_field_offset_fires_t0518() {
         32,
         8,
         vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 9, size: 8, signed: false }, // Wrong offset!
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 9, size: 8, signed: false, is_float: false }, // Wrong offset!
             FieldLayout { offset: 16,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
             FieldLayout { offset: 24,
-                size: 8, signed: false },
+                size: 8, signed: false ,                is_float: false,
+},
         ],
     );
     walker.state_mut().insert_record_layout(type_id, layout);

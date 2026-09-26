@@ -530,6 +530,7 @@ fn build_field_access(
         offset: offset as u64,
         size,
         signed,
+        is_float: false,
     };
     let layout = RecordLayout::new(
         (offset as u64) + (size as u64),
@@ -764,6 +765,7 @@ fn field_access_var_receiver_base_rcx_offset_8() {
         offset: 8,
         size: 8,
         signed: false,
+        is_float: false,
     };
     let layout = RecordLayout::new(16, 8, vec![field_layout]);
 
@@ -845,6 +847,7 @@ fn build_field_assign(size: u8, offset: i64, signed: bool) -> Instruction {
         offset: offset as u64,
         size,
         signed,
+        is_float: false,
     };
     let layout = RecordLayout::new(
         (offset as u64) + (size as u64),
@@ -1079,6 +1082,7 @@ fn visit_field_assign_no_redundant_load() {
         offset: 0,
         size: 4,
         signed: false,
+        is_float: false,
     };
     let layout = RecordLayout::new(4, 4, vec![field_layout]);
 
@@ -1576,7 +1580,7 @@ fn emit_block_body_arm_dispatches_field_assign_store() {
             field_index: 0,
         },
     );
-    let field_layout = FieldLayout { offset: 0, size: 4, signed: false };
+    let field_layout = FieldLayout { offset: 0, size: 4, signed: false, is_float: false };
     let layout = RecordLayout::new(4, 4, vec![field_layout]);
 
     let mut walker = EmitWalker::new();

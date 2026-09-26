@@ -673,7 +673,7 @@ fn parse_deref_field_access_with_offset_zero() {
     use paideia_as_ir::record_layout::FieldLayout;
 
     let mut layouts = HashMap::new();
-    let field_layout = FieldLayout { offset: 0, size: 8, signed: false };
+    let field_layout = FieldLayout { offset: 0, size: 8, signed: false, is_float: false };
     layouts.insert(RecordTypeId(1), RecordLayout::new(8, 8, vec![field_layout]));
 
     // We can't easily test parse_deref_operand directly without full AST setup,
@@ -703,9 +703,10 @@ fn parse_deref_field_access_with_offset_16() {
 
     let mut layouts = HashMap::new();
     let fields = vec![
-        FieldLayout { offset: 0, size: 8, signed: false }, // kind
+        FieldLayout { offset: 0, size: 8, signed: false, is_float: false }, // kind
         FieldLayout { offset: 16,
-            size: 8, signed: false }, // rights
+            size: 8, signed: false ,            is_float: false,
+}, // rights
     ];
     layouts.insert(RecordTypeId(1), RecordLayout::new(24, 8, fields));
 

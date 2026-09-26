@@ -556,8 +556,8 @@ mod tests {
                 8, // size
                 4, // align
                 vec![
-                    FieldLayout { offset: 0, size: 4, signed: false },
-                    FieldLayout { offset: 4, size: 4, signed: false },
+                    FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                    FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
                 ],
             ),
         );
@@ -640,7 +640,7 @@ mod tests {
             RecordLayout::new(
                 8,
                 8,
-                vec![FieldLayout { offset: 0, size: 8, signed: false }],
+                vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
             ),
         );
 
@@ -683,8 +683,8 @@ mod tests {
                 16,
                 8,
                 vec![
-                    FieldLayout { offset: 0, size: 8, signed: false },
-                    FieldLayout { offset: 8, size: 8, signed: false },
+                    FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                    FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
                 ],
             ),
         );
@@ -724,7 +724,7 @@ mod tests {
             RecordLayout::new(
                 8,
                 8,
-                vec![FieldLayout { offset: 0, size: 8, signed: false }],
+                vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
             ),
         );
 
@@ -793,7 +793,7 @@ mod tests {
                 arena.record_layout_table_mut().insert(record_id, record_type_id);
                 arena.finalised_record_layouts_mut().insert(
                     record_type_id,
-                    RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]),
+                    RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]),
                 );
                 record_id
             })),
@@ -806,7 +806,7 @@ mod tests {
                 arena.record_layout_table_mut().insert(record_id, record_type_id);
                 arena.finalised_record_layouts_mut().insert(
                     record_type_id,
-                    RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]),
+                    RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]),
                 );
                 record_id
             })),

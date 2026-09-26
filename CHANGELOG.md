@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.36.53 — 2026-09-26 — Wave 13 debt-catalog: B3-007 Slice 1 (SysV aggregate classifier)
+
+Wave 13 is a dedicated L-sized wave — one primitive on the ABI classifier.
+Sub-items 2 (MS x64 hidden-ptr sret) and 3 (SysV RDX:RAX 128-bit return)
+are deferred to explicit follow-ups; both are prerequisites for the P1
+downstream B4-002/B4-003.
+
+**PAS-DEBT-B3-007 Slice 1** (closes #1520) — SysV aggregate classifier:
+
+- `crates/paideia-as-ir/src/abi.rs`: new `AggregateClass` enum
+  (`Nothing | Integer | SSE | ComplexX87 | Memory`) with
+  `#[non_exhaustive]`. New `classify_sysv_aggregate(layout:
+  &RecordLayout) -> Vec<AggregateClass>` implementing the SysV AMD64
+  psABI §3.2.3 classification: > 16-byte → `[Memory]`; per-eightbyte
+  class merge (`Memory > Integer > SSE`); straddling fields →
+  `[Memory]`; post-merge Memory promotion; zero-size → empty vec.
+- `crates/paideia-as-ir/src/record_layout.rs`: `FieldLayout` gains
+  `is_float: bool` for the classifier's Integer-vs-SSE decision. Field
+  is `#[serde(default, skip_serializing_if = "std::ops::Not::not")]` so
+  integer-only layouts (historical common case) keep byte-identical
+  `.paideia` note-section payloads (backwards-compat with pre-0.36.53
+  fixtures).
+- 107 pre-existing `FieldLayout { ... }` struct-literal sites across 9
+  files mechanically extended with `is_float: false` (all are
+  integer/pointer only per pre-fix schema).
+- 9 tests covering the required scenarios + straddling + zero-size +
+  exactly-16-byte + mixed `[Integer, SSE]`.
+- **Deferred as B3-007b (#1543)**: MS x64 hidden-pointer aggregate
+  sret (RCX).
+- **Deferred as B3-007c (#1544)**: SysV RDX:RAX 128-bit aggregate
+  return pair.
+- Both follow-ups gate the same P1 downstream (B4-002 cpuid_leaf,
+  B4-003 mldsa65_sign sret return).
+
+**Pre-existing test failure noted** (not from Wave 13):
+`boot::paideia_os_m3_829_byte_snapshot::paideia_os_m3_four_file_
+text_byte_snapshot` fails with `.text` byte-diff on `kernel_main`
+(+834 bytes) and `exceptions` (+46 bytes). Verified pre-existing via
+`git stash` — identical failure on the pre-Wave-13 tree. Likely
+regressed at one of the encoder-touching landings (Waves 2, 7, or 8).
+Filed as follow-up debt tracking; not fixed in this wave.
+
+Workspace + SYSTEM_VERSION 0.36.52 → 0.36.53.
+
 ## 0.36.52 — 2026-09-26 — Wave 12 debt-catalog: B2-010 Slice A (macro fragment-kind grammar)
 
 Wave 12 is a dedicated L-sized wave — one primitive, scoped down to

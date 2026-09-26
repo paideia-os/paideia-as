@@ -26,6 +26,12 @@ pub struct RecordTypeId(pub u32);
 /// `offset` is the byte offset from the start of the record (aligned per field type).
 /// `size` is the field size in bytes: 1 (u8), 2 (u16/i16), 4 (u32/i32), 8 (u64/i64/*T).
 /// `signed` indicates whether the field is signed (for sign-extend loads).
+/// `is_float` marks IEEE-754 float/double fields (`f32`/`f64`); consumed by
+/// the SysV aggregate classifier in `abi::classify_sysv_aggregate` per SysV
+/// AMD64 psABI §3.2.3 (INTEGER vs SSE eightbyte class). Defaults to false
+/// for backward compatibility with pre-0.36.53 `.paideia` note-section
+/// payloads (`#[serde(default)]`); pre-existing integer/pointer-only
+/// layouts round-trip unchanged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FieldLayout {
     /// Byte offset within the record (aligned per field's natural alignment).
@@ -35,6 +41,20 @@ pub struct FieldLayout {
     /// Whether the field is signed (affects load operation: zero-extend vs sign-extend).
     #[serde(default)]
     pub signed: bool,
+    /// Whether the field is an IEEE-754 float/double (`f32`/`f64`).
+    /// SysV AMD64 psABI §3.2.3: pure-float eightbytes classify as SSE
+    /// (returned in XMM0), otherwise INTEGER (returned in RAX/RDX:RAX).
+    /// Introduced with PAS-DEBT-B3-007 Slice 1 (0.36.53).
+    ///
+    /// `#[serde(default, skip_serializing_if = "std::ops::Not::not")]`:
+    /// on-disk `.paideia` note-section byte-identity for integer-only
+    /// layouts (the historical common case) is preserved — the field
+    /// is omitted from the serialized payload when false, so pre-
+    /// 0.36.53 byte-snapshot fixtures (e.g. `paideia_os_m3_four_
+    /// file_text_byte_snapshot`) keep passing unchanged. Read side
+    /// still defaults to false for pre-0.36.53 payloads.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_float: bool,
 }
 
 /// Complete layout for a record type.
@@ -330,8 +350,8 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8, signed: false },
-                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             ],
         );
 
@@ -353,13 +373,13 @@ mod tests {
         let mut table = FinalisedLayoutTable::new();
         let type_id = RecordTypeId(1);
 
-        let layout1 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
+        let layout1 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]);
         let layout2 = RecordLayout::new(
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8, signed: false },
-                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             ],
         );
 
@@ -378,7 +398,7 @@ mod tests {
 
         for i in 0u32..5 {
             let type_id = RecordTypeId(i);
-            let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
+            let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }]);
             table.insert(type_id, layout);
             assert_eq!(table.len(), (i + 1) as usize);
         }
@@ -390,17 +410,19 @@ mod tests {
     fn field_layout_capability_struct() {
         // Capability: 4 × u64 → offsets [0, 8, 16, 24], size 32, align 8.
         let fields = vec![
-            FieldLayout { offset: 0, size: 8, signed: false },
-            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
             FieldLayout {
                 offset: 16,
                 size: 8,
                 signed: false,
+                is_float: false,
             },
             FieldLayout {
                 offset: 24,
                 size: 8,
                 signed: false,
+                is_float: false,
             },
         ];
 
