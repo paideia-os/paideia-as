@@ -23,8 +23,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a type according to §8 Type grammar.
     ///
     /// Dispatch:
-    /// 1. **forall quantifier**: if `forall` keyword, consume and parse
-    ///    bound variable (discarded in phase-1), then recursively parse inner type.
+    /// 1. **forall quantifier**: if `forall`, consume one or more bound
+    ///    variable names and `.`, then recurse on the body, and wrap the
+    ///    result in a `TypeForall { bound, body }` node. PAS-DEBT-B2-008
+    ///    (#1501) — pre-fix, the bound var was consumed and dropped, so
+    ///    `forall a. T` was indistinguishable from `T` at the AST level.
     /// 2. **Linearity class prefix**: if keyword or glyph marker (`linear`, `~`, etc.),
     ///    consume, recurse, and wrap in `TypeLinearClass`.
     /// 3. **LParen**: disambiguate paren, tuple, or function arrow.
@@ -36,16 +39,44 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     pub fn parse_type(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         // Step 1: Handle `forall` quantifier
         if self.at(TokenKind::KwForall) {
-            self.bump(); // consume `forall`
+            let forall_tok = self.bump().unwrap(); // consume `forall`
+            let span_start = forall_tok.span;
 
-            // Expect the quantified variable name
-            self.expect(TokenKind::Ident)?; // discarded in phase-1; document
-
-            // Expect `.` separator
+            // Collect one or more bound variable Ident nodes until we
+            // reach the `.` separator. `forall .` (zero binders) is
+            // rejected via the first expect(Ident).
+            let mut bound: Vec<paideia_as_ast::NodeId> = Vec::new();
+            loop {
+                let ident_tok = self.expect(TokenKind::Ident)?;
+                let ident_id = self.arena_mut().alloc(NodeKind::Ident, ident_tok.span);
+                bound.push(ident_id);
+                if self.at(TokenKind::Dot) {
+                    break;
+                }
+                // Any non-Ident, non-Dot token here surfaces as P0100 on
+                // the next expect(Ident) call — matches the recovery
+                // shape used elsewhere in parse_type.
+            }
             self.expect(TokenKind::Dot)?;
 
-            // Recursively parse the inner type (the quantified var is not attached)
-            return self.parse_type_unquantified();
+            // Parse the body; nested `forall b. ...` is permitted and
+            // recurses through parse_type (not parse_type_unquantified).
+            let body = self.parse_type()?;
+            let body_span = self
+                .arena()
+                .get(body)
+                .map(|nd| nd.span)
+                .unwrap_or(span_start);
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                body_span.byte_start() + body_span.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_type(
+                NodeKind::TypeForall,
+                span,
+                TypeData::Forall { bound, body },
+            ));
         }
 
         // Step 2-6: Parse non-quantified type

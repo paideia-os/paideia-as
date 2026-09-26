@@ -245,6 +245,7 @@ fn describe_type_kind(ty: &TypeData) -> &'static str {
         TypeData::Enum { .. } => "an enum type",
         TypeData::SelfQualifiedPath { .. } => "a Self-qualified path",
         TypeData::Array { .. } => "an array type",
+        TypeData::Forall { .. } => "a universally quantified type",
     }
 }
 

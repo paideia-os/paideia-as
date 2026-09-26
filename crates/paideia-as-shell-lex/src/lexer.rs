@@ -49,8 +49,9 @@ pub enum LexErrorKind {
     UnmatchedRBrace,
     /// A string literal whose closing quote never arrived before EOF.
     UnterminatedString,
-    /// A character that no token rule accepted (a stray `#` or `@`,
-    /// say — R221.M4 does not yet handle attribute macros).
+    /// A character that no token rule accepted. `#` is a line comment
+    /// (trivia, no token) and `@` is a `TokenKind::At` since
+    /// PAS-DEBT-B2-019; other stray punctuation still lands here.
     UnexpectedChar,
     /// A `$` or `?` sigil not immediately followed by a well-formed
     /// identifier.
@@ -552,6 +553,18 @@ impl<'a> Iterator for Lexer<'a> {
                     self.pending_datalog = false;
                     return Some(Ok(Token::new(
                         TokenKind::Backslash,
+                        Span::new(start, self.pos),
+                        self.stack.current(),
+                    )));
+                }
+                '@' => {
+                    // Attribute-macro prefix. `@` is its own token; the
+                    // following identifier (if any) lexes separately as
+                    // `Ident`. Parser recognises `At Ident (LParen …)?`.
+                    self.bump();
+                    self.pending_datalog = false;
+                    return Some(Ok(Token::new(
+                        TokenKind::At,
                         Span::new(start, self.pos),
                         self.stack.current(),
                     )));

@@ -905,6 +905,14 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         TypeData::Array { element, length } => {
             format!("Array {{ element: {}, length: {} }}", element, length)
         }
+        TypeData::Forall { bound, body } => {
+            let bound_str = bound
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Forall {{ bound: [{}], body: {} }}", bound_str, body)
+        }
     };
 
     use std::fmt::Write;

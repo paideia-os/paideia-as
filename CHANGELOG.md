@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.36.45 — 2026-09-25 — Wave 5 debt-catalog: B2-008 + B2-012 + B2-019
+
+Wave 5 of the paideia-as debt catalog. Three parallel primitives; three
+issues closed.
+
+**PAS-DEBT-B2-008** (closes #1501) — Parser `forall v. T` bound-var preservation:
+
+- `paideia-as-ast`: new `TypeData::Forall { bound: Vec<NodeId>, body:
+  NodeId }` variant + `NodeKind::TypeForall` + `TermHead::TypeForall`.
+  Multi-bound supported (`forall a b. T`); invariant `bound.len() >= 1`
+  (parser rejects `forall .` with P0100). Each bound entry is an Ident
+  node with its own span for per-var diagnostics.
+  `pretty::print_type_internal`, `reflect::Term::head/children`,
+  `visit::walk_type` + `TypeVisitor::visit_type_forall` all get the arm
+  (defensive coverage against the Wave-3 wildcard hazards).
+- `parse_type::parse_type`: previously stubbed forall arm no longer
+  consumes and drops the Ident. Now loops on `expect(Ident)` until
+  `Dot`, then recurses via `parse_type` (not `..._unquantified`) so
+  `forall a. forall b. T` composes right-associatively as
+  `Forall{a, Forall{b, T}}`.
+- **Compile-fix (added on main verification)**: `endian_attr.rs`'s
+  `describe_type_kind` exhaustive `match` grew a `TypeData::Forall`
+  arm ("a universally quantified type") — the softarch missed this
+  match site.
+- 6-fixture test corpus at `tests/type_forall.rs`, registered as
+  `mod type_forall;` in `tests/integration.rs`. Fixtures: single-bound
+  TypeName body; single-bound TypeFnPtr body; two-bound; nested
+  foralls; zero-binder P0100 rejection; pretty-print round-trip.
+- Elaborator: `lower_type_ast` still returns T0570 via wildcard for
+  `TypeForall` — a dedicated forall lowering rule belongs with
+  rank-restricted HM (`design/toolchain/rank-restricted-hm.md` §5),
+  out of scope for this parser-only close.
+
+**PAS-DEBT-B2-012** (closes #1505) — Handler-body unit-synth carve-out:
+
+- `parse_handler.rs`: handler bodies now match if/loop-body semantics
+  — a trailing `;` synthesises a unit literal `()` as the block tail
+  instead of emitting P0158. So `with h handle e { i; }` parses
+  cleanly with a `()`-typed tail. Pattern is `recovery-rule` (a
+  diagnostic path turned into successful synthesis); the block
+  grammar itself is unchanged.
+- Removed the `m3-003` handler-body carve-out note; deferral closed.
+- In-file unit test
+  `handler_body_trailing_semicolon_synthesises_unit_tail`.
+
+**PAS-DEBT-B2-019** (closes #1512) — Shell lexer `@` sigil:
+
+- `paideia-as-shell-lex/src/token.rs`: new `TokenKind::At` variant
+  (mirrors `paideia_as_lexer::TokenKind::At` on the assembly surface,
+  so `@fingerprint("...")` reads the same shape on both front-ends).
+- `paideia-as-shell-lex/src/lexer.rs`: single-char punctuation dispatch
+  now emits `TokenKind::At` for `@` (was `LexErrorKind::UnexpectedChar`).
+  `@` is standalone; `@fingerprint("x")` → `At Ident LParen Str RParen`.
+- **Reframe**: `#` was NOT actually broken (already handled as
+  line-comment trivia at `lexer.rs:314-323`); the catalog note was
+  stale for the `#` half. Only `@` was mishandled. No `Hash` variant
+  added — shell convention (`# comment`) wins over `.pdx`-style
+  `#[attribute]`, which the shell surface does not use.
+- 7-fixture corpus at `tests/attr_macro_fixtures.rs`
+  (`pas-debt-b2-019-01..07`) including bare `@foo`, `@fingerprint(...)`,
+  `@include_str(...)`, `@tag` inside a lambda body (context-stack
+  regression), trailing bare `@`, `# comment` regression, and a
+  whole-iterator all-`Ok` assertion.
+
+Workspace + SYSTEM_VERSION 0.36.44 → 0.36.45.
+
 ## 0.36.44 — 2026-09-25 — Wave 4 debt-catalog: B1-001 + B2-007 + B2-020
 
 Wave 4 of the paideia-as debt catalog. Three parallel primitives; three

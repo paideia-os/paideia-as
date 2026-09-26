@@ -192,6 +192,8 @@ pub enum NodeKind {
     TypeSelfQualifiedPath,
     /// `[T; N]` (fixed-size array type).
     TypeArray,
+    /// `forall a. T` (universally-quantified type). PAS-DEBT-B2-008.
+    TypeForall,
 
     // Patterns (§8 Pattern)
     /// `_` (wildcard).

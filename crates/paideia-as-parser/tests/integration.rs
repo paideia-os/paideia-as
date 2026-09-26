@@ -24,3 +24,4 @@ mod snapshots_gpu_context;
 mod snapshots_modules;
 mod struct_type_def;
 mod tuple_expr;
+mod type_forall;

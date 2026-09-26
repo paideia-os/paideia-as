@@ -128,6 +128,14 @@ pub enum TokenKind {
     ThinArrow,
     /// `\` — lambda introducer in the `\args -> body` form.
     Backslash,
+    /// `@` — attribute-macro prefix (`@fingerprint("...")`,
+    /// `@include_str("path")`). Emitted as a standalone token; the
+    /// following identifier (if any) is a separate `Ident`. The R221.M5
+    /// parser recognises the `At Ident (LParen … RParen)?` sequence as
+    /// an attribute-macro call. Mirrors `paideia_as_lexer::TokenKind::At`
+    /// for the assembly surface so the shape reads the same across both
+    /// front-ends.
+    At,
     /// Operator / punctuation glyph the lexer glued but did not further
     /// classify: `+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `==`, `!=`.
     /// The keyword operators `and`, `or`, `not` also arrive here (the

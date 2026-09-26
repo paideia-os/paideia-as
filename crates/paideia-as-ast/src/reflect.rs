@@ -97,6 +97,8 @@ pub enum TermHead {
     Range,
     /// `(a, b, ...)` (tuple expression). PAS-DEBT-B2-007.
     Tuple,
+    /// `forall a. T` (universally-quantified type). PAS-DEBT-B2-008.
+    TypeForall,
 }
 
 /// A typed handle to an AST expression node.
@@ -195,6 +197,7 @@ impl<'a> Term<'a> {
                 NodeKind::TypeClosure => TermHead::TypeClosure,
                 NodeKind::ExprRange => TermHead::Range,
                 NodeKind::ExprTuple => TermHead::Tuple,
+                NodeKind::TypeForall => TermHead::TypeForall,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -558,6 +561,15 @@ impl<'a> Term<'a> {
             if let Some(cap) = capabilities {
                 result.push(Term::new(self.arena, *cap));
             }
+            return result;
+        }
+
+        // Handle TypeForall (PAS-DEBT-B2-008)
+        if let Some(TypeData::Forall { bound, body }) = self.arena.type_data(self.id) {
+            for &b in bound {
+                result.push(Term::new(self.arena, b));
+            }
+            result.push(Term::new(self.arena, *body));
             return result;
         }
 

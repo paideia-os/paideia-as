@@ -136,6 +136,21 @@ pub enum TypeData {
         /// Length expression (e.g., `16` in `[u8; 16]`).
         length: NodeId,
     },
+
+    /// `forall a. T` or `forall a b. T` — universally-quantified type.
+    ///
+    /// Preserves the bound variable(s) so downstream elaboration can
+    /// reference and freshen them. Landed with paideia-as#1501
+    /// (PAS-DEBT-B2-008); pre-fix the parser consumed and dropped the
+    /// bound var, making rank-1 forall types indistinguishable at the AST
+    /// level from their instantiated bodies.
+    Forall {
+        /// Bound variable name(s): each is an Ident node.
+        /// Invariant: `bound.len() >= 1` (parser rejects `forall .`).
+        bound: Vec<NodeId>,
+        /// Quantified body type.
+        body: NodeId,
+    },
 }
 
 /// One variant of an enum type.
@@ -296,6 +311,27 @@ mod tests {
         let _ = LinClass::Unrestricted;
         let _ = LinClass::LinearMark;
         let _ = LinClass::AffineMark;
+    }
+
+    #[test]
+    fn type_forall_constructs() {
+        // PAS-DEBT-B2-008: bound-var preservation.
+        let a = make_nodeid(1);
+        let b = make_nodeid(2);
+        let body = make_nodeid(3);
+        let ty = TypeData::Forall {
+            bound: vec![a, b],
+            body,
+        };
+        match ty {
+            TypeData::Forall { bound: bs, body: bd } => {
+                assert_eq!(bs.len(), 2);
+                assert_eq!(bs[0], a);
+                assert_eq!(bs[1], b);
+                assert_eq!(bd, body);
+            }
+            _ => panic!("expected Forall variant"),
+        }
     }
 
     #[test]

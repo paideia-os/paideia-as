@@ -464,7 +464,8 @@ fn in_type_position_is_affine_marker() {
 
 #[test]
 fn parse_forall_quantified() {
-    // `forall e. (T) -> T !{Io | e}` (bound var discarded in phase-1)
+    // `forall e. (T) -> T !{Io | e}` — after PAS-DEBT-B2-008 (#1501) the
+    // bound var is preserved: outer node is TypeForall wrapping TypeFnPtr.
     // KwForall Ident Dot LParen Ident RParen Arrow Ident EffectOpen Ident Pipe Ident RBrace Eof
     let tokens = vec![
         tok(TokenKind::KwForall, 0),
@@ -488,8 +489,19 @@ fn parse_forall_quantified() {
     assert!(result.is_ok());
     let ty_id = result.unwrap();
     let ty_node = arena.get(ty_id).unwrap();
-    // The outer node should be an arrow (forall wrapper is discarded in phase-1)
-    assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+    assert_eq!(ty_node.kind, NodeKind::TypeForall);
+    if let Some(TypeData::Forall { bound, body }) = arena.type_data(ty_id) {
+        assert_eq!(bound.len(), 1, "single bound var `e`");
+        assert_eq!(
+            arena.get(bound[0]).unwrap().kind,
+            NodeKind::Ident,
+            "bound var must be an Ident node"
+        );
+        // Body is the arrow.
+        assert_eq!(arena.get(*body).unwrap().kind, NodeKind::TypeFnPtr);
+    } else {
+        panic!("expected TypeData::Forall");
+    }
 }
 
 #[test]

@@ -240,6 +240,8 @@ pub trait TypeVisitor {
     fn visit_type_record(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit an Enum type.
     fn visit_type_enum(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Forall type. PAS-DEBT-B2-008.
+    fn visit_type_forall(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for types.
@@ -260,6 +262,7 @@ pub fn walk_type<V: TypeVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::TypeRef => visitor.visit_type_ref(arena, id),
         NodeKind::TypeRecord => visitor.visit_type_record(arena, id),
         NodeKind::TypeEnum => visitor.visit_type_enum(arena, id),
+        NodeKind::TypeForall => visitor.visit_type_forall(arena, id),
         _ => {}
     }
 }

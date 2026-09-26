@@ -1,0 +1,7 @@
+---
+source: crates/paideia-as-parser/tests/endian_attr_snapshots.rs
+assertion_line: 136
+expression: snapshot
+---
+field0.attrs = [Endian(Be)]
+field1.attrs = None

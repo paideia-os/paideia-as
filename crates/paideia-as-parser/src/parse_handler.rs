@@ -199,24 +199,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             return Err(ParseError);
         }
 
-        // NOTE (m3-003 carve-out): Handler body validation (P0158 on trailing `;`)
-        // is OUT OF SCOPE for m3-003. Handler blocks remain value-position only.
-        // If/loop bodies in statement position (parse_control.rs) will synthesize
-        // unit literals on trailing `;`, but handler bodies do not yet benefit from
-        // this relaxation. See design/toolchain/reserved-word-policy.md for context.
+        // PAS-DEBT-B2-012 (#1505): handler bodies now match if/loop-body
+        // semantics — a trailing `;` synthesises a unit literal `()` as the
+        // block tail so the handler value type is `()` rather than a P0158
+        // error. Mirrors parse_control.rs BlockKind::Statement synth path.
         if !stmts.is_empty() && tail.is_none() && finally_expr.is_none() {
-            use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
-            let code =
-                DiagnosticCode::new(Category::P, Severity::Error, 158).expect("valid P0158 code");
-            self.emit_diagnostic(
-                Diagnostic::error(code)
-                    .message(
-                        "block expression must have a final expression or finally clause; trailing `;` is not allowed"
-                    )
-                    .with_span(block_span)
-                    .finish(),
-            );
-            return Err(ParseError);
+            let unit_lit_id = self.arena_mut().alloc(NodeKind::Placeholder, rbrace_span);
+            tail = Some(self.arena_mut().alloc_expr(
+                NodeKind::ExprLiteral,
+                rbrace_span,
+                ExprData::Literal { lit: unit_lit_id },
+            ));
         }
 
         let block = self.arena_mut().alloc_expr(
@@ -537,6 +530,64 @@ mod tests {
         let expr_id = result.unwrap();
         let node = arena.get(expr_id).unwrap();
         assert_eq!(node.kind, NodeKind::ExprWithHandler);
+    }
+
+    // PAS-DEBT-B2-012 (#1505): handler body ending with `;` synthesises unit tail.
+    #[test]
+    fn handler_body_trailing_semicolon_synthesises_unit_tail() {
+        // with h handle e { i; }
+        const SRC: &str = "with h handle e { i; }";
+        let tokens = vec![
+            tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
+            tok(paideia_as_lexer::TokenKind::Ident, 5, 1), // h
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6), // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 14, 1), // e
+            tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
+            tok(paideia_as_lexer::TokenKind::Ident, 17, 1), // i
+            tok(paideia_as_lexer::TokenKind::Semicolon, 18, 1),
+            tok(paideia_as_lexer::TokenKind::RBrace, 20, 1),
+            tok(paideia_as_lexer::TokenKind::Eof, 21, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_with_handler();
+        assert!(result.is_ok(), "handler body ending in `;` should parse");
+        assert!(
+            sink.diagnostics().iter().all(|d| d.code().number() != 158),
+            "no P0158 diagnostic expected for handler body with trailing `;`"
+        );
+
+        let expr_id = result.unwrap();
+        let block_id = match arena.expr_data(expr_id) {
+            Some(paideia_as_ast::ExprData::WithHandler { block, .. }) => *block,
+            other => panic!("expected WithHandler, got {:?}", other),
+        };
+        let tail_id = match arena.expr_data(block_id) {
+            Some(paideia_as_ast::ExprData::Block { stmts, tail }) => {
+                assert_eq!(stmts.len(), 1, "expected one statement before synth tail");
+                (*tail).expect("expected synthesised unit-literal tail")
+            }
+            other => panic!("expected Block, got {:?}", other),
+        };
+        let tail_node = arena.get(tail_id).expect("tail node present");
+        assert_eq!(
+            tail_node.kind,
+            NodeKind::ExprLiteral,
+            "synthesised tail must be an ExprLiteral"
+        );
+        match arena.expr_data(tail_id) {
+            Some(paideia_as_ast::ExprData::Literal { lit }) => {
+                let lit_node = arena.get(*lit).expect("literal payload present");
+                assert_eq!(
+                    lit_node.kind,
+                    NodeKind::Placeholder,
+                    "unit literal payload must be Placeholder"
+                );
+            }
+            other => panic!("expected ExprData::Literal, got {:?}", other),
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
