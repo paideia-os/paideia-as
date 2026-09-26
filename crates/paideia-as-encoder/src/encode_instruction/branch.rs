@@ -148,6 +148,13 @@ pub(super) fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Enc
             let _ = jmp_mem_sib_no_base_indexed(buf, index_reg, scale_bits, *disp)?;
             Ok(EncodeOutput::new())
         }
+        // paideia-as#1546: jmp r64 — near indirect jump via register.
+        // Mirrors encode_call's Reg arm (opcode FF /2); jmp is FF /4.
+        // Intel SDM Vol 2A, `JMP r/m64`.
+        [Operand::Reg(r)] => {
+            jmp_reg64(buf, reg64_from(*r)?);
+            Ok(EncodeOutput::new())
+        }
         _ => Err(EncodeError::Unsupported(
             "jmp operand shape not supported by this encoder",
         )),

@@ -233,6 +233,15 @@ pub fn lower_stdlib_method(
         // names the FFI symbol.
         "Hkdf" => cryptoops::try_lower_hkdf(method_name, mode, arg_ids, arena),
         "Ed25519" => cryptoops::try_lower_ed25519(method_name, mode, arg_ids, arena),
+        // paideia-as#1545 — Blake3::{hash, hash_keyed, derive_key}
+        // route to the extern-C thunks landed Wave 0 in
+        // `paideia-as-crypto::blake3::ffi`. Same shape as every other
+        // crypto arm above: no preamble instructions, SysVRegs
+        // argument convention, extern_target names the FFI symbol.
+        // Wave-1 companion — the Wave-0 landing intentionally left
+        // this elaborator hook unwired to keep the encoder surface
+        // frozen for parallel authoring.
+        "Blake3" => cryptoops::try_lower_blake3(method_name, mode, arg_ids, arena),
         // Wave υ (paideia-as υ-01 / υ-02) — compact-ABI ML-DSA-65
         // dispatch. Routes to `mldsa65_{sign, verify}` in
         // `paideia-as-crypto::ffi::ml_dsa_65` (u32 / u64 returns, no
@@ -1421,6 +1430,80 @@ mod tests {
         let arena = IrArena::new();
         assert!(
             lower_stdlib_method("Ed25519", "no_such_method", InstrMode::Mode64, &[], &arena)
+                .is_none()
+        );
+    }
+
+    // ---------- paideia-as#1545: BLAKE3 extern-C recipes ----------
+
+    /// `Blake3::hash` lowers to an extern-target recipe whose symbol
+    /// name matches the `#[unsafe(no_mangle)]` thunk in
+    /// `paideia-as-crypto::blake3::ffi`. Any drift on the string
+    /// would produce an unresolvable relocation at link time — the
+    /// unit test pins the string exactly.
+    #[test]
+    fn blake3_hash_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("Blake3", "hash", InstrMode::Mode64, &[], &arena)
+            .expect("Blake3::hash recipe should exist")
+            .expect("Blake3::hash lowering should succeed");
+
+        assert!(
+            recipe.instructions.is_empty(),
+            "extern-C recipes carry no preamble instructions"
+        );
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_blake3_hash")
+        );
+    }
+
+    /// `Blake3::hash_keyed` lowers to an extern-target recipe.
+    #[test]
+    fn blake3_hash_keyed_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe =
+            lower_stdlib_method("Blake3", "hash_keyed", InstrMode::Mode64, &[], &arena)
+                .expect("Blake3::hash_keyed recipe should exist")
+                .expect("Blake3::hash_keyed lowering should succeed");
+
+        assert!(recipe.instructions.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_blake3_hash_keyed")
+        );
+    }
+
+    /// `Blake3::derive_key` lowers to an extern-target recipe.
+    #[test]
+    fn blake3_derive_key_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe =
+            lower_stdlib_method("Blake3", "derive_key", InstrMode::Mode64, &[], &arena)
+                .expect("Blake3::derive_key recipe should exist")
+                .expect("Blake3::derive_key lowering should succeed");
+
+        assert!(recipe.instructions.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_blake3_derive_key")
+        );
+    }
+
+    /// Unknown BLAKE3 methods must NOT match — otherwise a typo like
+    /// `Blake3::hasch` would resolve to an unresolvable symbol at
+    /// link time rather than diagnose T0553 up front.
+    #[test]
+    fn unknown_blake3_method_returns_none() {
+        let arena = IrArena::new();
+        assert!(
+            lower_stdlib_method("Blake3", "no_such_method", InstrMode::Mode64, &[], &arena)
                 .is_none()
         );
     }

@@ -53,6 +53,9 @@
 //! - [`ml_kem_768`] — `MlKem768::{keygen, encaps, decaps}`.
 //! - [`hkdf`] — `Hkdf::sha256` (paideia-as Wave γ, γ-01).
 //! - [`ed25519`] — `Ed25519::verify` (paideia-as Wave γ, γ-02).
+//! - [`blake3`] — `Blake3::{hash, hash_keyed, derive_key}`
+//!   (paideia-as#1545, Wave-1 companion to the Wave-0 landing in
+//!   `paideia-as-crypto::blake3`).
 //!
 //! Each sub-module exposes a `try_lower(method_name, mode, arg_ids,
 //! arena)` fn scoped `pub(super)` and is fronted at this module by
@@ -70,6 +73,7 @@ use paideia_as_ir::{IrArena, IrNodeId, instruction::InstrMode};
 use super::{ArgConvention, LoweringRecipe, StdlibLoweringError};
 
 mod argon2id;
+mod blake3;
 mod chacha20_poly1305;
 mod ed25519;
 mod hkdf;
@@ -140,6 +144,17 @@ pub(super) fn try_lower_ed25519(
     arena: &IrArena,
 ) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
     ed25519::try_lower(method_name, mode, arg_ids, arena)
+}
+
+/// Dispatch a `Blake3::<method_name>` call to its lowering recipe.
+/// Delegates to [`blake3::try_lower`]. paideia-as#1545.
+pub(super) fn try_lower_blake3(
+    method_name: &str,
+    mode: InstrMode,
+    arg_ids: &[IrNodeId],
+    arena: &IrArena,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    blake3::try_lower(method_name, mode, arg_ids, arena)
 }
 
 /// Dispatch an `MlDsa65C::<method_name>` call to its lowering recipe.

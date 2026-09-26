@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.36.55 — 2026-09-26 — Wave 15 paideia-os prereqs: BLAKE3 hook + jmp reg64 encoder
+
+Two paideia-os retire-workaround blockers landed as parallel paideia-as
+primitives so the paideia-os cascade (Phase C) can proceed with all
+prereqs met.
+
+**BLAKE3 stdlib_lowering hook** (closes #1545) — Unblocks paideia-os#2508:
+
+- New `crates/paideia-as-elaborator/src/stdlib_lowering/cryptoops/blake3.rs`
+  (~70 LOC) — 3 recipes: `Blake3::hash` / `hash_keyed` / `derive_key`
+  → `call paideia_crypto_blake3_*` FFI thunks (SysV
+  RDI/RSI/RDX/RCX/R8 marshalling). Fronts the FFI-thunk table already
+  present in `paideia-as-crypto::blake3` — no new runtime code needed.
+- Trait dispatch entry in `stdlib_lowering::mod` matches `Blake3 =>`
+  arm.
+- 4 unit tests pin extern_target strings + reject unknown methods.
+- **Correction from the sibling FFI signature**: `hash_keyed` is 4-arg
+  `(key_ptr, data_ptr, data_len, out_ptr)` because the key is
+  fixed-length 32B — recipe matches the real FFI signature to avoid
+  runtime-broken links.
+
+**Encoder jmp reg64** (closes #1546) — Unblocks paideia-os#2512 + paideia-as#1547:
+
+- New `jmp_reg64(buf, reg)` in `encode/cmp_jmp.rs` mirrors
+  `system::call_reg64` byte-for-byte, differing only in the ModR/M
+  `reg` field (`/4` vs `/2`). Emits `FF (E0|rrr)` for r0-r7, `41 FF
+  (E0|(rrr&7))` for r8-r15 (REX.B only; REX.W implicit in 64-bit).
+- New `[Operand::Reg(r)]` arm in `encode_instruction/branch.rs::
+  encode_jmp` between the existing `MemDispIndexed` arm and the
+  terminal catchall.
+- 6 tests: 5 byte-exact fixtures (rax=`FF E0`, rdi=`FF E7`, r8=`41
+  FF E0`, r11=`41 FF E3`, r15=`41 FF E7`) + one iced-x86 round-trip.
+  The rdi/r8 pair pins the REX.B on/off 2↔3-byte transition.
+- Non-goals: `jmp m64` (out of scope), IBT prefixing (callee's job).
+
+Workspace + SYSTEM_VERSION 0.36.54 → 0.36.55.
+
 ## 0.36.54 — 2026-09-26 — Wave 14 debt-catalog: B6-002 (satellite runtime split)
 
 **Milestone**: `cargo build --workspace` succeeds for the first time

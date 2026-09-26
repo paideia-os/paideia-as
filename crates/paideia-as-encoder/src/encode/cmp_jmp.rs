@@ -114,6 +114,26 @@ pub fn jmp_rel32(buf: &mut CodeBuffer, rel: i32) {
     buf.bytes.extend(rel.to_le_bytes());
 }
 
+/// Encode `jmp r64` — near indirect jump via register (paideia-as#1546).
+///
+/// Intel SDM Vol 2A, `JMP r/m64`: opcode `FF /4`, ModR/M `mod=11 reg=100 r/m=rrr`.
+/// REX.W is implicit in 64-bit mode (target width fixed at 64); only REX.B is
+/// emitted when the register is r8..r15.
+///
+/// Examples:
+/// - `jmp rax`: `FF E0`    (2 bytes)
+/// - `jmp rdi`: `FF E7`    (2 bytes)
+/// - `jmp r11`: `41 FF E3` (3 bytes)
+pub fn jmp_reg64(buf: &mut CodeBuffer, reg: Reg64) {
+    let id = reg as u8;
+    if id > 7 {
+        buf.bytes.push(rex(false, false, false, true)); // REX.B only
+    }
+    buf.bytes.push(0xFF);
+    // ModR/M: mod=11 (0xC0) | reg=/4 (100 << 3 = 0x20) | r/m=id&7
+    buf.bytes.push(0xE0 | (id & 7));
+}
+
 /// Encode `jmp [disp32 + index*scale]` with no base register and no RIP.
 ///
 /// PA-R15-009a: Emits `FF 24 <SIB> <disp32>` with SIB base=0b101 (no base).

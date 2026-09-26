@@ -3503,7 +3503,7 @@
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        
+
         emission_order: 0,
         };
         let mut stats = EncodeStats::new();
@@ -3512,4 +3512,75 @@
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
+    }
+
+    // paideia-as#1546: jmp r64 — near indirect jump via register.
+    // Intel SDM Vol 2A, `JMP r/m64`: FF /4, ModR/M = 11 100 rrr.
+    // r0..r7 → 2 bytes `FF (E0|rrr)`; r8..r15 → 3 bytes `41 FF (E0|(rrr&7))`.
+
+    fn jmp_reg_bytes(reg_id: u8) -> Vec<u8> {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::Reg(RegId(reg_id))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        buf.as_slice().to_vec()
+    }
+
+    #[test]
+    fn encode_jmp_rax_emits_ff_e0() {
+        // rax = id 0 → FF E0 (2 bytes, no REX)
+        assert_eq!(jmp_reg_bytes(0), vec![0xFF, 0xE0]);
+    }
+
+    #[test]
+    fn encode_jmp_rdi_emits_ff_e7() {
+        // rdi = id 7 → FF E7 (2 bytes, boundary before REX.B)
+        assert_eq!(jmp_reg_bytes(7), vec![0xFF, 0xE7]);
+    }
+
+    #[test]
+    fn encode_jmp_r8_emits_41_ff_e0() {
+        // r8 = id 8 → 41 FF E0 (3 bytes, REX.B lifts rrr into r8..r15)
+        assert_eq!(jmp_reg_bytes(8), vec![0x41, 0xFF, 0xE0]);
+    }
+
+    #[test]
+    fn encode_jmp_r11_emits_41_ff_e3() {
+        // r11 = id 11 → 41 FF E3
+        assert_eq!(jmp_reg_bytes(11), vec![0x41, 0xFF, 0xE3]);
+    }
+
+    #[test]
+    fn encode_jmp_r15_emits_41_ff_e7() {
+        // r15 = id 15 → 41 FF E7 (top of REX.B range)
+        assert_eq!(jmp_reg_bytes(15), vec![0x41, 0xFF, 0xE7]);
+    }
+
+    #[test]
+    fn encode_jmp_reg_round_trips_iced() {
+        // Cross-check byte-exact encoding against iced-x86's decoder.
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, OpKind, Register};
+
+        let cases: &[(u8, Register)] = &[
+            (0, Register::RAX),
+            (7, Register::RDI),
+            (8, Register::R8),
+            (11, Register::R11),
+            (15, Register::R15),
+        ];
+        for &(id, want) in cases {
+            let bytes = jmp_reg_bytes(id);
+            let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert_eq!(instr.mnemonic(), IcedMnem::Jmp, "id={id}");
+            assert_eq!(instr.op_kind(0), OpKind::Register, "id={id}");
+            assert_eq!(instr.op0_register(), want, "id={id}");
+        }
     }
