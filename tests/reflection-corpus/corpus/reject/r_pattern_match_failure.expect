@@ -1,1 +1,22 @@
-# status: documentation-by-example until m3 driver
+# status: placeholder — awaits pipeline glue
+#
+# Target: M0308 (partial pattern match failure inside a rule).
+# Emission site: crates/paideia-as-elaborator/src/macro_match.rs — the
+#   same M0308 path as `r_macro_no_matching_rule`; distinguished by
+#   whether the failure is arity vs. per-fragment-kind (e.g. an `expr`
+#   slot receiving a bare type). One rule, one mismatch.
+# Landed in: R220.M2 Slice B (#1541, paideia-as v0.36.65).
+#
+# NOTE: this fixture and `r_macro_no_matching_rule` currently share
+# a single M-code (M0308). Consider either (a) collapsing to one
+# fixture at authoring time, or (b) minting a distinct diagnostic
+# code for kind-mismatch during matching before authoring the second.
+# See macro_match.rs::try_match_rules for the shape of the diagnostic
+# stack it currently constructs (single M0308 per invocation).
+#
+# Why the .pdx is still `let m = 1`:
+#   Same blocker as `r_macro_no_matching_rule` — no invocation syntax
+#   in the parser (R221.M4) and no cmd_build expander wiring.
+#
+# Rewrite with `M0308` (one code per line, no comments) once R221.M4
+# lands AND the codegen distinction question above is resolved.

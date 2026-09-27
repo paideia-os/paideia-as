@@ -1,1 +1,25 @@
-# status: documentation-by-example until m3 driver
+# status: placeholder — awaits pipeline glue
+#
+# Target: M0311 (macro expansion depth exceeded).
+# Emission site: crates/paideia-as-elaborator/src/macro_expand.rs
+#   `check_depth` returns M0311 when `depth > MAX_EXPANSION_DEPTH`
+#   during `expand_reflective_hygienic` / recursive expansion. Also
+#   emitted by term_eval for evaluator fuel/depth guards
+#   (see term_eval/tests_limits.rs).
+# Landed in: R220.M2 Slice C (#1542, paideia-as v0.36.66) — depth
+#   guard is exercised in dsl_parser_registry.rs (fingerprint tag
+#   r220m3-dsl-19).
+#
+# Why the .pdx is still `let m = 1`:
+#   Authoring this fixture needs a mutually-recursive macro pair
+#   (`macro a($x:expr) => { b!($x) }` + `macro b($x:expr) => { a!($x) }`)
+#   plus a driving invocation `a!(1)`. Neither the `!` invocation
+#   syntax nor the cmd_build expander wiring is landed (R221.M4 +
+#   Slice D or equivalent). See `runner.rs` doc comment.
+#
+# Rewrite with `M0311` (one code per line, no comments) once both
+# blockers land. Consider testing MAX_EXPANSION_DEPTH boundary
+# explicitly: an expansion at depth == MAX must succeed; depth ==
+# MAX + 1 must produce exactly one M0311. See macro_expand.rs test
+# `expand_macro_...` (Slice C landed tests exercise this at the
+# library level).

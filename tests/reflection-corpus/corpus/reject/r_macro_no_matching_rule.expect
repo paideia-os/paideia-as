@@ -1,1 +1,22 @@
-# status: documentation-by-example until m3 driver
+# status: placeholder — awaits pipeline glue
+#
+# Target: M0308 (no matching rule during macro invocation).
+# Emission site: crates/paideia-as-elaborator/src/macro_match.rs
+#   `try_match_rules` returns M0308 when every rule's pattern fails to
+#   match the invocation's fragment tokens.
+# Landed in: R220.M2 Slice B (#1541, paideia-as v0.36.65).
+#
+# Why the .pdx is still `let m = 1`:
+#   Authoring this fixture needs (a) a `macro foo($x:expr) => { $x }`
+#   decl and (b) an invocation such as `foo!(1, 2)` whose argument
+#   arity does not match the single-`$x` pattern. Item (a) parses
+#   today; item (b) does NOT — the parser has no macro-call syntax
+#   yet. Per crates/paideia-as-elaborator/src/dsl_parser_registry.rs
+#   module doc, invocation-site lexing lands in R221.M4.
+# Additionally: cmd_build/ does not yet call expand_macro on any
+#   invocation node, so even a hand-crafted AST would not surface
+#   M0308 through `paideia-as build --emit placeholder`.
+#
+# Rewrite this file with `M0308` (one code per line, no comments) once
+# both blockers land. Do NOT list M0308 today — the corpus runner is
+# `#[ignore]`'d and would falsely fail as soon as it is un-ignored.

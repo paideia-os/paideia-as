@@ -29,17 +29,48 @@ fn collect_pdx_files(dir: &Path) -> Vec<PathBuf> {
 ///
 /// PAS-DEBT-B7-001 (paideia-as#1529): this is the true home of the
 /// `codes/m2_macro_*.pdx` fixtures cited in the debt-catalog row for B7-001.
-/// Two independent blockers remain (both open):
-///   (1) Structured-IR payload emission for linearity / effect / capability
-///       diagnostic classes (m2/m5) — needed for the S/F/C-code walkers to
-///       fire against the corpus at all.
-///   (2) Macro driver: template expansion + substitution (#1541) and
-///       repetition + hygiene (#1542). The catalog previously cited #217
-///       as "macro driver", but #217 is a closed handler-typing ticket;
-///       the correct macro-driver dependencies are #1541 and #1542.
-/// See `design/paideia-as-debt-catalog.md` §8.2 (B7-001).
+///
+/// Reactivation status (Wave 38, v0.36.66):
+///   - Slice B (#1541, v0.36.65, template expansion + `expand_macro`) landed.
+///   - Slice C (#1542, v0.36.66, repetition + soft hygiene) landed.
+///     The elaborator-side macro grammar and `expand_macro` are complete;
+///     round-trip unit tests live in
+///     `crates/paideia-as-elaborator/src/macro_expand.rs`.
+///
+/// Three independent blockers still gate un-`#[ignore]`'ing this test:
+///
+///   (1) Structured-IR payload emission (m2/m5) for the S / F / C-code
+///       diagnostic walkers is still absent — the walkers never fire
+///       against real source lowered through `paideia-as-elaborator`.
+///       Shared blocker with `PAS-DEBT-B7-004`; no dedicated tracking
+///       issue yet. See `design/paideia-as-debt-catalog.md` §8.2.
+///
+///   (2) `expand_macro` (elaborator crate) is NOT wired into the
+///       `paideia-as` binary's `cmd_build` pass pipeline —
+///       `grep -rn expand_macro crates/paideia-as/src/` returns
+///       empty. Consequently the `codes_for` harness in
+///       `tests/end-to-end/src/lib.rs` invokes `paideia-as build`,
+///       which parses the macro declaration but never expands any
+///       invocation, so `M0311` (deep / infinite recursion) never
+///       fires and template substitution never runs end-to-end.
+///       No dedicated tracking issue yet; belongs on the Phase-2
+///       "wire elaborator passes into cmd_build" driver work.
+///
+///   (3) Harness gap: `parse_expect_file` in
+///       `tests/end-to-end/src/lib.rs` treats the `ok` sentinel
+///       (24 fixtures — 8 of them `m2_*`) as a literal opaque
+///       "code" instead of the "expect empty diagnostic set"
+///       marker the fixtures document. Every `ok`-sentinel
+///       fixture will fail today with `expected {"ok"}, got {}`
+///       until the sentinel is interpreted. Fix belongs in the
+///       end-to-end lib crate, not this file.
+///
+/// The macro-driver dependencies previously cited in the ignore
+/// reason (#1541 + #1542) have both landed; keep this test
+/// `#[ignore]` until (1), (2) and (3) each ship. Do NOT touch this
+/// attribute again until each dependency has a landed commit.
 #[test]
-#[ignore = "PAS-DEBT-B7-001 (#1529): blocked on (1) structured-IR payload emission for S/F/C-code walkers (m2/m5) AND (2) macro driver #1541 (template expansion) + #1542 (repetition + hygiene) for m2_macro_*.pdx"]
+#[ignore = "PAS-DEBT-B7-001 (#1529): slices B (#1541) + C (#1542) landed the elaborator-side macro grammar + expand_macro (v0.36.65 + v0.36.66); three blockers remain: (1) structured-IR payload emission for S/F/C-code walkers (m2/m5, shared with PAS-DEBT-B7-004, no tracking issue), (2) expand_macro is not yet wired into cmd_build pass pipeline (no call-sites in crates/paideia-as/src/, no tracking issue yet — Phase-2 driver work), (3) harness parse_expect_file in tests/end-to-end/src/lib.rs does not interpret the `ok` sentinel (24 zero-diagnostic fixtures fail with expected={\"ok\"}, got={}). See design/paideia-as-debt-catalog.md §8.2."]
 fn codes_corpus_matches_expect_files() {
     let dir = corpus_root().join("codes");
     let files = collect_pdx_files(&dir);

@@ -1,1 +1,24 @@
-# status: documentation-by-example until m3 driver
+# status: placeholder — awaits pipeline glue
+#
+# Target: M0309 (unbound `$name` reference in macro template).
+# Emission site: crates/paideia-as-elaborator/src/macro_expand.rs — one
+#   diagnostic per unique unbound name (see the
+#   `expand_macro_unbound_reported_once_per_unique_name` unit test
+#   at ~line 1493).
+# Landed in: R220.M2 Slice B (#1541, paideia-as v0.36.65).
+#
+# Why the .pdx is still `let m = 1`:
+#   Authoring this fixture needs `macro foo($x:expr) => { bar($y) }`
+#   (template mentions `$y` but pattern binds only `$x`) plus an
+#   invocation `foo!(1)`. The macro DECL parses today and would emit
+#   M0309 through `expand_macro`, but no invocation syntax exists to
+#   drive the expander from user source (R221.M4), and cmd_build does
+#   not call the expander regardless. The purely decl-time surface
+#   does NOT emit M0309 — the parser does not eagerly check template
+#   metavar coverage against pattern bindings (verified by grep on
+#   crates/paideia-as-parser/src/parse_macro.rs; the check runs only
+#   at expansion).
+#
+# Rewrite with `M0309` (one code per line, no comments) once the
+# invocation lexer + cmd_build wiring land. Fixture should invoke
+# the macro at least once so the template is instantiated.
