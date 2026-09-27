@@ -1,5 +1,88 @@
 # Changelog
 
+## v0.36.72 — 2026-09-27 — Issue #1555: TCO Shape E' (3-inst trailing pop-bracket, upstream Push)
+
+paideia-as#1555 adds Shape E' to `crates/paideia-as-ir/src/opt/tailcall.rs`
+— the 3-inst tailcall window `[Call SymbolRef; Pop r; Ret]` whose
+matching `Push r` lives upstream in the function prologue rather than
+adjacent to the Call. Motivating sites: `nvme_log_smart_fetch` and
+`nvme_log_error_info_fetch` in
+`paideia-os/src/kernel/core/cap/nvme_admin_events.pdx`, where
+`push rbx` sits 10+ instructions before `call nvme_get_log_page` and
+Wave 35's Shape E (4-inst adjacent window) does not fire.
+
+  * **Matcher** — inserted between Shape E and Shape A in
+    `TailCallPass::apply`. Structural check: `ids[i]=Call sym`,
+    `ids[i+1]=Pop r`, `ids[i+2]=Ret`. Owner-required (empty owner
+    aborts), consistent with Shape C. Backward walk through `ids`
+    from position `i-1`, bounded by the enclosing function's
+    `instr_owner` span, refuses on any intervening branch
+    (`Jmp` / `Jcc(_)` / `Call` / `FarJmp`) — leaf-ish assumption.
+    Stack-shape safety: the first Push encountered walking backward
+    MUST be the matching one (same reg as the trailing Pop); a
+    mismatched Push or any intervening Pop refuses silently to
+    avoid rewriting unbalanced brackets.
+
+  * **Rewrite** — `ids[i]` (was Call) is mutated to `Pop r`
+    (mnemonic + operands replaced); `ids[i+1]` (was Pop r) is
+    mutated to `Jmp SymbolRef(target_sym)`; `ids[i+2]` (Ret) is
+    removed. The upstream Push is deliberately preserved — it
+    belongs to the function's prologue and other code (register
+    spills, later Pop, callee-save discipline through the body)
+    may depend on it. Result window: `[..., Push r, ..., Pop r,
+    Jmp sym]` — the Pop runs before the branch, restoring the
+    callee-save value; the Jmp reuses the caller's return
+    context, keeping the stack balanced. Success diagnostic
+    `O1524`; refusals reuse `O1516` with a distinct shape name
+    "direct trailing pop-bracket".
+
+  * **Safety guard extension** — `tco_arena_blocker_with_earlier`
+    wraps the existing `tco_arena_blocker` without touching its
+    internal logic (per PAS-DEBT-B3-002 preservation directive).
+    New signature adds `earlier_span_start: Option<IrNodeId>`.
+    When `None`, behaves exactly like `tco_arena_blocker` —
+    backward-compatible for Shapes A/D/E/B/C which do not call it.
+    When `Some(push_id)`, additionally scans `[push_id, call_id)`
+    for `IrKind::Handle` / `IrKind::HandlerValue` nodes and for
+    `HandlerSideTable` entries whose Handle-id or op-body-id lands
+    in that upstream range. A handler installed between the
+    prologue Push and the Call would corrupt the callee-save
+    restore (the Pop would read a value from before the handler
+    frame's teardown). Capability-boundary checks stay attached to
+    the call site itself (already handled by the base blocker) —
+    the earlier span is straight-line code in the same enclosing
+    function, so its declared caps match by construction.
+
+  * **Tests** — four new tests in
+    `crates/paideia-as-ir/src/opt/tailcall.rs`:
+    `wave27_shape_e_prime_rewrites_trailing_pop_bracket_with_upstream_push`
+    (positive: `push rbx; mov; mov; call sym; pop rbx; ret` →
+    `push rbx; mov; mov; pop rbx; jmp sym`; asserts O1524 message
+    and prologue-push ID);
+    `wave27_shape_e_prime_refuses_when_branch_intervenes_between_push_and_call`
+    (negative: intra-function Jmp between Push and Call → O1516
+    refusal with "branch between prologue push and call" reason);
+    `wave27_shape_e_prime_refuses_when_handler_installed_before_call`
+    (negative: `IrKind::Handle` node between Push and Call → O1516
+    with "handler-install boundary" reason; a Mov between Push and
+    Call defeats Shape E's 4-inst adjacent window so the 3-inst
+    matcher is what actually fires);
+    `wave27_widened_blocker_matches_base_when_earlier_span_none`
+    (guard-helper: `None` earlier_span → base behaviour; `Some`
+    with Handle in range → EffectHandlerInstalling).
+
+  * **Motivating-site fit** — the 2 fetchers in
+    `nvme_admin_events.pdx` present exactly the physical shape
+    Shape E' matches: a single `push rbx` in the prologue, a
+    straight-line body (no branches, no nested pushes), a
+    `call nvme_get_log_page`, and a trailing `pop rbx; ret`.
+    Both fire Shape E' after this wave and gain the direct tail
+    branch, closing the last gap Wave 35 left open.
+
+  * **Version** — workspace.package.version bumped 0.36.71 →
+    0.36.72. Scratch changelog at
+    `.plans/scratch/CHANGELOG-1555-tailcall-shape-e-prime.md`.
+
 ## v0.36.71 — 2026-09-27 — Issue #1554 Slice D: RecordCons emit arm + pair-unpack gate lift
 
 PAS-DEBT-B4-002 (paideia-as#1554) Slice D closes the record-return
