@@ -12,6 +12,7 @@ pub mod encode_imul;
 pub mod encode_instruction;
 pub mod encode_sse;
 pub mod encode_vex;
+mod imm64_stage;
 pub use dispatch::{DispatchKind, classify};
 pub use encode::*;
 pub use encode_instruction::{

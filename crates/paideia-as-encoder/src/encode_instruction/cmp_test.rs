@@ -39,10 +39,24 @@ pub(super) fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Enc
                 // 32-bit immediate: use 81 /7 id
                 cmp_reg64_imm32(buf, dest_reg, imm_i64 as i32);
             } else {
-                // imm64 out-of-range: unsupported
-                return Err(EncodeError::Unsupported(
-                    "cmp imm64 not supported; load into reg first",
-                ));
+                // #1548 (PAS-DEBT-B4-005): true-imm64 auto-staging via r11
+                // scratch. x86_64's CMP subgroup (/7) only carries imm8 and
+                // imm32 (both sign-extended); a true imm64 must lower to
+                //     movabs r11, imm64
+                //     cmp    r64, r11
+                // Note: cmp does NOT write dest — the collision guard still
+                // applies because if dest IS r11 we would clobber the value
+                // being compared before the compare executes.
+                // Retires ~25 hand-rolled paideia-os cmp+movabs sites (cow_write,
+                // gpe_io, gpe_ack, ec_event, thermal_policy, journal_ondisk,
+                // journal_csum, block_cache_flush) — see paideia-os#2509.
+                let scratch = crate::imm64_stage::stage_imm64_r11(
+                    buf,
+                    dest_reg,
+                    imm_i64 as u64,
+                    "cmp r11, imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different register",
+                )?;
+                cmp_reg64_reg64(buf, dest_reg, scratch);
             }
             Ok(EncodeOutput::new())
         }

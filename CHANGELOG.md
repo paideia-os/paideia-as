@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.36.58 — 2026-09-26 — Wave 18: true-imm64 auto-staging for arithmetic
+
+- #1548 (B4-005): extend imm64 auto-staging from `mov [mem]` to
+  `cmp/and/xor/or/sub/add r64, imm64`. Uses r11 scratch with collision guard.
+  Shared helper `imm64_stage::stage_imm64_r11` emits `movabs r11, imm64` and
+  returns `Reg64::R11` for the caller's existing reg-reg encoder; if the
+  operand register IS r11 the lowering is refused with a mnemonic-specific
+  `EncodeError::Unsupported` (silent-miscompile guard mirroring #1526).
+  Unblocks paideia-os#2509 (~30 hand-rolled staging sites can be dropped:
+  cmp ~25, and ~5, xor 2, or 4 IST-field, sub/add 7 aspace_map).
+
 ## v0.36.57 — 2026-09-26 — Wave 17: tailcall pass on by default
 
 - #1549: Add `"tailcall"` to default `requested_passes` in `cmd_build/mod.rs` alongside `"peephole"`. Unblocks paideia-os#2512.

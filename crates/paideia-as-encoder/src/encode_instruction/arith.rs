@@ -60,11 +60,20 @@ pub(super) fn encode_add(
                     stats.record_tightening();
                 }
             } else {
-                // Value requires full 64-bit immediate: use mov + add pattern
-                // For now, return unsupported as phase-3-m2-002 doesn't have this
-                return Err(EncodeError::Unsupported(
-                    "64-bit immediate add not yet supported",
-                ));
+                // #1548 (PAS-DEBT-B4-005): true-imm64 auto-staging via r11
+                // scratch. ADD's /0 subgroup only carries imm8 and imm32
+                // (both sign-extended); a true imm64 must lower to
+                //     movabs r11, imm64
+                //     add    r64, r11
+                // Retires aspace_map.pdx add/sub r64, imm64 staging sites
+                // (paideia-os#2509).
+                let scratch = crate::imm64_stage::stage_imm64_r11(
+                    buf,
+                    dest_reg,
+                    imm_i64 as u64,
+                    "add r11, imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different destination register",
+                )?;
+                add_reg64_reg64(buf, dest_reg, scratch);
             }
             Ok(EncodeOutput::new())
         }
@@ -123,9 +132,20 @@ pub(super) fn encode_sub(
                     stats.record_tightening();
                 }
             } else {
-                return Err(EncodeError::Unsupported(
-                    "64-bit immediate sub not yet supported",
-                ));
+                // #1548 (PAS-DEBT-B4-005): true-imm64 auto-staging via r11
+                // scratch. SUB's /5 subgroup only carries imm8 and imm32
+                // (both sign-extended); a true imm64 must lower to
+                //     movabs r11, imm64
+                //     sub    r64, r11
+                // Retires aspace_map.pdx sub r64, imm64 staging sites
+                // (paideia-os#2509).
+                let scratch = crate::imm64_stage::stage_imm64_r11(
+                    buf,
+                    dest_reg,
+                    imm_i64 as u64,
+                    "sub r11, imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different destination register",
+                )?;
+                sub_reg64_reg64(buf, dest_reg, scratch);
             }
             Ok(EncodeOutput::new())
         }

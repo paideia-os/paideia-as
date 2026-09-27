@@ -2797,3 +2797,178 @@
         assert_eq!(bytes_mode32, bytes_mode64);
         assert_eq!(bytes_mode32, vec![0x8E, 0xD8]);
     }
+
+    // ── paideia-as#1548 (PAS-DEBT-B4-005) — imm64 auto-staging for
+    // cmp/and/xor/or/sub/add via R11 scratch ─────────────────────────────
+    //
+    // Each test pairs a true-imm64 value (0x1122_3344_5566_7788, which does
+    // NOT round-trip through i32) with rax as the destination and asserts
+    // the exact bytes: `movabs r11, imm64` (49 BB + 8 imm bytes LE) followed
+    // by the reg-reg encoding of the mnemonic against r11 as the source
+    // (REX = 4C for W+R). A collision test verifies that using r11 itself
+    // as the destination surfaces EncodeError::Unsupported and writes no
+    // bytes. The imm literal encodes LE as 88 77 66 55 44 33 22 11.
+
+    const B4_005_MOVABS_R11_PREFIX: [u8; 10] = [
+        0x49, 0xBB, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
+    ];
+    const B4_005_IMM64: i64 = 0x1122_3344_5566_7788;
+
+    fn b4_005_build_inst(mnem: Mnemonic) -> Instruction {
+        Instruction {
+            mnemonic: mnem,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(B4_005_IMM64)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    fn b4_005_build_r11_collision(mnem: Mnemonic) -> Instruction {
+        Instruction {
+            mnemonic: mnem,
+            operands: smallvec::smallvec![Operand::Reg(RegId(11)), Operand::Imm64(B4_005_IMM64)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    fn b4_005_expected(op_reg_reg_tail: [u8; 3]) -> Vec<u8> {
+        let mut v = B4_005_MOVABS_R11_PREFIX.to_vec();
+        v.extend_from_slice(&op_reg_reg_tail);
+        v
+    }
+
+    #[test]
+    fn b4_005_cmp_rax_imm64_stages_via_r11() {
+        // cmp rax, r11 → 4C 39 D8
+        let mut buf = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+        encode_instruction(&b4_005_build_inst(Mnemonic::Cmp), &mut buf, &mut stats)
+            .expect("cmp rax, imm64 must auto-stage");
+        assert_eq!(buf.as_slice(), b4_005_expected([0x4C, 0x39, 0xD8]).as_slice());
+    }
+
+    #[test]
+    fn b4_005_and_rax_imm64_stages_via_r11() {
+        // and rax, r11 → 4C 21 D8
+        let mut buf = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+        encode_instruction(&b4_005_build_inst(Mnemonic::And), &mut buf, &mut stats)
+            .expect("and rax, imm64 must auto-stage");
+        assert_eq!(buf.as_slice(), b4_005_expected([0x4C, 0x21, 0xD8]).as_slice());
+    }
+
+    #[test]
+    fn b4_005_xor_rax_imm64_stages_via_r11() {
+        // xor rax, r11 → 4C 31 D8
+        let mut buf = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+        encode_instruction(&b4_005_build_inst(Mnemonic::Xor), &mut buf, &mut stats)
+            .expect("xor rax, imm64 must auto-stage");
+        assert_eq!(buf.as_slice(), b4_005_expected([0x4C, 0x31, 0xD8]).as_slice());
+    }
+
+    #[test]
+    fn b4_005_or_rax_imm64_stages_via_r11() {
+        // or rax, r11 → 4C 09 D8
+        let mut buf = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+        encode_instruction(&b4_005_build_inst(Mnemonic::Or), &mut buf, &mut stats)
+            .expect("or rax, imm64 must auto-stage");
+        assert_eq!(buf.as_slice(), b4_005_expected([0x4C, 0x09, 0xD8]).as_slice());
+    }
+
+    #[test]
+    fn b4_005_sub_rax_imm64_stages_via_r11() {
+        // sub rax, r11 → 4C 29 D8
+        let mut buf = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+        encode_instruction(&b4_005_build_inst(Mnemonic::Sub), &mut buf, &mut stats)
+            .expect("sub rax, imm64 must auto-stage");
+        assert_eq!(buf.as_slice(), b4_005_expected([0x4C, 0x29, 0xD8]).as_slice());
+    }
+
+    #[test]
+    fn b4_005_add_rax_imm64_stages_via_r11() {
+        // add rax, r11 → 4C 01 D8
+        let mut buf = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+        encode_instruction(&b4_005_build_inst(Mnemonic::Add), &mut buf, &mut stats)
+            .expect("add rax, imm64 must auto-stage");
+        assert_eq!(buf.as_slice(), b4_005_expected([0x4C, 0x01, 0xD8]).as_slice());
+    }
+
+    #[test]
+    fn b4_005_r11_collision_returns_unsupported_and_writes_no_bytes() {
+        // Every one of the six mnemonics with dst == r11 must refuse the
+        // auto-stage — the movabs would clobber the operand register.
+        for mnem in [
+            Mnemonic::Cmp,
+            Mnemonic::And,
+            Mnemonic::Xor,
+            Mnemonic::Or,
+            Mnemonic::Sub,
+            Mnemonic::Add,
+        ] {
+            let mut buf = CodeBuffer::new();
+            let mut stats = EncodeStats::new();
+            let result =
+                encode_instruction(&b4_005_build_r11_collision(mnem.clone()), &mut buf, &mut stats);
+            match result {
+                Err(EncodeError::Unsupported(msg)) => {
+                    assert!(
+                        msg.contains("r11 collision"),
+                        "{:?} collision message must mention r11 collision, got: {}",
+                        mnem,
+                        msg
+                    );
+                }
+                other => panic!("{:?}: expected Unsupported r11-collision, got {:?}", mnem, other),
+            }
+            assert!(
+                buf.as_slice().is_empty(),
+                "{:?}: collision failure must not leak bytes into the buffer",
+                mnem
+            );
+        }
+    }
+
+    #[test]
+    fn b4_005_imm_fitting_i32_still_uses_short_form_no_staging() {
+        // Regression guard: auto-staging must fire ONLY when imm does not
+        // round-trip through i32. For an imm in i32 range we still want
+        // the compact 3–7 byte encoding, never the 13-byte movabs+op path.
+        // Use 0x1000 (fits i32, doesn't fit i8) as a canonical mid-range
+        // value for cmp/and/xor/or/add/sub.
+        let mid_imm: i64 = 0x1000;
+        for mnem in [
+            Mnemonic::Cmp,
+            Mnemonic::And,
+            Mnemonic::Xor,
+            Mnemonic::Or,
+            Mnemonic::Sub,
+            Mnemonic::Add,
+        ] {
+            let inst = Instruction {
+                mnemonic: mnem.clone(),
+                operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(mid_imm)],
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+                emission_order: 0,
+            };
+            let mut buf = CodeBuffer::new();
+            let mut stats = EncodeStats::new();
+            encode_instruction(&inst, &mut buf, &mut stats).expect("mid-range imm must encode");
+            assert!(
+                buf.len() < 10,
+                "{:?} with i32-range imm must NOT auto-stage (len={} suggests movabs path fired)",
+                mnem,
+                buf.len()
+            );
+        }
+    }

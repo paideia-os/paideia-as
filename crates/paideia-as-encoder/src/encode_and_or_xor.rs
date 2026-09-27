@@ -13,6 +13,7 @@ use crate::encode::*;
 use paideia_as_ir::{Instruction, Operand, RegId};
 
 use super::encode_instruction::{EncodeError, EncodeOutput};
+use super::imm64_stage::stage_imm64_r11;
 
 /// Convert an IR register ID to an encoder Reg64.
 fn reg64_from(id: RegId) -> Result<Reg64, EncodeError> {
@@ -66,10 +67,20 @@ pub fn encode_and(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutp
                 return Ok(EncodeOutput::new());
             }
 
-            // imm64 out-of-range
-            Err(EncodeError::Unsupported(
-                "and r64, imm64: x86_64 has no AND r/m64, imm64 form — load to register and use AND r/m64, r64 instead",
-            ))
+            // #1548 (PAS-DEBT-B4-005): true-imm64 auto-staging via r11 scratch.
+            // x86_64 has no AND r/m64, imm64 form, so lower to
+            //     movabs r11, imm64
+            //     and    r64, r11
+            // This mirrors mov's #1526 lowering for the store shape and retires
+            // ~5 hand-rolled paideia-os staging sites (paideia-os#2509).
+            let scratch = stage_imm64_r11(
+                buf,
+                dst_reg,
+                imm_i64 as u64,
+                "and r11, imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different destination register",
+            )?;
+            and_reg64_reg64(buf, dst_reg, scratch);
+            Ok(EncodeOutput::new())
         }
         [
             Operand::Reg(dst),
@@ -153,10 +164,19 @@ pub fn encode_or(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutpu
                 return Ok(EncodeOutput::new());
             }
 
-            // imm64 out-of-range: x86_64 has no OR r/m64, imm64 form
-            Err(EncodeError::Unsupported(
-                "or r64, imm64: x86_64 has no OR r/m64, imm64 form — load to register and use OR r/m64, r64 instead",
-            ))
+            // #1548 (PAS-DEBT-B4-005): true-imm64 auto-staging via r11 scratch.
+            // x86_64 has no OR r/m64, imm64 form, so lower to
+            //     movabs r11, imm64
+            //     or     r64, r11
+            // Retires the idt.pdx IST-field r11-staging sites (paideia-os#2509).
+            let scratch = stage_imm64_r11(
+                buf,
+                dst_reg,
+                imm_i64 as u64,
+                "or r11, imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different destination register",
+            )?;
+            or_reg64_reg64(buf, dst_reg, scratch);
+            Ok(EncodeOutput::new())
         }
         [
             Operand::Reg(dst),
@@ -209,10 +229,20 @@ pub fn encode_xor(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutp
                 return Ok(EncodeOutput::new());
             }
 
-            // imm64 out-of-range
-            Err(EncodeError::Unsupported(
-                "xor r64, imm64: x86_64 has no XOR r/m64, imm64 form — load to register and use XOR r/m64, r64 instead",
-            ))
+            // #1548 (PAS-DEBT-B4-005): true-imm64 auto-staging via r11 scratch.
+            // x86_64 has no XOR r/m64, imm64 form, so lower to
+            //     movabs r11, imm64
+            //     xor    r64, r11
+            // Retires journal_csum:358 and phys_free:71 paideia-os staging sites
+            // (paideia-os#2509).
+            let scratch = stage_imm64_r11(
+                buf,
+                dst_reg,
+                imm_i64 as u64,
+                "xor r11, imm64 (out-of-i32-range): scratch-reg r11 collision — pick a different destination register",
+            )?;
+            xor_reg64_reg64(buf, dst_reg, scratch);
+            Ok(EncodeOutput::new())
         }
         [
             Operand::Reg(dst),
