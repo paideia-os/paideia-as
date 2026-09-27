@@ -8,28 +8,52 @@ resolution per challenger §5.6).
 
 ---
 
-## Landing audit (2026-09-26 compaction cycle — post-Wave 24)
+## Landing audit (2026-09-26 → 2026-09-27 sustained cycle — post-Wave 24)
 
-Waves 25–29 landed the following debt items. The per-item table rows
+Waves 25–40 landed the following debt items. The per-item table rows
 below still show the original "Wave 3" placeholders; treat this section
 as authoritative for landed state.
 
-| Wave | Release   | Items landed                                                   | Follow-ups filed         |
-|------|-----------|----------------------------------------------------------------|--------------------------|
-| 25   | v0.36.57  | B-followup #1549 (tailcall pass on by default)                | #1550, #1551             |
-| 26   | (os-side) | paideia-os#2512 RETIRE-5 partial (doc cleanup only)           | (uses #1551)             |
-| 27   | v0.36.58  | B4-005 (#1548) — imm64 auto-staging for cmp/and/xor/or/sub/add| #1552 (survey correction)|
-| 28   | v0.36.59  | B1-006 (#1489), B1-007 (#1537) — SARIF fixture reactivation   | #1553 (B1-005 blocker)   |
-| 29   | v0.36.60  | B1-002 (#1486), B1-003 (#1487) — readelf-gate wiring          | none                     |
+| Wave | Release   | Items landed                                                        | Follow-ups filed         |
+|------|-----------|---------------------------------------------------------------------|--------------------------|
+| 25   | v0.36.57  | #1549 tailcall pass on by default                                   | #1550, #1551             |
+| 26   | (os-side) | paideia-os#2512 RETIRE-5 partial (doc cleanup only)                | (uses #1551)             |
+| 27   | v0.36.58  | B4-005 (#1548) — imm64 auto-staging for cmp/and/xor/or/sub/add     | #1552                    |
+| 28   | v0.36.59  | B1-006 (#1489), B1-007 (#1537) — SARIF fixture reactivation        | #1553                    |
+| 29   | v0.36.60  | B1-002 (#1486), B1-003 (#1487) — readelf-gate wiring               | none                     |
+| 30   | (doc)     | Debt-catalog Landing audit section                                  | none                     |
+| 31   | (doc)     | B7-001/002/003 #[ignore]-reason sharpening + #217 mis-citation fix  | none                     |
+| 32   | v0.36.61  | B7-005 (#1533), B7-006 (#1534), B7-007 (#1535); B7-004 blocker doc | none                     |
+| 33   | v0.36.62  | B3-007c (#1544) — SysV aggregate return placement (library)         | (surfaced #1554)         |
+| 34   | v0.36.63  | B3-007b (#1543) — MS x64 sret + non-exhaustive-match fix (SysV too)| none                     |
+| 35   | v0.36.64  | #1551 tailcall Shape D+E widening; B4-002 (#1524) blocker doc       | #1554, #1555             |
+| 36   | v0.36.65  | B2-010b (#1541) — macro template expansion                          | none                     |
+| 37   | v0.36.66  | B2-010c (#1542) — macro repetition + soft hygiene                   | none                     |
+| 38   | (doc)     | B7-001/002 retest post-macro-Slices — both re-blocked on cmd_build  | #1556, #1557             |
+| 39   | v0.36.67  | #1557 parser-reject corpus harness (unblocks #1530 P-code half)     | none                     |
+| 40   | (os-side) | paideia-os#2509 RETIRE-2 continuation — 373 arith sites (127 files, 702 B saved) | none |
+
+**Session summary**: 15 releases (v0.36.57 → v0.36.67), 15 issues closed:
+- paideia-as: #1489, #1487, #1486, #1548, #1549, #1537, #1533, #1534, #1535, #1544, #1543, #1551, #1541, #1542, #1557
+- paideia-os: #2512 (partial), #2509 (partial)
 
 Still-open debt-followups filed this cycle:
 - **#1550** — m3-829 boot snapshot baseline stale since v0.27.4 (default-path .text drifted +909 bytes on kernel_main, +46 on exceptions).
-- **#1551** — widen tailcall pass to recognize alignment-pad and push/pop-bracketed indirect calls (unblocks paideia-os#2512 full retirement).
-- **#1552** — paideia-os#2509 survey corrections (aspace_map r11-dest collision, gpe imm=-1 collapses to imm8, idt.pdx OR citation stale).
+- **#1552** — paideia-os#2509 survey corrections (aspace_map r11-dest collision, gpe imm=-1 collapses to imm8, idt.pdx OR citation stale). Substantially handled in Wave 40.
 - **#1553** — fixup-pass U1610 unreachable via user syntax (blocks B1-005 #1488).
+- **#1554** — record-return type plumbing + call-site wiring (6-piece machinery gap; blocks B4-002 + B4-003 sret retirement).
+- **#1555** — Shape E' 3-inst variant for tailcall (nvme_admin_events.pdx real shape).
+- **#1556** — wire expand_macro + expand_reflective_hygienic into cmd_build (blocks #1529 + #1530 corpus retirement).
 
 Blocked / scope-recheck:
-- **B1-005 (#1488)** — `.pdx` fixture cannot reach fixup-pass U1610 because `parse_operand_from_ast` falls back to SymbolRef for unknown identifiers; test kept `#[ignore]`d pending #1553 scope decision (unit driver / retire fixup U1610 / relax operand parsing).
+- **B1-005 (#1488)** — blocked on #1553 scope decision.
+- **B7-001 (#1529)** — codes-corpus blocked on #1556 (cmd_build wiring) + `.expect` `ok`-sentinel gap.
+- **B7-002 (#1530)** — reflection-corpus M-code half blocked on #1556 + R221.M4 (macro invocation parser). P-code half unblocked by Wave 39's parser-reject corpus (#1557).
+- **B7-003 (#1531), B7-004 (#1532)** — compound-blocked (documented in Waves 31/32).
+- **B4-002 (#1524), B4-003 (#1525)** — blocked on #1554 record-return wiring.
+
+Notable safety-net catches this cycle:
+- **v0.36.62 (Wave 33)** shipped a `#[non_exhaustive]` E0004 compile error on `main` — masked by a `bash ...; echo EXIT=$?` shell wrapper reporting the trailing echo's exit (0) instead of cargo's actual 101. Debugger caught it in Wave 34; wildcard arms landed in v0.36.63. Memory rule updated (feedback_pipe_swallows_exit.md).
 
 ---
 
