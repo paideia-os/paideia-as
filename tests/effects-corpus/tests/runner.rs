@@ -55,6 +55,22 @@ fn accept_corpus_emits_no_effect_codes() {
 /// `.expect` file that lists the expected effect-system codes. This test
 /// validates that the emitted codes match expectations. Fixtures marked
 /// `#[ignore]` with explicit reasons await further driver implementation.
+///
+/// Per-fixture reactivation debt (paideia-as debt catalog §8.2):
+///
+/// * `index_u64_outside_rawmem_row.pdx` — paideia-as#1531
+///   (PAS-DEBT-B7-003). Blocked by three compound gaps: the fixture's
+///   `index_u64(xs, idx)` call is commented out, no `.expect` sidecar
+///   exists, and the m3 elaborator driver does not yet emit F1100 at
+///   the row-check boundary for user-declared function bodies that
+///   call effectful intrinsics. `name_resolution_walker.rs` (phase-4-
+///   m1-006) landed for Load/Store, so partial call-resolution is
+///   present, but end-to-end intrinsic dispatch → effect-walker is not
+///   confirmed. See the fixture's header comment for the reactivation
+///   checklist.
+/// * `r_row_closed_rejects_larger_scope.pdx`,
+///   `r_row_poly_fixed_not_subset.pdx` — same shape (no `.expect`
+///   sidecar; aspirational bodies).
 #[test]
 #[ignore = "reject corpus documentation-by-example until m3 elaborator driver wires effect walkers through end-to-end"]
 fn reject_corpus_emits_expected_codes() {

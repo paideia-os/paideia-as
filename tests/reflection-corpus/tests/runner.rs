@@ -55,8 +55,23 @@ fn accept_corpus_emits_no_macro_codes() {
 /// `.expect` file that lists the expected M-codes. This test validates that
 /// the emitted M-codes match expectations. Fixtures marked `#[ignore]` with
 /// explicit reasons await further driver implementation.
+///
+/// PAS-DEBT-B7-002: staying `#[ignore]`'d. Current reject corpus is unfit:
+///   - 4 fixtures (`r_macro_no_matching_rule`, `r_pattern_match_failure`,
+///     `r_recursion_depth`, `r_unbound_metavariable`) are placeholder `.pdx`
+///     files (`let m = 1`) with `.expect` sidecars carrying only a comment.
+///     They need real macro invocations that fire M0308/M0309/M0311, which
+///     is blocked on the m3 macro-match/expand driver.
+///   - 4 fixtures (`r_antiquote_outside_quote`, `r_finally_not_last`,
+///     `r_malformed_quote`, `r_unknown_fragment_kind`) target P-category
+///     codes (P0170/P0162/P0171/P0110). The comparator only extracts
+///     M-codes, so these belong in a parser-reject corpus, not here.
+/// Close the ticket as blocked on m3 driver + fixture authoring.
 #[test]
-#[ignore = "reject corpus documentation-by-example until m3 driver (macro matching, expansion)"]
+#[ignore = "reject fixtures are placeholder modules or P-code targets; needs \
+    authored macro invocations after m3 driver lands (M0308/M0309/M0311) and \
+    relocation of P-code fixtures to a parser-reject corpus. \
+    See PAS-DEBT-B7-002."]
 fn reject_corpus_emits_expected_codes() {
     let dir = corpus_root().join("corpus/reject");
     let files = collect_pdx_files(&dir);

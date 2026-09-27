@@ -1,7 +1,25 @@
 // RawMem effect NOT in function signature (phase-3-m1-005)
 // This function declares !{} (pure), so calling index_u64 would violate the effect row.
-// Phase-3-m1-005: F1100 enforcement gates on m1-006 call-resolution dispatch.
-// This fixture is #[ignore]'d until the call-resolution path lands.
+//
+// paideia-as#1531 (PAS-DEBT-B7-003) — reactivation is blocked by THREE
+// independent gaps, not just call-resolution:
+//   1. The `index_u64(xs, idx)` call below is commented out, so no F1100
+//      can fire even with the elaborator wired end-to-end. Uncomment it
+//      once (2) and (3) hold.
+//   2. There is no companion `.expect` sidecar for this fixture; the
+//      reject-corpus harness (`tests/effects-corpus/tests/runner.rs`)
+//      would fail with "missing .expect sidecar" if the parent test
+//      were un-ignored. Add `# F1100` sidecar when (3) holds.
+//   3. The parent `reject_corpus_emits_expected_codes` test is `#[ignore]`'d
+//      pending "m3 elaborator driver wires effect walkers through end-
+//      to-end" — name_resolution_walker (phase-4-m1-006) landed for
+//      Load/Store, but intrinsic-call → effect-walker dispatch on
+//      user-declared function bodies is not yet confirmed to emit
+//      F1100 at the row-check boundary. Prefer a dedicated per-fixture
+//      test (see `effect_cap_coupling_reject_fixture_emits_c1301` for
+//      the shape) rather than lifting the blanket ignore, since two
+//      other reject fixtures (`r_row_closed_rejects_larger_scope`,
+//      `r_row_poly_fixed_not_subset`) are equally aspirational.
 
 module IndexOutsideRawMem = structure {
   let read_u64_pure: (*u64, u64) -!{}-> u64 =

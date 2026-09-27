@@ -486,7 +486,7 @@ Phase-2 pass a single dashboard for corpora reactivation.
 
 | Entry id          | Site                                                                                                | Symptom (from source comment)                                                                                          | Size | Landing wave |
 |-------------------|-----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|------|--------------|
-| `PAS-DEBT-B7-001` | `tests/end-to-end/tests/examples_compile.rs` + `codes/m2_macro_*.pdx`                               | Corpus test `#[ignore]`'d pending structured IR payloads + macro driver (`#217`).                                     | S    | Wave 3       |
+| `PAS-DEBT-B7-001` | `tests/end-to-end/tests/examples_compile.rs` (line 79) + `tests/end-to-end/tests/runner.rs` (line 30, consumes `codes/m2_macro_*.pdx`) | Two independent `#[ignore]`'s: `examples_compile.rs` blocked on m1-013+ elaborator intrinsic-call chokepoint (unrelated to macros); `runner.rs::codes_corpus_matches_expect_files` blocked on structured-IR payload emission (m2/m5) + macro driver (`#1541` template expansion, `#1542` repetition+hygiene). NB: earlier catalog copy cited `#217` as macro driver — that was a mis-citation (#217 is a closed row-poly handler-typing ticket). | S    | Deferred (blockers open) |
 | `PAS-DEBT-B7-002` | `tests/reflection-corpus/tests/runner.rs`                                                           | Runner `#[ignore]`'d; comparator active but corpus fixtures deferred.                                                 | S    | Wave 3       |
 | `PAS-DEBT-B7-003` | `tests/effects-corpus/tests/runner.rs:57` + `corpus/reject/index_u64_outside_rawmem_row.pdx`        | Reject fixture `#[ignore]`'d until call-resolution path lands.                                                        | S    | Wave 3       |
 | `PAS-DEBT-B7-004` | `tests/linearity-regression` — `reject_corpus_emits_expected_s_codes`                               | `#[ignore]`'d; awaiting borrow-checker phase-4 driver hookup.                                                         | S    | Wave 3       |
@@ -526,7 +526,8 @@ the driver they gate on ships.
 | paideia-as#1011  | (cited in `abi.rs:39`) | MS hidden-pointer aggregate return (B3-007).            |
 | paideia-as#1012  | (cited in `abi.rs:40`) | SysV `RDX:RAX` 128-bit return pair (B3-007).            |
 | paideia-as#983   | (cited in `scratch_and_ops.rs`) | LocalBindingTable threading (B3-006).          |
-| paideia-as#217   | (cited in `codes/m2_macro_*.pdx`) | Macro driver (B7-001).                       |
+| paideia-as#1541  | (cited in `codes/m2_macro_*.pdx` via `tests/end-to-end/tests/runner.rs`) | Macro driver — template expansion + substitution (B7-001, corrected 2026-09-27; earlier catalog copy mis-cited closed `#217`). |
+| paideia-as#1542  | (cited in `codes/m2_macro_*.pdx` via `tests/end-to-end/tests/runner.rs`) | Macro driver — repetition (`*`) + hygiene (B7-001). |
 
 ### 9.3 Source of "12 known" figure
 

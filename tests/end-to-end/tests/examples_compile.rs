@@ -75,8 +75,18 @@ fn examples_dir_is_present() {
     assert!(examples_dir().is_dir(), "examples/ missing");
 }
 
+// PAS-DEBT-B7-001 (paideia-as#1529): this test is one of two co-cited in
+// the debt-catalog row for B7-001. It is INDEPENDENT of the macro driver;
+// the catalog row previously conflated it with the m2_macro corpus in
+// tests/end-to-end/tests/runner.rs. Blocker here is the m1-013+
+// elaborator intrinsic-call chokepoint (no examples/*.pdx currently
+// declares `status: compiles end-to-end`, so removing the ignore would
+// also trip the `examples.len() >= 3` assertion below). The macro-driver
+// half of B7-001 tracks against #1541 (template expansion) and #1542
+// (repetition + hygiene), not #217 (which is a closed handler-typing
+// ticket and was mis-cited in the catalog; see debt-catalog §8.2).
 #[test]
-#[ignore = "phase-3-m1-013+: elaborator intrinsic-call chokepoint is the last hop before examples flip to compiles-end-to-end"]
+#[ignore = "PAS-DEBT-B7-001 (#1529): blocked on elaborator intrinsic-call chokepoint (m1-013+); no examples/*.pdx currently carries `status: compiles end-to-end`"]
 fn every_compiles_end_to_end_example_builds_to_elf64() {
     let bin = match paideia_as_binary() {
         Some(b) => b,
