@@ -1,11 +1,35 @@
 # paideia-as debt catalog
 
-**Status:** Design (2026-09-03). Categorisation + prioritisation pass; **no
-issue-filing this batch.**
+**Status:** Design (2026-09-03; audit refreshed 2026-09-26).
 **Umbrella issue:** [paideia-as#1396](https://github.com/paideia-os/paideia-as/issues/1396)
 **Batch:** Wave 0 Batch 4 (L-sized techdoc)
 **Source of assignment:** MASTER_PLAN.md Phase A + manifest v2 (Q-A-3
 resolution per challenger §5.6).
+
+---
+
+## Landing audit (2026-09-26 compaction cycle — post-Wave 24)
+
+Waves 25–29 landed the following debt items. The per-item table rows
+below still show the original "Wave 3" placeholders; treat this section
+as authoritative for landed state.
+
+| Wave | Release   | Items landed                                                   | Follow-ups filed         |
+|------|-----------|----------------------------------------------------------------|--------------------------|
+| 25   | v0.36.57  | B-followup #1549 (tailcall pass on by default)                | #1550, #1551             |
+| 26   | (os-side) | paideia-os#2512 RETIRE-5 partial (doc cleanup only)           | (uses #1551)             |
+| 27   | v0.36.58  | B4-005 (#1548) — imm64 auto-staging for cmp/and/xor/or/sub/add| #1552 (survey correction)|
+| 28   | v0.36.59  | B1-006 (#1489), B1-007 (#1537) — SARIF fixture reactivation   | #1553 (B1-005 blocker)   |
+| 29   | v0.36.60  | B1-002 (#1486), B1-003 (#1487) — readelf-gate wiring          | none                     |
+
+Still-open debt-followups filed this cycle:
+- **#1550** — m3-829 boot snapshot baseline stale since v0.27.4 (default-path .text drifted +909 bytes on kernel_main, +46 on exceptions).
+- **#1551** — widen tailcall pass to recognize alignment-pad and push/pop-bracketed indirect calls (unblocks paideia-os#2512 full retirement).
+- **#1552** — paideia-os#2509 survey corrections (aspace_map r11-dest collision, gpe imm=-1 collapses to imm8, idt.pdx OR citation stale).
+- **#1553** — fixup-pass U1610 unreachable via user syntax (blocks B1-005 #1488).
+
+Blocked / scope-recheck:
+- **B1-005 (#1488)** — `.pdx` fixture cannot reach fixup-pass U1610 because `parse_operand_from_ast` falls back to SymbolRef for unknown identifiers; test kept `#[ignore]`d pending #1553 scope decision (unit driver / retire fixup U1610 / relax operand parsing).
 
 ---
 
