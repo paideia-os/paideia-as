@@ -36,3 +36,6 @@ mod interrupt_handler;
 
 #[path = "emit_walker_tests/sret_call_wiring.rs"]
 mod sret_call_wiring;
+
+#[path = "emit_walker_tests/sret_slice_c.rs"]
+mod sret_slice_c;

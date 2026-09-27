@@ -466,6 +466,37 @@ impl EmitWalker {
             self.emit_interrupt_prologue(lambda_node_id);
         }
 
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554): reserve the
+        // caller-side sret persistent-frame-slot area right after
+        // the frame-pointer prologue. `caller_sret_frame_bump_table`
+        // holds the per-caller total (populated by
+        // `return_record_cons_pass`). The bump is a plain
+        // `sub rsp, N` with N already 16-multiple, so the SysV
+        // `rsp mod 16` invariant holds for every downstream call.
+        // No matching `add rsp` is emitted here — `mov rsp, rbp` in
+        // `emit_ret` releases the whole area at once.
+        if let Some(&sret_bump) = arena
+            .caller_sret_frame_bump_table()
+            .get(lambda_node_id)
+        {
+            if sret_bump > 0 {
+                self.arm_pending_first_instr_unless_claimed(lambda_node_id);
+                let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                sub_ops.push(Operand::Reg(abi::RSP));
+                sub_ops.push(Operand::Imm64(sret_bump as i64));
+                let sub_inst = Instruction {
+                    mnemonic: Mnemonic::Sub,
+                    operands: sub_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                let sret_id = self.alloc_synthetic_id();
+                self.emit_inst(sret_id, sub_inst);
+            }
+        }
+
         // #1233: Emit prologue (sub rsp, total_size) for lambdas with closure frame layout.
         // This reserves stack space for closure fat pairs + environment records.
         if let Some(frame_layout) = arena.closure_frame_meta().get(lambda_node_id) {
@@ -875,17 +906,27 @@ impl EmitWalker {
                                 }
 
                                 // (2) Module symbol lookup by exact name — direct call.
+                                //
+                                // PAS-DEBT-B4-002 Slice C (paideia-as#1554):
+                                // `body_id` IS the App node id in this
+                                // tail-call arm; pass it through so a
+                                // record-returning callee's caller-side
+                                // sret slot (populated by
+                                // `return_record_cons_pass`) can be
+                                // resolved off the arena side-table.
                                 if arena.symbols().lookup_by_name(name).is_some() {
-                                    self.emit_function_call(
-                                        lambda_node_id, name.clone(), &app_children[1..], arena,
+                                    self.emit_function_call_with_app(
+                                        lambda_node_id, Some(body_id), name.clone(),
+                                        &app_children[1..], arena,
                                     );
                                     return;
                                 }
 
                                 // (3) Cross-file — well-formed name not found locally, writer synthesizes undefined PLT.
                                 // Also handles 7+ arg calls: emit_function_call will generate EncodeError.
-                                self.emit_function_call(
-                                    lambda_node_id, name.clone(), &app_children[1..], arena,
+                                self.emit_function_call_with_app(
+                                    lambda_node_id, Some(body_id), name.clone(),
+                                    &app_children[1..], arena,
                                 );
                                 return;
                                 }

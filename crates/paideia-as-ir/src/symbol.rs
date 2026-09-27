@@ -232,6 +232,25 @@ impl SymbolTable {
             .and_then(|&idx| self.symbols.get(idx))
     }
 
+    /// Look up a symbol whose `ir_node` equals `ir_node`.
+    ///
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554): `emit_ret` needs to
+    /// resolve `current_function` (a Lambda IrNodeId) → owning
+    /// `Symbol` so it can consult `return_record_layout` and drive
+    /// the callee-side sret splice. `SymbolTable`'s name-indexed
+    /// hashmap doesn't help here (only the Lambda id is in hand at
+    /// `emit_ret` time — the mangled name may not be), so a linear
+    /// scan is the honest fallback. Symbol counts in practice are
+    /// small (typically hundreds per module), so the scan cost is
+    /// negligible relative to the emission work already happening at
+    /// each RET site. If this ever becomes hot, a companion
+    /// `by_ir_node: HashMap<IrNodeId, usize>` index alongside
+    /// `by_name` would trade a small memory increase for O(1) lookup.
+    #[must_use]
+    pub fn lookup_by_ir_node(&self, ir_node: IrNodeId) -> Option<&Symbol> {
+        self.symbols.iter().find(|s| s.ir_node == ir_node)
+    }
+
     /// Iterate over all symbols in insertion order.
     #[must_use]
     pub fn iter(&self) -> impl Iterator<Item = &Symbol> + '_ {

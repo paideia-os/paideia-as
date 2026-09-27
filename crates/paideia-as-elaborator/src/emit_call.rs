@@ -320,6 +320,16 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
         caller_abi: Option<CallingConvention>,
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554): App node id of
+        // this call site. When `Some(id)`, the caller-side sret path
+        // consults `arena.caller_sret_slot_table().get(id)` for a
+        // persistent caller-owned dest slot; `Some(_) + entry-present`
+        // switches from Slice B's transient `sub/lea/add` triplet to
+        // a persistent `lea rdi, [rbp - disp]` (slot lives in the
+        // caller's frame, released by the enclosing `mov rsp, rbp`).
+        // `None` — or an id with no entry — falls back to Slice B
+        // byte-identical.
+        app_id: Option<IrNodeId>,
     ) {
         // paideia-as#1305: `target_name` becomes mutable so a SysVRegs
         // recipe carrying `extern_target: Some(sym)` can rewrite the CALL
@@ -624,53 +634,96 @@ impl EmitWalker {
         // to RDX, R8, R9). The arg-marshalling loop below uses
         // `arg_regs[arg_idx + sret_shift]` to consume the shifted
         // register pool.
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554): persistent-slot
+        // path. When `app_id` names an entry in the caller-side sret
+        // slot table (populated by `return_record_cons_pass`), skip
+        // the Slice B transient `sub rsp, N` and emit only the LEA
+        // pointing into the caller's frame at `[rbp - disp]`. The
+        // caller's prologue reserved this slot once at function entry
+        // (see `emit_visit_lambda`'s sret bump block); the enclosing
+        // `mov rsp, rbp` teardown releases it at RET time. Nothing to
+        // add rsp after the CALL — the slot lives on.
+        let persistent_slot: Option<paideia_as_ir::CallerSretSlot> = app_id
+            .and_then(|id| arena.caller_sret_slot_table().get(id).copied());
         if aggregate_shape.needs_sret() {
-            let padded_slot = aggregate_shape.sret_slot_bytes();
-
-            // sub rsp, <padded_slot>
-            let sret_sub_id = if first_emission {
-                first_emission = false;
-                first_id
-            } else {
-                self.alloc_synthetic_id()
-            };
-            let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            sub_ops.push(Operand::Reg(abi::RSP));
-            sub_ops.push(Operand::Imm64(padded_slot as i64));
-            let sub_inst = Instruction {
-                mnemonic: Mnemonic::Sub,
-                operands: sub_ops,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                emission_order: 0,
-            };
-            self.emit_inst(sret_sub_id, sub_inst);
-
-            // lea <sret_reg>, [rsp + 0]
             let sret_reg = match aggregate_shape {
                 AggregateReturnShape::SysvSret { .. } => abi::RDI,
                 AggregateReturnShape::MsSret { .. } => abi::RCX,
                 AggregateReturnShape::Absent => unreachable!(),
             };
-            let lea_id = self.alloc_synthetic_id();
-            let mut lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            lea_ops.push(Operand::Reg(sret_reg));
-            lea_ops.push(Operand::MemSib {
-                base: abi::RSP,
-                index: None,
-                scale: Scale::X1,
-                disp: 0,
-            });
-            let lea_inst = Instruction {
-                mnemonic: Mnemonic::Lea,
-                operands: lea_ops,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                emission_order: 0,
-            };
-            self.emit_inst(lea_id, lea_inst);
+
+            if let Some(slot) = persistent_slot {
+                // Slice C persistent-slot path: single LEA at
+                // `[rbp + slot.rbp_disp]` (rbp_disp is negative).
+                // No `sub rsp` here — the caller's frame prologue
+                // reserved the slot; no `add rsp` after CALL either.
+                let lea_id = if first_emission {
+                    first_emission = false;
+                    first_id
+                } else {
+                    self.alloc_synthetic_id()
+                };
+                let mut lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                lea_ops.push(Operand::Reg(sret_reg));
+                lea_ops.push(Operand::MemSib {
+                    base: abi::RBP,
+                    index: None,
+                    scale: Scale::X1,
+                    disp: slot.rbp_disp,
+                });
+                let lea_inst = Instruction {
+                    mnemonic: Mnemonic::Lea,
+                    operands: lea_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(lea_id, lea_inst);
+            } else {
+                let padded_slot = aggregate_shape.sret_slot_bytes();
+
+                // Slice B fallback: transient slot around the CALL.
+                // sub rsp, <padded_slot>
+                let sret_sub_id = if first_emission {
+                    first_emission = false;
+                    first_id
+                } else {
+                    self.alloc_synthetic_id()
+                };
+                let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                sub_ops.push(Operand::Reg(abi::RSP));
+                sub_ops.push(Operand::Imm64(padded_slot as i64));
+                let sub_inst = Instruction {
+                    mnemonic: Mnemonic::Sub,
+                    operands: sub_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(sret_sub_id, sub_inst);
+
+                // lea <sret_reg>, [rsp + 0]
+                let lea_id = self.alloc_synthetic_id();
+                let mut lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                lea_ops.push(Operand::Reg(sret_reg));
+                lea_ops.push(Operand::MemSib {
+                    base: abi::RSP,
+                    index: None,
+                    scale: Scale::X1,
+                    disp: 0,
+                });
+                let lea_inst = Instruction {
+                    mnemonic: Mnemonic::Lea,
+                    operands: lea_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(lea_id, lea_inst);
+            }
         }
 
         // #1226: Classify pos-0 argument for register-pair enum handling.
@@ -1354,7 +1407,7 @@ impl EmitWalker {
 
         let mut call_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         call_operands.push(Operand::SymbolRef {
-            name: target_name,
+            name: target_name.clone(),
             addend: 0,
         });
 
@@ -1381,12 +1434,12 @@ impl EmitWalker {
         // the scratch saves and the existing pop loop can consume
         // them from the right offset.
         //
-        // Slice C will replace this immediate release with a
-        // persistent frame slot when the caller-side pair-unpack /
-        // record consumer needs to read the sret buffer past the
-        // CALL — at that point the release moves to the enclosing
-        // function's frame epilogue.
-        if aggregate_shape.needs_sret() {
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554): skipped when the
+        // persistent-slot path fired above (no matching `sub rsp` was
+        // emitted, so no `add rsp` release is needed — the slot lives
+        // in the caller's frame and is released by `mov rsp, rbp` at
+        // RET time). `persistent_slot.is_some()` acts as the gate.
+        if aggregate_shape.needs_sret() && persistent_slot.is_none() {
             let padded_slot = aggregate_shape.sret_slot_bytes();
             let sret_add_id = self.alloc_synthetic_id();
             let mut add_ops: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -1401,6 +1454,50 @@ impl EmitWalker {
                 emission_order: 0,
             };
             self.emit_inst(sret_add_id, add_inst);
+        }
+
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554) Piece 4:
+        // caller-side register-return read-back. Fires when the
+        // callee has a `return_record_layout` with a register-return
+        // placement AND this call site has a persistent slot in the
+        // caller (so there's a destination buffer to write into).
+        //
+        // Slice C's `return_record_cons_pass` gates slot allocation
+        // on Memory placement (see the docblock there), so this
+        // branch is dormant in this wave — register-return callers
+        // remain byte-identical to the scalar path, unchanged from
+        // Slice B. Slice D lifts the pass gate once the caller-side
+        // binding resolver names the pair's destination; this splice
+        // then fires without any further emit_call.rs churn.
+        if !aggregate_shape.needs_sret() {
+            if let Some(slot) = persistent_slot {
+                let sym_layout = arena
+                    .symbols()
+                    .lookup_by_name(&target_name)
+                    .and_then(|s| s.return_record_layout.clone());
+                if let Some(layout) = sym_layout {
+                    let insts: Vec<Instruction> = match callee_abi {
+                        CallingConvention::Sysv => {
+                            let placement =
+                                paideia_as_ir::abi::sysv_return_placement_from_layout(&layout);
+                            crate::aggregate_return::sysv_caller_read_return_pair(
+                                placement, abi::RBP, slot.rbp_disp,
+                            )
+                        }
+                        CallingConvention::Ms => {
+                            let placement =
+                                paideia_as_ir::abi::ms_return_placement_from_layout(&layout);
+                            crate::aggregate_return::ms_caller_read_return_reg(
+                                placement, abi::RBP, slot.rbp_disp,
+                            )
+                        }
+                    };
+                    for inst in insts {
+                        let iid = self.alloc_synthetic_id();
+                        self.emit_inst(iid, inst);
+                    }
+                }
+            }
         }
 
         // Issue #1163 (corrective): Restore spilled caller-save scratch bindings after CALL,
@@ -1554,13 +1651,40 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
+        self.emit_function_call_with_app(
+            lambda_node_id,
+            None,
+            target_name,
+            arg_ids,
+            arena,
+        );
+    }
+
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554): explicit-App-id
+    /// variant of `emit_function_call`. Callers that know the App
+    /// node id of this call site (e.g. `emit_visit_lambda`'s
+    /// `IrKind::App` tail-call arm) pass it here so the caller-side
+    /// sret path can consult `CallerSretSlotTable` for a persistent
+    /// slot. Callers that don't yet track the App id use
+    /// `emit_function_call` (which forwards `None` and preserves
+    /// Slice B fallback behavior).
+    pub(crate) fn emit_function_call_with_app(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        app_id: Option<IrNodeId>,
+        target_name: String,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
         // Determine caller and callee ABIs
         // Use lambda_abi_option to distinguish unannotated (None) from explicitly annotated (Some)
         let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
         let callee_abi = arena.symbols().lookup_by_name(&target_name)
             .and_then(|s| s.abi)
             .unwrap_or(CallingConvention::Sysv);
-        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
+        self.emit_call_args_and_call(
+            lambda_node_id, target_name, arg_ids, arena, caller_abi, app_id,
+        );
         self.emit_ret_after_call(lambda_node_id, callee_abi, arena);
     }
 
@@ -1580,7 +1704,9 @@ impl EmitWalker {
         arena: &IrArena,
     ) {
         let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
-        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
+        self.emit_call_args_and_call(
+            lambda_node_id, target_name, arg_ids, arena, caller_abi, None,
+        );
     }
 
     /// #1136: Emit an expression-position call (args + CALL, no RET).
@@ -1644,6 +1770,8 @@ impl EmitWalker {
         }
 
         let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
-        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
+        self.emit_call_args_and_call(
+            lambda_node_id, target_name, arg_ids, arena, caller_abi, None,
+        );
     }
 }

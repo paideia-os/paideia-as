@@ -1,5 +1,110 @@
 # Changelog
 
+## v0.36.70 — 2026-09-27 — Issue #1554 Slice C: callee-side sret splice + persistent caller slot
+
+PAS-DEBT-B4-002 (paideia-as#1554) Slice C completes the record-return
+machinery. Slice A wired the parser + `return_record_layout` side-
+table (v0.36.68); Slice B wired the caller-side sret prelude/postlude
+in `emit_call.rs` with a transient stack slot released around the
+CALL (v0.36.69). Slice C:
+
+  * Adds two side-tables in `paideia-as-ir`: `CallerSretSlotTable`
+    keyed by App IrNodeId → `CallerSretSlot { rbp_disp, padded_size }`,
+    and `CallerSretFrameBumpTable` keyed by caller Lambda IrNodeId →
+    total sret bump bytes. See `sret_frame_slots.rs`.
+  * Adds `return_record_cons_pass::populate_return_record_cons_slots`
+    in the elaborator: walks every Lambda's descendant App nodes,
+    for each App whose callee has a `Memory`-classified
+    `return_record_layout` allocates a non-overlapping caller-owned
+    slot in the enclosing Lambda's frame. Runs inside
+    `walker_pipeline::run_walker_pipeline` between `call_sites`
+    population and `emit_walker.walk`.
+  * **emit_call.rs (Piece 3 — persistent caller slot)**: when the
+    call site's App id names an entry in `CallerSretSlotTable`,
+    emits only `lea rdi, [rbp - disp]` (or `lea rcx, ...` for MS)
+    in place of Slice B's transient `sub rsp, N; lea rdi, [rsp]`;
+    the matching post-CALL `add rsp, N` is skipped. Slot lives in
+    the caller's frame across the CALL, released by `mov rsp, rbp`
+    at RET time. Absent-entry callers fall back to Slice B behavior
+    (byte-identical for the pre-Slice-C corpus, including Slice B's
+    own fixtures).
+  * **emit_visit_lambda.rs**: reserves the caller's sret area with a
+    `sub rsp, N` right after the frame-pointer prologue. N is the
+    per-caller total from `CallerSretFrameBumpTable`, padded to a
+    16-byte multiple. No matching `add rsp` — `mov rsp, rbp` in
+    `emit_ret` releases the whole area.
+  * **emit_ret (Piece 2 — callee-side splice)**: looks up the
+    current function's `Symbol::return_record_layout`; if present,
+    classifies the SysV/MS placement and splices the appropriate
+    aggregate-return helper (`sysv_callee_sret_store` for Memory
+    placement, `sysv_callee_load_return_pair` for register
+    placements; MS analogues for MS callees). Preceded by an inline
+    `sub rsp, padded_size` that allocates the callee-local source
+    buffer — Slice C's scaffolding placeholder; the buffer's
+    contents come from whatever body-shape arm already emitted
+    (uninitialised for the `-> 0` fixture bodies). See "Piece 1
+    deferred to Slice D" below.
+  * **emit_call.rs (Piece 4 — caller-side pair-unpack)**: when the
+    call site has a persistent slot AND the callee returns via
+    register placement (IntPair/etc), splices
+    `sysv_caller_read_return_pair` / `ms_caller_read_return_reg`
+    after the CALL to write RAX/RDX/XMM0/XMM1 into the caller's
+    slot. Dormant in this wave because the pass gates slot
+    allocation on Memory-only; Slice D lifts that gate.
+
+### Piece 1 (return-position record-cons body) deferred to Slice D
+
+Materialising the return-record from a source-level `record { … }`
+expression requires an emit_visit_lambda arm for `IrKind::RecordCons`
+bodies (the parser already accepts them — see
+`parse_lambda.rs::fn_arrow_then_record_constructor_unchanged`; the
+emit path does not). Slice C ships without that arm — the
+`-> 0`-bodied fixtures Slice B introduced remain semantically
+placeholder at runtime (their sret buffer is uninitialised), but
+their emit-time byte shape now includes the Slice C callee-side
+splice + persistent caller-side slot. Slice D lands the arm and a
+matching `ReturnRecordConsTable` side-table that pairs each Lambda's
+body-side record-cons materialisation with the sret splice's source
+buffer.
+
+### Non-exhaustive-match hygiene
+
+`SysvReturnPlacement` and `MsReturnPlacement` are `#[non_exhaustive]`;
+every `match` on them in `return_record_cons_pass.rs` and
+`emit_walker/emit_core.rs::emit_callee_sret_splice` carries the
+required wildcard arm.
+
+### Version + files
+
+- `Cargo.toml` `workspace.package.version` → `0.36.70`.
+- `crates/paideia-as-ir/src/sret_frame_slots.rs` (new): the two
+  new side-tables + inline unit tests.
+- `crates/paideia-as-ir/src/arena.rs`: fields + accessors for the
+  two new tables.
+- `crates/paideia-as-ir/src/symbol.rs`: `lookup_by_ir_node`
+  (O(n)-but-called-once-per-RET; small n justified in the docblock).
+- `crates/paideia-as-elaborator/src/return_record_cons_pass.rs`
+  (new): the pass + 4 unit tests (Memory single call, IntPair no
+  slot, scalar-return regression, two-call packing).
+- `crates/paideia-as-elaborator/src/emit_walker/emit_core.rs`:
+  `emit_callee_sret_splice` (new method) + `emit_ret` docblock
+  refresh.
+- `crates/paideia-as-elaborator/src/emit_call.rs`:
+  `emit_function_call_with_app` (new entry point that carries the
+  App id); persistent-slot branch in the caller-side sret block;
+  post-CALL `add rsp` skipped when persistent-slot is in play;
+  Piece 4 caller-side pair-unpack splice.
+- `crates/paideia-as-elaborator/src/emit_visit_lambda.rs`:
+  caller-side sret frame bump prologue + `emit_function_call` →
+  `emit_function_call_with_app(Some(body_id))` in the tail-call arm.
+- `crates/paideia-as/src/cmd_build/walker_pipeline.rs`: calls
+  `populate_return_record_cons_slots` right before `emit_walker.walk`.
+
+### Scratch changelog
+
+Full narrative + retirement-mapping in
+`.plans/scratch/CHANGELOG-1554-sliceC-record-cons.md`.
+
 ## v0.36.69 — 2026-09-27 — Issue #1554 Slice B: emit-call sret wiring + arg-shift
 
 PAS-DEBT-B4-002 (paideia-as#1554) Slice B consumes the Slice A record-

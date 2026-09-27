@@ -18,10 +18,20 @@
 //!
 //! Split from `emit_walker.rs` (paideia-as#1411).
 
+use paideia_as_ir::abi::{
+    ms_return_placement_from_layout, sysv_return_placement_from_layout, MsReturnPlacement,
+    SysvReturnPlacement,
+};
 use paideia_as_ir::instruction::{InstrMode, Instruction, Mnemonic, Operand};
+use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
 
 use super::EmitWalker;
+
+use crate::aggregate_return::{
+    ms_callee_load_return_reg, ms_callee_sret_store, sysv_callee_load_return_pair,
+    sysv_callee_sret_store,
+};
 
 impl EmitWalker {
     /// Insert an `Instruction` into the side-table and advance
@@ -174,20 +184,42 @@ impl EmitWalker {
     ///
     /// # PAS-DEBT-B4-002 Slice B / Slice C (paideia-as#1554)
     ///
-    /// Callee-side aggregate-return wiring is intentionally NOT
-    /// emitted here in Slice B — the required sequence
-    /// (`sysv_callee_sret_store` / `ms_callee_sret_store` for Memory
-    /// placement, `sysv_callee_load_return_pair` /
-    /// `ms_callee_load_return_reg` for register placement) needs a
-    /// callee-local source buffer with a known offset from RBP, which
-    /// the record-cons codepath for return-position record
-    /// materialisation does not yet produce. Slice C lands that
-    /// upstream materialisation and then wires this emitter to consume
-    /// it — splicing the appropriate helper's output BEFORE the
-    /// frame-pointer teardown block above. See
-    /// `aggregate_return.rs` for the byte-exact helpers and
-    /// `emit_call.rs` for the sibling caller-side wiring already
-    /// landed in Slice B.
+    /// **Slice C** wires the callee-side aggregate-return splice: if
+    /// the current function's Symbol carries a
+    /// `return_record_layout`, the pass classifies its SysV / MS
+    /// placement and splices the matching helper from
+    /// `aggregate_return.rs` before the frame-pointer teardown:
+    ///
+    ///   * `Memory` placement → `sysv_callee_sret_store` /
+    ///     `ms_callee_sret_store` copies the aggregate from a
+    ///     callee-local source buffer (allocated inline via
+    ///     `sub rsp, padded_size` right before the copy) into the
+    ///     caller-provided sret buffer at `[RDI]` (SysV) / `[RCX]`
+    ///     (MS), then `mov rax, rdi/rcx` per ABI contract.
+    ///   * Register-return (IntSingle, IntPair, SseSingle, SsePair,
+    ///     IntSse, SseInt, XmmSingle) → `sysv_callee_load_return_pair`
+    ///     / `ms_callee_load_return_reg` loads each eightbyte from
+    ///     the callee-local source buffer into the placement's
+    ///     return registers.
+    ///
+    /// **Callee-local source buffer**: allocated with a bare
+    /// `sub rsp, padded_size` before the copy. The buffer's contents
+    /// come from whatever body-shape arm emitted before this RET —
+    /// today that is the arm's own scratch, uninitialised for the
+    /// `-> 0` fixtures (Slice C is deliberately scaffolding for
+    /// those). Slice D lands a return-position record-cons pass
+    /// that writes each field into this buffer BEFORE control
+    /// reaches `emit_ret`, giving a semantically correct end-to-end
+    /// story.
+    ///
+    /// The buffer is released by the same `mov rsp, rbp` teardown
+    /// below — no matching `add rsp, N` needed for frame-pointer
+    /// functions. `@no_frame` functions cannot host record returns
+    /// under this design (they lack the RBP anchor); that is an
+    /// implicit precondition — the pass leaves them alone.
+    ///
+    /// See `aggregate_return.rs` for the byte-exact helpers and
+    /// `emit_call.rs` for the sibling caller-side wiring.
     pub(crate) fn emit_ret(&mut self, ret_id: IrNodeId, arena: &IrArena) {
         // Check if current function has frame layout
         if let Some(lambda_id) = IrNodeId::new(self.state.current_function) {
@@ -211,6 +243,11 @@ impl EmitWalker {
                 }
             }
         }
+
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554): callee-side
+        // aggregate-return splice. See the docblock above for the
+        // scaffolding-source-buffer rationale.
+        self.emit_callee_sret_splice(arena);
 
         // paideia-as#1276 phase 3: frame-pointer epilogue for non-@no_frame
         // functions whose prologue actually fired. Matches the lazy
@@ -282,5 +319,135 @@ impl EmitWalker {
             emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
+    }
+
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554): splice the
+    /// callee-side aggregate-return sequence.
+    ///
+    /// Fires in `emit_ret` between the closure-frame `add rsp` and
+    /// the frame-pointer teardown. Silently no-ops when:
+    ///
+    ///   * `current_function == 0` (called outside any Lambda scope
+    ///     — a caller bug; nothing to splice against),
+    ///   * the current Lambda's Symbol has no `return_record_layout`
+    ///     (scalar-return path preserved, byte-identical to
+    ///     pre-Slice-C behaviour),
+    ///   * the current Lambda is `@no_frame` (see the RBP
+    ///     precondition in `emit_ret`'s docblock).
+    ///
+    /// Emitted sequence (SysV, Memory placement, `padded_size = P`):
+    /// ```text
+    ///   sub rsp, P                    ; scaffolding source buffer
+    ///   mov r10, [rsp + 0]            ; sret_store (one qword pair
+    ///   mov [rdi + 0], r10            ;  per aggregate eightbyte)
+    ///   ... repeated `P/8` times ...
+    ///   mov rax, rdi                  ; return sret buffer pointer
+    /// ```
+    ///
+    /// The `mov rsp, rbp` teardown that follows this splice
+    /// symmetrically releases the buffer — no matching `add rsp` is
+    /// needed here.
+    fn emit_callee_sret_splice(&mut self, arena: &IrArena) {
+        if self.state.current_function == 0 {
+            return;
+        }
+        if self.state.is_lambda_no_frame(self.state.current_function) {
+            return;
+        }
+        let Some(lambda_id) = IrNodeId::new(self.state.current_function) else {
+            return;
+        };
+        // Resolve the Symbol whose `ir_node` is this Lambda. See
+        // `SymbolTable::lookup_by_ir_node` for the O(n) rationale
+        // (small n, called once per RET site).
+        let Some(sym) = arena.symbols().lookup_by_ir_node(lambda_id) else {
+            return;
+        };
+        let Some(layout) = sym.return_record_layout.as_ref() else {
+            return;
+        };
+        let abi_cc = sym.abi.unwrap_or(CallingConvention::Sysv);
+
+        // Compute the source-buffer padding once — mirrors
+        // `emit_call.rs::sret_padded_slot_bytes` on the caller side.
+        // 16-multiple round-up preserves SysV `rsp mod 16` post
+        // sub-only allocation (paired release is `mov rsp, rbp`).
+        let padded_size: u32 = {
+            let align = std::cmp::max(layout.align as u64, 16);
+            let p = (layout.size + align - 1) & !(align - 1);
+            let p16 = (p + 15) & !15;
+            p16 as u32
+        };
+        if padded_size == 0 {
+            // Zero-size aggregate → nothing to splice (matches the
+            // classifier's `None` placement on the empty layout).
+            return;
+        }
+
+        // Build the sret helper's instruction stream. Source lives
+        // at `[rsp + 0]` right after the sub below.
+        let instructions: Vec<Instruction> = match abi_cc {
+            CallingConvention::Sysv => {
+                let placement = sysv_return_placement_from_layout(layout);
+                match placement {
+                    SysvReturnPlacement::None => return,
+                    SysvReturnPlacement::Memory => {
+                        // 8-byte-aligned aggregates only: the helper
+                        // asserts. Non-multiple-of-8 sizes require
+                        // tail-byte handling that's a documented
+                        // follow-up in `aggregate_return.rs`.
+                        if (layout.size % 8) != 0 {
+                            return;
+                        }
+                        sysv_callee_sret_store(layout.size as u32, abi::RSP, 0)
+                    }
+                    // Register-return placements: load from the
+                    // source buffer at [rsp + 0]. Non-exhaustive
+                    // wildcard per SysvReturnPlacement's
+                    // #[non_exhaustive] contract.
+                    _ => sysv_callee_load_return_pair(placement, abi::RSP, 0),
+                }
+            }
+            CallingConvention::Ms => {
+                let placement = ms_return_placement_from_layout(layout);
+                match placement {
+                    MsReturnPlacement::None => return,
+                    MsReturnPlacement::Memory => {
+                        if (layout.size % 8) != 0 {
+                            return;
+                        }
+                        ms_callee_sret_store(layout.size as u32, abi::RSP, 0)
+                    }
+                    _ => ms_callee_load_return_reg(placement, abi::RSP, 0),
+                }
+            }
+        };
+
+        if instructions.is_empty() {
+            return;
+        }
+
+        // Emit the source-buffer allocation. Small immediate; no
+        // reserved-label pitfall. `sub rsp, imm` uses generic Mov
+        // form, no special encoder issues.
+        let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        sub_ops.push(Operand::Reg(abi::RSP));
+        sub_ops.push(Operand::Imm64(padded_size as i64));
+        let sub_inst = Instruction {
+            mnemonic: Mnemonic::Sub,
+            operands: sub_ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        let sub_id = self.alloc_synthetic_id();
+        self.emit_inst(sub_id, sub_inst);
+
+        // Splice the helper's instruction stream.
+        for inst in instructions {
+            let iid = self.alloc_synthetic_id();
+            self.emit_inst(iid, inst);
+        }
     }
 }

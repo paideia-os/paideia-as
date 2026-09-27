@@ -45,6 +45,7 @@ pub mod pretty;
 pub mod record_layout;
 pub mod return_record_layout;
 pub mod section_attr;
+pub mod sret_frame_slots;
 pub mod side_table;
 pub mod string_literal;
 pub mod symbol;
@@ -106,6 +107,7 @@ pub use operators::{BINARY_OPERATORS, KNOWN_OPERATORS, UNARY_OPERATORS, is_binar
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, FieldLayout, RecordLayout, RecordLayoutTable, RecordTypeId};
 pub use return_record_layout::ReturnRecordLayoutTable;
 pub use section_attr::{SectionAttr, SectionAttrTable};
+pub use sret_frame_slots::{CallerSretFrameBumpTable, CallerSretSlot, CallerSretSlotTable};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Visibility};
 pub use trip_count::TripCountTable;

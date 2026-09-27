@@ -286,6 +286,17 @@ pub(super) fn run_walker_pipeline(
         paideia_as_elaborator::EmitWalker::populate_data_table(&lowering.ir, &mut temp_data_table);
         *lowering.ir.data_mut() = temp_data_table;
 
+        // PAS-DEBT-B4-002 Slice C (paideia-as#1554): populate the
+        // caller-side sret persistent-frame-slot tables. Runs AFTER
+        // `call_sites` is populated (above) and Slice A's
+        // `return_record_layout_table` is filled, and BEFORE the
+        // walk consumes either. See `return_record_cons_pass.rs`
+        // for the "keyed by App, absent = Slice B fallback"
+        // convention consumed by `emit_call.rs`, and for the
+        // scaffolding-only status of Piece 1 (return-position
+        // record-cons body materialisation, deferred to Slice D).
+        paideia_as_elaborator::populate_return_record_cons_slots(&mut lowering.ir);
+
         // Issue #1219 populated let_meta.ty; consumption at walk() awaits a follow-up
         // that flips to walk_with_typer to activate resolve_let_width in production.
         emit_walker.walk(&mut lowering.ir);

@@ -34,6 +34,7 @@ use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 use crate::record_layout::{FieldAccessSideTable, RecordLayoutTable, FinalisedLayoutTable};
 use crate::return_record_layout::ReturnRecordLayoutTable;
+use crate::sret_frame_slots::{CallerSretFrameBumpTable, CallerSretSlotTable};
 use crate::symbol::SymbolTable;
 use crate::trip_count::TripCountTable;
 use crate::unroll_info::UnrollInfoTable;
@@ -194,6 +195,25 @@ pub struct IrArena {
     /// construction. Empty on symbols whose return type is not a record
     /// or whose layout the pass could not fold.
     return_record_layout_table: ReturnRecordLayoutTable,
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554): caller-owned sret
+    /// slot descriptor for each record-returning App node whose
+    /// placement is Memory (or a register-return call whose caller
+    /// wants to materialise the pair in a persistent slot). Populated
+    /// by `return_record_cons_pass::populate_return_record_cons_slots`;
+    /// consumed by `emit_call.rs` to emit `lea rdi, [rbp - disp]` in
+    /// place of the Slice B transient `sub/lea/add` triplet, and by
+    /// the same emit path (after CALL) to splice the caller-side
+    /// pair-unpack via `sysv_caller_read_return_pair` /
+    /// `ms_caller_read_return_reg`. Absent entry ⇒ Slice B fallback
+    /// (transient slot for Memory; no post-CALL unpack for register).
+    caller_sret_slot_table: CallerSretSlotTable,
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554): total padded bytes
+    /// of caller-side sret slots per caller Lambda. Consumed by
+    /// `emit_visit_lambda`'s prologue block to emit `sub rsp, N` after
+    /// the frame-pointer prologue; `mov rsp, rbp` in `emit_ret`
+    /// releases the whole area at exit (no matching `add rsp` needed
+    /// for frame-pointer functions).
+    caller_sret_frame_bump_table: CallerSretFrameBumpTable,
 }
 
 impl IrArena {
@@ -249,6 +269,8 @@ impl IrArena {
             closure_frame_meta: ClosureFrameMetaTable::new(),
             fingerprint_entries: Vec::new(),
             return_record_layout_table: ReturnRecordLayoutTable::new(),
+            caller_sret_slot_table: CallerSretSlotTable::new(),
+            caller_sret_frame_bump_table: CallerSretFrameBumpTable::new(),
         }
     }
 
@@ -585,6 +607,36 @@ impl IrArena {
     /// Borrow the return-record-layout table (mutable).
     pub fn return_record_layout_table_mut(&mut self) -> &mut ReturnRecordLayoutTable {
         &mut self.return_record_layout_table
+    }
+
+    /// Borrow the caller-side sret slot table (read-only).
+    ///
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554). See
+    /// `sret_frame_slots.rs` for the "keyed by App IrNodeId, absent =
+    /// Slice B fallback" convention.
+    #[must_use]
+    pub fn caller_sret_slot_table(&self) -> &CallerSretSlotTable {
+        &self.caller_sret_slot_table
+    }
+
+    /// Borrow the caller-side sret slot table (mutable).
+    pub fn caller_sret_slot_table_mut(&mut self) -> &mut CallerSretSlotTable {
+        &mut self.caller_sret_slot_table
+    }
+
+    /// Borrow the caller-side sret frame bump table (read-only).
+    ///
+    /// PAS-DEBT-B4-002 Slice C (paideia-as#1554). Keyed by caller
+    /// Lambda IrNodeId; value is the total padded bytes of caller-
+    /// side sret slots to reserve in the prologue.
+    #[must_use]
+    pub fn caller_sret_frame_bump_table(&self) -> &CallerSretFrameBumpTable {
+        &self.caller_sret_frame_bump_table
+    }
+
+    /// Borrow the caller-side sret frame bump table (mutable).
+    pub fn caller_sret_frame_bump_table_mut(&mut self) -> &mut CallerSretFrameBumpTable {
+        &mut self.caller_sret_frame_bump_table
     }
 
     /// Borrow the enum cons side-table (read-only).
