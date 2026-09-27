@@ -329,6 +329,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     if optimize >= 1 && !lowering.ir.is_empty() {
         let mut requested_passes = BTreeSet::new();
         requested_passes.insert("peephole".to_string());
+        // #1549: enable tailcall pass by default. Unblocks paideia-os#2512
+        // (RETIRE-5) so `call rax; ret` dispatchers are rewritten to
+        // `jmp rax` without needing an explicit --optimize flag toggle.
+        // The pass is gated by the same `optimize >= 1` predicate and
+        // uses B3-002's `tco_arena_blocker` for handler/capability safety.
+        requested_passes.insert("tailcall".to_string());
         let mut opt_sink = OptDiagSink::new();
 
         // Run optimization passes on the root module (IrNodeId 1)

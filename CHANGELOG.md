@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.36.57 — 2026-09-26 — Wave 17: tailcall pass on by default
+
+- #1549: Add `"tailcall"` to default `requested_passes` in `cmd_build/mod.rs` alongside `"peephole"`. Unblocks paideia-os#2512.
+
 ## 0.36.56 — 2026-09-26 — Wave 16 paideia-os prereqs: indirect tail-call widening
 
 **Indirect tail-call widening** (closes paideia-as#1547) — Unblocks paideia-os#2512 fully:
