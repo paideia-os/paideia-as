@@ -85,9 +85,23 @@ fn link_elf_files(obj_file1: &str, obj_file2: &str, output_file: &str) -> Result
     Ok(())
 }
 
+fn require_tool(tool: &str) -> bool {
+    Command::new(tool)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 #[test]
-#[ignore] // Requires paideia-as, readelf, and ld
 fn test_data_symbol_uses_binding_name() {
+    // PAS-DEBT-B1-002 (#1486): removed #[ignore]. Skip cleanly if readelf/ld
+    // absent from $PATH rather than hard-fail — pre-push wraps this via
+    // `cargo test -p paideia-as --test build_emit`.
+    if !require_tool("readelf") {
+        eprintln!("skipping test_data_symbol_uses_binding_name: readelf not in $PATH");
+        return;
+    }
     // Verify that a data symbol created from `let target : u64 = 42`
     // has the symbol name `target` (not `data_<id>`).
 
@@ -119,8 +133,13 @@ fn test_data_symbol_uses_binding_name() {
 }
 
 #[test]
-#[ignore] // Requires paideia-as and readelf
 fn test_cross_file_data_relocation_resolves() {
+    // PAS-DEBT-B1-003 (#1487): removed #[ignore]. Skip cleanly if readelf/ld
+    // absent from $PATH.
+    if !require_tool("readelf") || !require_tool("ld") {
+        eprintln!("skipping test_cross_file_data_relocation_resolves: readelf/ld not in $PATH");
+        return;
+    }
     // Test that two files can link when one file defines a data symbol
     // and another references it.
 

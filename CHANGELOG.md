@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.36.60 — 2026-09-26 — Wave 29: B1-002 + B1-003 readelf-gate wiring
+
+- #1486 (B1-002) + #1487 (B1-003): removed `#[ignore]` from
+  `test_data_symbol_uses_binding_name` (L89) and
+  `test_cross_file_data_relocation_resolves` (L122) in
+  `pa10_007_data_symbol_names.rs`. Added local `require_tool(&str)` runtime
+  gate that skips the test when `readelf` (or `ld` for the linker test) is
+  absent from `$PATH`, per project rule against GitHub-Actions-style CI.
+- `cargo check --tests -p paideia-as` verified. Full test run deferred (host
+  memory pressure — swap saturated during this session).
+
 ## v0.36.59 — 2026-09-26 — Wave 28: B1-006 + B1-007 SARIF-fixture reactivation
 
 - #1489 (B1-006 duplicate-symbol): new `tests/build-emit/duplicate_symbol.pdx`
