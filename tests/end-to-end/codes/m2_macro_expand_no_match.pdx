@@ -1,0 +1,12 @@
+// paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b) fixture — reject
+// case: @macro_expand([...]) drives a macro whose only rule expects
+// two comma-separated fragments, but the input carries only one.
+// match_structured returns Failed and the driver emits M0308
+// ("no matching rule for macro invocation") anchored on the
+// @macro_expand(...) site.
+
+module M2MacroExpandNoMatch = structure {
+  macro pair($a:expr, $b:expr) => { ($a, $b) }
+}
+
+@macro_expand([pair, "1"])

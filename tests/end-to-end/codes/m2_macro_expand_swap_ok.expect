@@ -1,0 +1,4 @@
+# Accept: @macro_expand([swap, "1, 2"]) matches the two-arg pattern,
+# expands to the swap template with $a=1, $b=2, and re-lexes clean.
+# Exercises multi-fragment substitution through the driver hook.
+ok

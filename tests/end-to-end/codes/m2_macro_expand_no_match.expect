@@ -1,0 +1,3 @@
+# Reject: single-argument input against a two-argument pattern fires
+# M0308 through the paideia-as#1556 @macro_expand driver.
+M0308

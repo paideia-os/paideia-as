@@ -323,6 +323,14 @@ pub struct AstArena {
     /// M1-003 landing ships the storage; the parser-item hookup that
     /// pushes into it arrives with the M1-004 item integration.
     functor_attrs: crate::FunctorAttrTable,
+    /// paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b): compile-time
+    /// `@macro_expand([<macro>, "<input>"])` directives recorded at
+    /// top level by the parser. Read back by
+    /// `paideia-as-elaborator::macro_expand_pass` to invoke
+    /// `expand_macro` and route diagnostics
+    /// (M0308/M0309/M0310/M0311/M0314/M0315) into the sink.
+    /// See [`crate::MacroExpandDirectiveTable`].
+    macro_expand_directives: crate::MacroExpandDirectiveTable,
 }
 
 impl AstArena {
@@ -353,6 +361,7 @@ impl AstArena {
             struct_field_attrs: crate::StructFieldAttrTable::new(),
             struct_attrs: crate::StructAttrTable::new(),
             functor_attrs: crate::FunctorAttrTable::new(),
+            macro_expand_directives: crate::MacroExpandDirectiveTable::new(),
         };
         // Reserve index 0 in mnemonic_table so that valid IDs start at 1.
         s.mnemonic_table.push(String::new());
@@ -695,6 +704,29 @@ impl AstArena {
     /// Borrow the functor-level attribute side-table (mutable).
     pub fn functor_attr_mut(&mut self) -> &mut crate::FunctorAttrTable {
         &mut self.functor_attrs
+    }
+
+    /// Borrow the compile-time `@macro_expand(...)` directive table
+    /// (read-only).
+    ///
+    /// paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b). Populated by the
+    /// parser whenever it encounters a top-level
+    /// `@macro_expand([<macro>, "<input>"])` directive. Read back by
+    /// `paideia-as-elaborator::macro_expand_pass::run_macro_expand_directives`
+    /// after parse, before lowering, to invoke `expand_macro` and
+    /// emit any diagnostics (M0308/M0309/M0310/M0311/M0314/M0315) to
+    /// the sink.
+    #[must_use]
+    pub fn macro_expand_directives(&self) -> &crate::MacroExpandDirectiveTable {
+        &self.macro_expand_directives
+    }
+
+    /// Borrow the compile-time `@macro_expand(...)` directive table
+    /// (mutable). The parser calls
+    /// [`crate::MacroExpandDirectiveTable::push`] here to record one
+    /// entry per directive it recognises.
+    pub fn macro_expand_directives_mut(&mut self) -> &mut crate::MacroExpandDirectiveTable {
+        &mut self.macro_expand_directives
     }
 }
 

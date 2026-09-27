@@ -1,0 +1,17 @@
+// paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b) fixture — swap-args
+// macro exercised through @macro_expand([...]) with a two-argument
+// input. Verifies that match_structured handles comma-separated
+// fragments and that expand_macro substitutes each $a / $b
+// consistently on both occurrences. Diagnostic-clean.
+//
+// Byte layout of the input string "1, 2":
+//   0..1 "1"
+//   1..2 ","
+//   2..3 " "
+//   3..4 "2"
+
+module M2MacroExpandSwapOk = structure {
+  macro swap($a:expr, $b:expr) => { { let t = $a; $a = $b; $b = t; } }
+}
+
+@macro_expand([swap, "1, 2"])

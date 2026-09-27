@@ -69,6 +69,7 @@ pub mod local_binding_table;
 pub mod lower;
 pub mod lower_type;
 pub mod macro_expand;
+pub mod macro_expand_pass;
 pub mod macro_match;
 pub mod modules;
 pub mod mutation_walker;
@@ -168,6 +169,12 @@ pub use macro_expand::{
     bindings_by_name, check_depth, expand_macro, expand_reflective, expand_reflective_hygienic,
     expand_template,
 };
+pub use macro_expand_pass::{M_MACRO_NOT_FOUND, run_macro_expand_directives};
+// Note: [`macro_expand_pass`] also re-defines the M0308 constant for
+// its own emit site. That constant is intentionally kept module-local
+// to avoid a name-collision with [`macro_match::M_NO_MATCH`] at the
+// crate re-export layer — external callers reach the code through
+// [`macro_match::M_NO_MATCH`] as before.
 pub use macro_match::{
     InvocationMatch, M_NO_MATCH, M_REP_COUNT_MISMATCH, MatchBinding, RuleMatch, StructuredMatch,
     match_invocation, match_rule, match_structured,

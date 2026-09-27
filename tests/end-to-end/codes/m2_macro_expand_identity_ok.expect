@@ -1,0 +1,6 @@
+# Accept: @macro_expand([id, "42"]) matches, expands cleanly, no macro
+# diagnostics. First end-to-end fixture for the paideia-as#1556 driver
+# hook. Companion to m2_macro_identity.pdx (v0.36.65 shape-only
+# fixture): this variant asserts the DRIVER now fires the expander
+# instead of the earlier ship-only-parse regime.
+ok

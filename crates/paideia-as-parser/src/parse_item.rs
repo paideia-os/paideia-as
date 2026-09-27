@@ -101,6 +101,19 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 // then extract the fields and re-allocate as an item.
                 self.parse_unsafe_item()
             }
+            Some(TokenKind::At) => {
+                // paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b): top-level
+                // `@macro_expand([<macro>, "<input>"])` directive. Recorded
+                // into the arena's `macro_expand_directives` side-table;
+                // consumed by `paideia-as-elaborator::macro_expand_pass` after
+                // parse to drive `expand_macro` for corpus tests. Returns a
+                // Placeholder NodeId so the source-file loop keeps its
+                // one-item-per-iteration invariant.
+                //
+                // INTERNAL-ONLY. Not a user surface — R221.M4's
+                // `foo!(...)` invocation syntax retires this directive.
+                self.parse_top_level_at_directive()
+            }
             Some(TokenKind::Ident) => {
                 // Check for contextual keyword "macro"
                 if let Some(tok) = self.peek() {
@@ -181,6 +194,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         TokenKind::KwStruct,
                         TokenKind::KwEnum,
                         TokenKind::KwUnsafe,
+                        // paideia-as#1556: `@macro_expand(...)` is a
+                        // top-level item start point since v0.36.74.
+                        TokenKind::At,
                         TokenKind::Eof,
                     ]);
                 }
@@ -220,6 +236,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         TokenKind::KwStruct,
                         TokenKind::KwEnum,
                         TokenKind::KwUnsafe,
+                        // paideia-as#1556: `@macro_expand(...)` is a
+                        // top-level item start point since v0.36.74.
+                        TokenKind::At,
                         TokenKind::Eof,
                     ]);
                 }

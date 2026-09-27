@@ -1,0 +1,17 @@
+// paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b) fixture — identity
+// macro exercised through the new @macro_expand([...]) compile-time
+// driver. The directive fires the identity macro with the input
+// token "42"; the pass matches the single-arg pattern, substitutes
+// $x → 42, re-lexes into a well-formed token stream, and reports
+// zero macro diagnostics.
+//
+// This is the first end-to-end fixture that drives expand_macro
+// through the cmd_build pipeline (Slice B7-001-b), unblocking the
+// codes-corpus (paideia-as#1529) and the reflection-corpus
+// (paideia-as#1530) M-code half.
+
+module M2MacroExpandIdentityOk = structure {
+  macro id($x:expr) => { $x }
+}
+
+@macro_expand([id, "42"])

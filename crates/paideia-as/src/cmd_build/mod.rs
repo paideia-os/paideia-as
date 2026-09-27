@@ -207,6 +207,31 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         }
     }
 
+    // paideia-as#1556 (v0.36.74, PAS-DEBT-B7-001-b): compile-time
+    // `@macro_expand([<macro>, "<input>"])` driver. Runs on the raw
+    // AST — walks the arena's `macro_expand_directives` side-table,
+    // resolves each directive's macro name against declared macros in
+    // scope, invokes `match_structured` + `expand_macro`, and pipes
+    // diagnostics (M0308/M0309/M0310/M0311/M0314/M0315) into the
+    // sink. Skipped when the parser errored so a broken tree does
+    // not add cascade noise on top of parse-side failures.
+    //
+    // Placed here — before the file-module validation and struct/
+    // enum registries — because the pass is source-only: it needs
+    // the arena, the raw source content, and the sink. No IR /
+    // interner state is required.
+    if let Some(root) = root_id
+        && !parse_errored
+        && !lex_errored
+    {
+        paideia_as_elaborator::run_macro_expand_directives(
+            &arena,
+            source.content(),
+            root,
+            &mut sink,
+        );
+    }
+
     // paideia-as#1307 (unblocks paideia-os#1024 R29.M2-002): AST-level
     // effect-row → cap-set coupling check. For every `let` binding
     // whose annotated type carries an effect row, verify that any

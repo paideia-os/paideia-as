@@ -17,6 +17,7 @@ mod item_atomic;
 mod item_dsl_parser;
 mod item_fingerprint;
 mod items;
+mod macro_expand_directive;
 mod macros;
 mod modules;
 mod node_id;
@@ -36,6 +37,7 @@ pub use functor_attr::{FunctorAttr, FunctorAttrTable};
 pub use item_atomic::ItemAtomicTable;
 pub use item_dsl_parser::ItemDslParserTable;
 pub use item_fingerprint::ItemFingerprintTable;
+pub use macro_expand_directive::{MacroExpandDirective, MacroExpandDirectiveTable};
 pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
     SharingConstraint, TraitBound,

@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.36.74 — 2026-09-27 — Issue #1556: `@macro_expand` compile-time driver (PAS-DEBT-B7-001-b)
+
+paideia-as#1556 lands the compile-time `@macro_expand([<macro>, "<input>"])`
+top-level directive so cmd_build can exercise `expand_macro` and
+`match_structured` end-to-end ahead of R221.M4's user-facing
+`foo!(...)` invocation syntax. Unblocks paideia-as#1529 (B7-001
+codes-corpus) and paideia-as#1530 (B7-002 reflection-corpus M-code
+half).
+
+  * **paideia-as-ast** — New `macro_expand_directive` module: sparse
+    `MacroExpandDirectiveTable` on `AstArena` holds an ordered
+    `Vec<MacroExpandDirective>` populated at parse time. Accessors
+    `macro_expand_directives()` / `_mut()` mirror the existing
+    `functor_attr` / `struct_attr` side-table shape.
+
+  * **paideia-as-parser** — New `parse_macro_expand_directive` module
+    hooks a `TokenKind::At` arm into `parse_item`. Recognises
+    `@macro_expand([<Ident>, "<StringLit>"])` (optionally followed by
+    `;`), strips the string literal's surrounding quotes, and pushes
+    one entry into the arena's directive table. Returns a
+    `NodeKind::Placeholder` NodeId so the source-file loop's
+    per-iteration item invariant holds. Recovery lists in
+    `parse_source_file` gain `TokenKind::At` as a recognised item
+    start-point. Diagnostics: P0100 for unknown top-level `@` name,
+    missing `(` / `[` / `,` / `]` / `)`, or non-ident / non-string
+    argument.
+
+  * **paideia-as-elaborator** — New `macro_expand_pass` module:
+    `run_macro_expand_directives(arena, source, root, sink)` walks the
+    directive table, resolves each entry's macro name against
+    top-level MacroDecls (recursing through Module / Structure /
+    Functor bodies), invokes `match_structured` on the pattern-elems
+    of each rule, and — on the first successful match — hands the
+    bindings to `expand_macro`. Every diagnostic (M0308 no-match,
+    M0309 unbound meta, M0310 rep-count mismatch, M0311 recursion
+    limit, M0314 template rep misuse) routes into the caller's
+    DiagnosticSink. Introduces a new M0315
+    (`M_MACRO_NOT_FOUND`) for the "referenced macro not in scope"
+    case — slots into the existing M0308..M0315 macro range.
+
+  * **paideia-as/src/cmd_build/mod.rs** — Calls
+    `run_macro_expand_directives` immediately after
+    `validate_file_module_mapping` and before the effect-cap coupling
+    check; gated on `!parse_errored && !lex_errored` so a broken tree
+    does not add cascade noise on top of parse failures.
+
+  * **INTERNAL-ONLY.** The `@macro_expand` annotation is a
+    compile-time driver hook, not a user surface. Once R221.M4 lands
+    user-facing macro invocation syntax the directive can retire
+    (Slice D of B7-001).
+
+  * **Tests.** Elaborator's `macro_expand_pass` module test suite
+    covers identity, missing macro name (M0315), unmatched arity
+    (M0308), the empty-table no-op, and the nested-module resolver
+    path. Parser's `parse_macro_expand_directive` module test suite
+    covers happy-path recording, multi-directive ordering, and P0100
+    on both unknown attribute name and missing bracket.
+
 ## v0.36.73 — 2026-09-27 — Issue #1553: retire unreachable fixup-pass U1610 (closes #1488)
 
 paideia-as#1553 retires the user-facing U1610 (`unresolved-label`)
