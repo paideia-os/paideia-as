@@ -1,5 +1,140 @@
 # Changelog
 
+## v0.36.69 — 2026-09-27 — Issue #1554 Slice B: emit-call sret wiring + arg-shift
+
+PAS-DEBT-B4-002 (paideia-as#1554) Slice B consumes the Slice A record-
+return infrastructure at the emit sites. When a callee's Symbol carries
+a `return_record_layout`, `emit_call.rs`'s new branch probes it,
+resolves an aggregate-return placement via
+`abi::sysv_return_placement_from_layout` /
+`abi::ms_return_placement_from_layout`, and:
+
+  * **On `Memory` placement** (SysV > 16 B or MS ∉ {1, 2, 4, 8}
+    non-scalar-float): reserves a caller-owned stack slot (padded to a
+    16-byte multiple so the sub/add pair preserves the SysV
+    `rsp mod 16 == 0 at CALL` invariant), splices the caller sret
+    prelude (`lea rdi, [rsp]` for SysV, `lea rcx, [rsp]` for MS),
+    shifts real arg registers right by one (SysV RDI→RSI→RDX→RCX→R8→R9;
+    MS RCX→RDX→R8→R9), then releases the slot with `add rsp, N`
+    immediately after the CALL. Slice C will replace the immediate
+    release with a persistent frame slot when the caller-side pair-
+    unpack / record consumer reads the sret buffer past the CALL.
+  * **On register-return placement** (`IntSingle`, `SseSingle`,
+    `IntPair`, `IntSse`, `SseInt`, `SsePair`, `XmmSingle`): leaves
+    the CALL emission byte-identical to the scalar path. Slice C
+    wires the caller-side pair-unpack when it has a real destination
+    buffer to name.
+  * **On absent / scalar / `None` placement**: the entire scalar
+    path stays byte-identical. Two regression tests pin this.
+
+### ArgConvention design decision — path (b)
+
+The Slice A report offered two paths for exposing sret to the emit
+pipeline: (a) new `ArgConvention::SysVSret` / `MsSret` variants
+threaded through the stdlib recipe surface, or (b) a layout-driven
+probe of `Symbol::return_record_layout` at every emit-call site.
+
+Slice B lands (b). Rationale:
+
+  * `ArgConvention` is the stdlib-recipe input contract — aggregate
+    return is a property of the callee's declared type, not of the
+    recipe author. Threading it through the recipe convention forces
+    every recipe author to opt in per-function; the layout-driven
+    probe picks up any function whose declared return type is a
+    record.
+  * The existing `SysVRegs` recipe treatment (extern-thunk rewrites,
+    scratch-save composition, MS shadow-space alignment) is
+    orthogonal to the sret decision — one call can be both
+    "recipe-driven" and "sret-shaped". Keeping the two decisions
+    separate composes cleanly; a shared enum would force one to
+    dominate.
+  * Every emit-call path already reaches
+    `arena.symbols().lookup_by_name(&target_name)`, so the probe
+    slots in without new pipeline wiring.
+
+Documented in the `emit_call.rs` module docstring.
+
+### Callee-side deferred to Slice C
+
+The callee-side wiring (splicing `sysv_callee_sret_store` /
+`ms_callee_sret_store` for Memory placement before the frame-pointer
+teardown, or `sysv_callee_load_return_pair` /
+`ms_callee_load_return_reg` for register placement) needs a
+callee-local source buffer with a known offset from RBP, which the
+record-cons codepath for return-position record materialisation does
+not yet produce. Slice C lands that upstream materialisation and then
+wires `emit_walker/emit_core.rs::emit_ret` to consume it. The
+byte-exact helper composition itself is already pinned by
+`aggregate_return.rs`'s own test module.
+
+### Files changed
+
+- `crates/paideia-as-ir/src/abi.rs` — added
+  `sysv_return_placement_from_layout` (mirrors
+  `ms_return_placement_from_layout`) so both ABIs offer a single-call
+  layout-driven placement helper. Handles the zero-size aggregate
+  case as `SysvReturnPlacement::None`. Module docstring updated with
+  a `DONE(PAS-DEBT-B4-002 Slice B / paideia-as#1554)` line.
+- `crates/paideia-as-elaborator/src/emit_call.rs` — new
+  `AggregateReturnShape` enum (`Absent` / `SysvSret { padded_slot }`
+  / `MsSret { padded_slot }`), `sret_padded_slot_bytes` helper, and
+  the caller-side sret branch spliced into
+  `emit_call_args_and_call` after scratch-save pushes and before
+  arg-marshalling. Arg-register indexing shifts right by
+  `sret_shift ∈ {0, 1}` uniformly. Post-CALL sret slot release
+  fires before scratch-pop so the pop reads the right offsets.
+  Diagnoses sret-shape calls with real arg spillover past the
+  shifted register pool via T0521 (Slice C revisit if a fixture
+  demands it). Module docstring updated with the ArgConvention path
+  (b) rationale.
+- `crates/paideia-as-elaborator/src/emit_walker/emit_core.rs` —
+  docstring note on `emit_ret` marking the callee-side aggregate-
+  return wiring as intentionally deferred to Slice C, with the
+  exact helper names and reasoning inline.
+- `crates/paideia-as-elaborator/src/emit_walker_tests/sret_call_wiring.rs`
+  — new topic file (5 tests). Byte-shape assertions on the caller-
+  side emission stream for the SysV Memory (24 B), MS Memory (16 B),
+  and SysV IntPair register-return (16 B) shapes; a scalar-return
+  regression that pins no sret triplet is emitted when
+  `return_record_layout` is absent; a direct unit test for the new
+  `sysv_return_placement_from_layout` composition.
+- `crates/paideia-as-elaborator/src/emit_walker_tests.rs` — registers
+  the new test module.
+- `tests/data/sret_slice_b/sret_16b_pair.pdx`,
+  `tests/data/sret_slice_b/sret_24b_memory.pdx`,
+  `tests/data/sret_slice_b/sret_ms_16b_memory.pdx` — new `.pdx`
+  fixtures for the three ABI-shape cases named in Slice B scope.
+  These parse against Slice A's parser support and their symbols
+  carry the finalised layouts through `populate_return_record_
+  layouts` — the byte-shape assertions live alongside in the emitter
+  test module above.
+
+### Version bump
+
+- `Cargo.toml` `workspace.package.version` → `0.36.69`.
+
+### What's left for Slice C
+
+Just the callee-side pair-unpack and record subsystem consumer wiring:
+
+  * Add a return-position record-cons materialisation pass so a
+    `-> record { ... }` body knows where its aggregate lives on the
+    callee's own frame at RET time.
+  * In `emit_walker/emit_core.rs::emit_ret`, look up the current
+    function's `return_record_layout`, and for Memory placement
+    splice `sysv_callee_sret_store(layout.size, RBP, src_disp)` /
+    `ms_callee_sret_store(...)` BEFORE the frame-pointer teardown;
+    for register placement splice `sysv_callee_load_return_pair` /
+    `ms_callee_load_return_reg` at the same site.
+  * Replace the immediate `add rsp, N` sret slot release in
+    `emit_call.rs` with a persistent frame slot so the caller can
+    read fields at `[RBP + slot_disp + field_offset]` after the
+    CALL — this is what enables the caller-side pair-unpack /
+    field access on a returned record.
+  * Emit the caller-side pair-unpack for register-return placements
+    (`sysv_caller_read_return_pair` / `ms_caller_read_return_reg`)
+    once a destination local binding exists to name.
+
 ## v0.36.68 — 2026-09-27 — Issue #1554 Slice A: record-return type plumbing (Symbol + side-table)
 
 PAS-DEBT-B4-002 (paideia-as#1554) Slice A wires the first two of the

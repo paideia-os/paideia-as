@@ -1,0 +1,27 @@
+// PAS-DEBT-B4-002 Slice B (paideia-as#1554) fixture.
+//
+// MS x64 Memory sret: a 16 B `{ a: u64, b: u64 }` classifies as
+// Memory under the MS x64 ABI (only sizes 1/2/4/8 or a single
+// scalar float/double fit in a return register — everything else
+// goes through the hidden RCX sret pointer). Caller-side sequence:
+//   sub rsp, N_ms        ; MS shadow-space (32 B minimum + parity pad)
+//   sub rsp, 16          ; sret slot
+//   lea rcx, [rsp]       ; hidden MS sret pointer (RCX, not RDI)
+//   mov rdx, x           ; real arg 0 shifted from RCX to RDX
+//   mov r8, y            ; real arg 1 shifted from RDX to R8
+//   call ms_pair
+//   add rsp, 16          ; release sret slot
+//   add rsp, N_ms        ; release MS shadow-space
+//   ret
+//
+// The `abi = "MS"` annotation drives the caller-side arg-register
+// pool selection (MS_ARG_REGS = [RCX, RDX, R8, R9]) and the MS
+// shadow-space bump/postlude. Slice B's new branch consults
+// `ms_return_placement_from_layout` for the Memory decision.
+module M = structure {
+  let ms_pair : (u64, u64) -> record { a: u64, b: u64 } =
+    fn (x: u64, y: u64) -> 0 @abi("ms")
+
+  let caller : (u64, u64) -> u64 =
+    fn (x: u64, y: u64) -> ms_pair(x, y)
+}

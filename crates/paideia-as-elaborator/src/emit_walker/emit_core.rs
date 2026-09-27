@@ -171,6 +171,23 @@ impl EmitWalker {
     /// accounted for and the resulting bytes are equivalent. Keeping the
     /// add preserves byte-exactness for @no_frame closure tests where
     /// only the add fires.
+    ///
+    /// # PAS-DEBT-B4-002 Slice B / Slice C (paideia-as#1554)
+    ///
+    /// Callee-side aggregate-return wiring is intentionally NOT
+    /// emitted here in Slice B — the required sequence
+    /// (`sysv_callee_sret_store` / `ms_callee_sret_store` for Memory
+    /// placement, `sysv_callee_load_return_pair` /
+    /// `ms_callee_load_return_reg` for register placement) needs a
+    /// callee-local source buffer with a known offset from RBP, which
+    /// the record-cons codepath for return-position record
+    /// materialisation does not yet produce. Slice C lands that
+    /// upstream materialisation and then wires this emitter to consume
+    /// it — splicing the appropriate helper's output BEFORE the
+    /// frame-pointer teardown block above. See
+    /// `aggregate_return.rs` for the byte-exact helpers and
+    /// `emit_call.rs` for the sibling caller-side wiring already
+    /// landed in Slice B.
     pub(crate) fn emit_ret(&mut self, ret_id: IrNodeId, arena: &IrArena) {
         // Check if current function has frame layout
         if let Some(lambda_id) = IrNodeId::new(self.state.current_function) {

@@ -56,6 +56,12 @@
 //! synthesiser lives in `paideia_as_elaborator::aggregate_return` (byte-exact
 //! epilogue/prelude helpers). End-to-end wiring at call sites gates on an
 //! upstream return-record-layout side-table (tracked separately).
+//! DONE(PAS-DEBT-B4-002 Slice B / paideia-as#1554): Layout-driven entry
+//! point `sysv_return_placement_from_layout` mirrors the MS
+//! `ms_return_placement_from_layout` — one-call resolution from a
+//! finalised `RecordLayout` to a `SysvReturnPlacement`, handling
+//! zero-size aggregates as `None`. Consumed by `emit_call.rs`'s
+//! Slice B caller-side sret branch.
 
 use crate::instruction::RegId;
 use crate::let_meta::CallingConvention;
@@ -575,6 +581,24 @@ pub fn sysv_return_placement(classes: &[AggregateClass]) -> SysvReturnPlacement 
         // safe (worst case: an unnecessary sret round-trip).
         _ => SysvReturnPlacement::Memory,
     }
+}
+
+/// Layout-driven entry point that composes [`classify_sysv_aggregate`]
+/// with [`sysv_return_placement`] and handles the zero-size aggregate
+/// case explicitly (→ [`SysvReturnPlacement::None`]).
+///
+/// Mirrors [`ms_return_placement_from_layout`] on the MS side — the
+/// single-call helper an emitter integration invokes at a call site
+/// or a callee epilogue given only the callee's finalised
+/// [`RecordLayout`].
+///
+/// PAS-DEBT-B4-002 Slice B (paideia-as#1554).
+#[must_use]
+pub fn sysv_return_placement_from_layout(layout: &RecordLayout) -> SysvReturnPlacement {
+    if layout.size == 0 {
+        return SysvReturnPlacement::None;
+    }
+    sysv_return_placement(&classify_sysv_aggregate(layout))
 }
 
 impl SysvReturnPlacement {

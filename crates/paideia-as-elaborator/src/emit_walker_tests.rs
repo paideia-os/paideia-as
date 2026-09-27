@@ -33,3 +33,6 @@ mod frame_prologue;
 
 #[path = "emit_walker_tests/interrupt_handler.rs"]
 mod interrupt_handler;
+
+#[path = "emit_walker_tests/sret_call_wiring.rs"]
+mod sret_call_wiring;

@@ -1,0 +1,20 @@
+// PAS-DEBT-B4-002 Slice B (paideia-as#1554) fixture.
+//
+// SysV IntPair register-return: a 16 B `{ a: u64, b: u64 }` classifies
+// as `[Integer, Integer]` and returns in RAX+RDX per SysV AMD64 psABI
+// §3.2.3. Slice B leaves the caller-side CALL emission byte-identical
+// to the scalar path for this placement — no sret sub/lea/add is
+// spliced in. Slice C will add the caller-side pair-unpack once a
+// destination buffer exists.
+//
+// This fixture lives here as a parse+layout smoke: the parser accepts
+// the `(u64, u64) -> record { a: u64, b: u64 }` type, and the
+// return_record_layout pass stamps a 16-byte / 8-align layout on
+// `pair_of_u64`'s Symbol.
+module M = structure {
+  let pair_of_u64 : (u64, u64) -> record { a: u64, b: u64 } =
+    fn (x: u64, y: u64) -> 0
+
+  let caller : (u64, u64) -> u64 =
+    fn (x: u64, y: u64) -> pair_of_u64(x, y)
+}

@@ -4,6 +4,61 @@
 //! `emit_function_call`, which lowers a `Call(target, args)` into the
 //! System-V calling-convention marshalling sequence: per-arg moves into
 //! `[RDI, RSI, RDX, RCX, R8, R9]` followed by `call target; ret`.
+//!
+//! # PAS-DEBT-B4-002 Slice B (paideia-as#1554): aggregate-return wiring
+//!
+//! Design decision — path (b): sret detection is subsumed into an
+//! emit-call-site probe of `Symbol::return_record_layout` rather than a
+//! new `ArgConvention::SysVSret` / `MsSret` variant. Rationale:
+//!
+//!   * `ArgConvention` is the stdlib-recipe input contract (see
+//!     `stdlib_lowering.rs`). Aggregate return is a property of the
+//!     callee's declared type, not of the recipe author. Threading it
+//!     through the recipe convention would force every recipe author
+//!     to opt in explicitly per-function; the layout-driven probe
+//!     picks up any function whose declared return type is a record.
+//!   * The existing `SysVRegs` recipe treatment (extern-thunk rewrites,
+//!     scratch-save composition, MS shadow-space alignment) is
+//!     orthogonal to the sret decision — one call can be both
+//!     "recipe-driven" and "sret-shaped". Keeping the two decisions
+//!     separate composes cleanly; a shared enum would force one to
+//!     dominate.
+//!   * `Symbol::return_record_layout` is populated by
+//!     `return_record_layout_pass` (Slice A) and stamped onto the
+//!     `Symbol` at walker Let-Lambda symbol construction. Every
+//!     emit-call path reaches this side-table via
+//!     `arena.symbols().lookup_by_name(&target_name)`.
+//!
+//! The branch: after resolving `callee_abi` and `arg_regs`, look up
+//! the callee symbol's `return_record_layout`. If `Some(layout)`,
+//! compute `SysvReturnPlacement` / `MsReturnPlacement` via
+//! `abi::sysv_return_placement_from_layout` /
+//! `abi::ms_return_placement_from_layout` and:
+//!
+//!   * On `needs_hidden_sret()`: reserve a stack slot (aligned to
+//!     `layout.align`, rounded up to 16 bytes for SysV mod-16
+//!     preservation), splice the caller sret prelude (`lea RDI, [rsp]`
+//!     or `lea RCX, [rsp]`), shift the arg-register selection right by
+//!     one, then let the arg-marshalling loop proceed as usual. After
+//!     the CALL, release the slot with `add rsp, <padded>` so the
+//!     mod-16 invariant is preserved for downstream code. Slice C will
+//!     replace the release with a persistent frame-slot when the
+//!     record-cons consumer reads from the sret buffer.
+//!   * On register-return placement: leave the CALL emission
+//!     byte-identical to the scalar path — the return value stays in
+//!     RAX/RDX/XMM0/XMM1 for Slice C's caller-side pair-unpack to
+//!     consume with a dest of its own.
+//!   * On absent / scalar / `None` placement: the entire scalar path
+//!     is preserved byte-identical. Non-record-return regression tests
+//!     pin this invariant.
+//!
+//! Callee-side wiring (emitting `sysv_callee_sret_store` /
+//! `ms_callee_sret_store` before the frame-pointer teardown) is
+//! deferred to Slice C — it depends on the record-cons codepath
+//! materialising the return value at a known callee-local disp so the
+//! sret store can name a real source buffer. See
+//! `emit_walker/emit_core.rs::emit_ret` for the Slice B / Slice C
+//! marker on this path.
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId, Scale};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
@@ -14,6 +69,58 @@ use std::collections::HashSet;
 
 use crate::emit_walker::EmitWalker;
 use crate::stdlib_lowering::ArgConvention;
+
+/// PAS-DEBT-B4-002 Slice B (paideia-as#1554): resolved aggregate-return
+/// shape for a call site, keyed by the callee's ABI.
+///
+/// `SysvSret { padded_slot }` / `MsSret { padded_slot }` — the caller
+/// must reserve `padded_slot` bytes on the stack before arg-marshalling,
+/// splice the LEA sret prelude, and shift real arg registers by one.
+/// The slot is released with `add rsp, padded_slot` after the CALL
+/// (Slice B) so the SysV mod-16 stack invariant is preserved.
+///
+/// `Absent` — either the callee has no `return_record_layout`, or the
+/// placement is `None` / register-shaped and the CALL emission stays
+/// byte-identical to the scalar path.
+#[derive(Debug, Clone, Copy)]
+enum AggregateReturnShape {
+    Absent,
+    SysvSret { padded_slot: u32 },
+    MsSret { padded_slot: u32 },
+}
+
+impl AggregateReturnShape {
+    /// True when this call site needs a hidden sret pointer in the
+    /// first arg register (RDI for SysV, RCX for MS), shifting the
+    /// real args right by one.
+    fn needs_sret(self) -> bool {
+        matches!(self, Self::SysvSret { .. } | Self::MsSret { .. })
+    }
+
+    /// Bytes to `sub rsp` before arg-marshalling and `add rsp` after
+    /// the CALL. Zero when no sret slot is needed.
+    fn sret_slot_bytes(self) -> u32 {
+        match self {
+            Self::Absent => 0,
+            Self::SysvSret { padded_slot } | Self::MsSret { padded_slot } => padded_slot,
+        }
+    }
+}
+
+/// Round `size` up to a multiple of `align`, then up to a multiple of
+/// 16 bytes so SysV's `rsp mod 16 == 0 at CALL` invariant survives the
+/// `sub rsp, padded` / `add rsp, padded` pair. `align` is unused today
+/// (16 dominates every field alignment the layout computer produces)
+/// but is threaded through so future oversized-align aggregate types
+/// widen the padding rather than silently under-align.
+#[inline]
+fn sret_padded_slot_bytes(size: u64, align: u8) -> u32 {
+    let a = core::cmp::max(align as u64, 16);
+    let padded = (size + a - 1) & !(a - 1);
+    // Round up to 16 unconditionally for SysV mod-16 preservation.
+    let padded16 = (padded + 15) & !15;
+    padded16 as u32
+}
 
 /// Resolve a target name to (trait_name, method_name) if it's a qualified stdlib trait method.
 /// Returns None if the target is not in the form "TraitName::method_name".
@@ -237,6 +344,61 @@ impl EmitWalker {
             CallingConvention::Sysv => &abi::ARG_REGS,
         };
 
+        // PAS-DEBT-B4-002 Slice B (paideia-as#1554): resolve the callee's
+        // aggregate-return shape.
+        //
+        // Look up `return_record_layout` on the callee's symbol.
+        // Compose it with the ABI's placement selector — SysV uses
+        // `sysv_return_placement_from_layout`, MS uses
+        // `ms_return_placement_from_layout`. Only Memory placement
+        // needs the caller-side sret dance (stack slot + LEA + arg
+        // shift + slot release); register-return placements leave the
+        // CALL emission byte-identical to the scalar path so Slice C
+        // can wire the caller-side pair-unpack independently.
+        //
+        // See the module docstring above for the ArgConvention design
+        // rationale (path (b)).
+        let aggregate_shape: AggregateReturnShape = {
+            let sym_layout = arena
+                .symbols()
+                .lookup_by_name(&target_name)
+                .and_then(|s| s.return_record_layout.clone());
+            match sym_layout {
+                None => AggregateReturnShape::Absent,
+                Some(layout) => match callee_abi {
+                    CallingConvention::Sysv => {
+                        let placement = abi::sysv_return_placement_from_layout(&layout);
+                        if placement.needs_hidden_sret() {
+                            let padded = sret_padded_slot_bytes(layout.size, layout.align);
+                            AggregateReturnShape::SysvSret { padded_slot: padded }
+                        } else {
+                            // Register-return placement (IntSingle,
+                            // SseSingle, IntPair, IntSse, SseInt,
+                            // SsePair) or None. CALL emission stays
+                            // byte-identical to the scalar path;
+                            // Slice C wires caller-side pair-unpack.
+                            AggregateReturnShape::Absent
+                        }
+                    }
+                    CallingConvention::Ms => {
+                        let placement = abi::ms_return_placement_from_layout(&layout);
+                        if placement.needs_hidden_sret() {
+                            let padded = sret_padded_slot_bytes(layout.size, layout.align);
+                            AggregateReturnShape::MsSret { padded_slot: padded }
+                        } else {
+                            AggregateReturnShape::Absent
+                        }
+                    }
+                },
+            }
+        };
+
+        // sret shift: index-0 sret pointer consumes the first arg
+        // register (RDI for SysV, RCX for MS); real args start at
+        // index 1 in `arg_regs`. Zero for the non-sret path so
+        // scalar-return regression tests stay byte-identical.
+        let sret_shift: usize = if aggregate_shape.needs_sret() { 1 } else { 0 };
+
         // Allocate first instruction ID upfront. This will be used for:
         // 1. record_lambda_entry (marks function entry point)
         // 2. The first actual instruction emission (bridge push, MS prelude, first arg MOV, or CALL)
@@ -441,6 +603,76 @@ impl EmitWalker {
             self.emit_inst(scratch_save_id, push_inst);
         }
 
+        // PAS-DEBT-B4-002 Slice B (paideia-as#1554): caller-side sret
+        // prelude for a Memory-classified aggregate-returning callee.
+        //
+        // Emitted here — after every RSP-adjusting prelude (bridge
+        // pushes, MS shadow-space bump, SysV stack-arg bump, scratch
+        // pushes) and BEFORE arg-marshalling — so the LEA can name
+        // `[rsp]` with a zero displacement. The reserved slot sits at
+        // the top of the caller's stack until the matching `add rsp`
+        // fires after the CALL (see the postlude block near the CALL
+        // emission below).
+        //
+        // Slot size (`padded_slot`) is rounded up to 16 bytes so the
+        // sub / add pair preserves SysV's `rsp mod 16 == 0 at CALL`
+        // invariant on its own (composes additively with `sysv_bump`
+        // and `ms_bump`, both of which are also 16-multiples).
+        //
+        // Sret pointer register: RDI for SysV (real args shift right
+        // to RSI, RDX, RCX, R8, R9), RCX for MS (real args shift right
+        // to RDX, R8, R9). The arg-marshalling loop below uses
+        // `arg_regs[arg_idx + sret_shift]` to consume the shifted
+        // register pool.
+        if aggregate_shape.needs_sret() {
+            let padded_slot = aggregate_shape.sret_slot_bytes();
+
+            // sub rsp, <padded_slot>
+            let sret_sub_id = if first_emission {
+                first_emission = false;
+                first_id
+            } else {
+                self.alloc_synthetic_id()
+            };
+            let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            sub_ops.push(Operand::Reg(abi::RSP));
+            sub_ops.push(Operand::Imm64(padded_slot as i64));
+            let sub_inst = Instruction {
+                mnemonic: Mnemonic::Sub,
+                operands: sub_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            self.emit_inst(sret_sub_id, sub_inst);
+
+            // lea <sret_reg>, [rsp + 0]
+            let sret_reg = match aggregate_shape {
+                AggregateReturnShape::SysvSret { .. } => abi::RDI,
+                AggregateReturnShape::MsSret { .. } => abi::RCX,
+                AggregateReturnShape::Absent => unreachable!(),
+            };
+            let lea_id = self.alloc_synthetic_id();
+            let mut lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            lea_ops.push(Operand::Reg(sret_reg));
+            lea_ops.push(Operand::MemSib {
+                base: abi::RSP,
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            });
+            let lea_inst = Instruction {
+                mnemonic: Mnemonic::Lea,
+                operands: lea_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            self.emit_inst(lea_id, lea_inst);
+        }
+
         // #1226: Classify pos-0 argument for register-pair enum handling.
         // This determines whether pos-0 should be hoisted out of the sequential loop.
         let pos_zero_pair = self.classify_pos_zero_pair(arg_ids, arena);
@@ -524,7 +756,32 @@ impl EmitWalker {
                 continue;
             }
 
-            if arg_idx >= arg_regs.len() {
+            // PAS-DEBT-B4-002 Slice B (paideia-as#1554): shift real args
+            // right by one when the callee takes a hidden sret pointer
+            // (which occupies arg_regs[0]).
+            //
+            // A sret-carrying call with more real args than fit in the
+            // shifted register pool (SysV: 5+ real args; MS: 3+ real
+            // args) would need stack-passed args at an offset above
+            // the sret slot. Slice B rejects this shape with T0521 —
+            // no fixture in scope exercises it, and the stack-off math
+            // in the stack-passed branch below does not yet account
+            // for the sret slot's `sub rsp` bump. Slice C revisits
+            // if a real fixture demands it.
+            let effective_arg_idx = arg_idx + sret_shift;
+            if effective_arg_idx >= arg_regs.len() {
+                if sret_shift > 0 {
+                    self.push_typed_diag(
+                        t0521_code(),
+                        format!(
+                            "sret-shape call with real arg {} spilling past register \
+                             pool not yet supported (Slice C follow-up); \
+                             reduce the callee's arg count or split its return type",
+                            arg_idx
+                        ),
+                    );
+                    continue;
+                }
                 if callee_abi == CallingConvention::Ms {
                     // v0.21-001 (#1277): MS x64 stack passing for arg 5+.
                     //
@@ -772,7 +1029,10 @@ impl EmitWalker {
                 continue;
             }
 
-            let dest_reg = arg_regs[arg_idx];
+            // PAS-DEBT-B4-002 Slice B: real args shift right by
+            // `sret_shift` when the callee takes a hidden sret
+            // pointer. `effective_arg_idx` was computed above.
+            let dest_reg = arg_regs[effective_arg_idx];
             let arg_node = match arena.get(arg_id) {
                 Some(node) => node,
                 None => {
@@ -1108,6 +1368,40 @@ impl EmitWalker {
         };
 
         self.emit_inst(call_id, call_inst);
+
+        // PAS-DEBT-B4-002 Slice B (paideia-as#1554): release the caller
+        // sret slot immediately after the CALL, BEFORE scratch-pop.
+        //
+        // Emission order symmetry: the sret slot was pushed via
+        // `sub rsp, padded_slot` AFTER the scratch pushes (see the
+        // prelude block above), so RSP at CALL time sits on the sret
+        // slot with scratch saves below. Popping scratch first would
+        // read random bytes from the sret buffer, not the saved
+        // registers. Release the sret slot first so RSP re-lands on
+        // the scratch saves and the existing pop loop can consume
+        // them from the right offset.
+        //
+        // Slice C will replace this immediate release with a
+        // persistent frame slot when the caller-side pair-unpack /
+        // record consumer needs to read the sret buffer past the
+        // CALL — at that point the release moves to the enclosing
+        // function's frame epilogue.
+        if aggregate_shape.needs_sret() {
+            let padded_slot = aggregate_shape.sret_slot_bytes();
+            let sret_add_id = self.alloc_synthetic_id();
+            let mut add_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            add_ops.push(Operand::Reg(abi::RSP));
+            add_ops.push(Operand::Imm64(padded_slot as i64));
+            let add_inst = Instruction {
+                mnemonic: Mnemonic::Add,
+                operands: add_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            self.emit_inst(sret_add_id, add_inst);
+        }
 
         // Issue #1163 (corrective): Restore spilled caller-save scratch bindings after CALL,
         // BEFORE MS postlude. This ensures RSP is still pointing to the saved registers

@@ -1,0 +1,24 @@
+// PAS-DEBT-B4-002 Slice B (paideia-as#1554) fixture.
+//
+// SysV Memory sret: a 24 B `{ a: u64, b: u64, c: u64 }` exceeds the
+// 16-byte psABI eightbyte pair limit and classifies as Memory.
+// Caller-side sequence at the call to `triple_of_u64`:
+//   sub rsp, 32       ; sret slot (24 padded to 16-multiple)
+//   lea rdi, [rsp]    ; hidden sret pointer
+//   mov rsi, x        ; real arg 0 shifted from RDI to RSI
+//   mov rdx, y        ; real arg 1 shifted from RSI to RDX
+//   call triple_of_u64
+//   add rsp, 32       ; release sret slot (Slice B; Slice C persists it)
+//   ret
+//
+// The `return_record_layout` pass computes the 24 B / 8 B-align layout
+// off the `record { … }` return type; emit_call.rs's new branch reads
+// it via `Symbol::return_record_layout`, resolves `Memory` placement,
+// and emits the caller-side sret dance.
+module M = structure {
+  let triple_of_u64 : (u64, u64) -> record { a: u64, b: u64, c: u64 } =
+    fn (x: u64, y: u64) -> 0
+
+  let caller : (u64, u64) -> u64 =
+    fn (x: u64, y: u64) -> triple_of_u64(x, y)
+}
