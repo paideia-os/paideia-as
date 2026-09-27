@@ -172,12 +172,61 @@ fn pop_reg_operand(inst: &Instruction) -> Option<RegId> {
     }
 }
 
+/// Return the register a `Push` saves, if the instruction is `push r64`
+/// exactly (single Reg operand). Used by the push/pop-bracketed direct
+/// shape (paideia-as#1551) to prove the pre- and post-call brackets name
+/// the same register.
+fn push_reg_operand(inst: &Instruction) -> Option<RegId> {
+    if inst.mnemonic != Mnemonic::Push || inst.operands.len() != 1 {
+        return None;
+    }
+    match inst.operands.first()? {
+        Operand::Reg(r) => Some(*r),
+        _ => None,
+    }
+}
+
+/// If `inst` is `sub rsp, imm64`, return the immediate (as `i64`); else
+/// `None`. The SysV alignment-pad idiom (paideia-as#1551, Shape 4) uses
+/// `sub rsp, 8` immediately before an indirect call and `add rsp, 8`
+/// immediately after; this extractor drives the pre-call side.
+fn sub_rsp_imm_operand(inst: &Instruction) -> Option<i64> {
+    if inst.mnemonic != Mnemonic::Sub || inst.operands.len() != 2 {
+        return None;
+    }
+    let dst_is_rsp = matches!(inst.operands.first()?, Operand::Reg(r) if *r == crate::abi::RSP);
+    if !dst_is_rsp {
+        return None;
+    }
+    match inst.operands.get(1)? {
+        Operand::Imm64(i) => Some(*i),
+        _ => None,
+    }
+}
+
+/// If `inst` is `add rsp, imm64`, return the immediate (as `i64`); else
+/// `None`. Symmetric partner of [`sub_rsp_imm_operand`]; the alignment-pad
+/// shape only fires when the two immediates match exactly.
+fn add_rsp_imm_operand(inst: &Instruction) -> Option<i64> {
+    if inst.mnemonic != Mnemonic::Add || inst.operands.len() != 2 {
+        return None;
+    }
+    let dst_is_rsp = matches!(inst.operands.first()?, Operand::Reg(r) if *r == crate::abi::RSP);
+    if !dst_is_rsp {
+        return None;
+    }
+    match inst.operands.get(1)? {
+        Operand::Imm64(i) => Some(*i),
+        _ => None,
+    }
+}
+
 impl OptPass for TailCallPass {
     fn name(&self) -> &'static str {
         "tailcall"
     }
 
-    /// Rewrite three tail-call shapes; every other pattern is left alone.
+    /// Rewrite five tail-call shapes; every other pattern is left alone.
     ///
     /// **Pattern C — direct self-recursion (PAS-DEBT-B3-001):**
     /// `Call SymbolRef(f); Ret` where owner(call) == f → `Jmp SymbolRef(f)`.
@@ -198,7 +247,27 @@ impl OptPass for TailCallPass {
     /// leave the machine in equivalent states. Anything asymmetric
     /// (different reg, extra restores) is left alone.
     ///
-    /// All three shapes are still gated by [`tco_arena_blocker`]:
+    /// **Pattern D — SysV alignment-pad indirect (paideia-as#1551):**
+    /// `Sub Rsp, imm; Call Reg(r); Add Rsp, imm; Ret` (imm identical on
+    /// both sides) → `Add Rsp, imm; Jmp Reg(r)`. The `sub rsp,imm` at the
+    /// call site is dropped because the tail-jump reuses the caller's
+    /// return context, which already carries the SysV `rsp%16==8`
+    /// invariant; only the trailing `add rsp,imm` remains to undo the
+    /// caller-visible half of the pad before the branch. Fires only when
+    /// both operands are `rsp` (RegId(4)) and both immediates are equal.
+    /// Motivating sites: `vops_read/write/…` dispatchers in
+    /// `paideia-os/src/kernel/core/fs/vops.pdx` (RETIRE-5 / paideia-os#2512).
+    ///
+    /// **Pattern E — push/pop-bracketed direct (paideia-as#1551):**
+    /// `Push Reg(r); Call SymbolRef(s); Pop Reg(r); Ret` (same reg on
+    /// both brackets) → `Pop Reg(r); Jmp SymbolRef(s)`. The rewrite pulls
+    /// the callee-save teardown ahead of the tail-branch so the target
+    /// sees the caller-visible callee-save state restored. Fires only
+    /// when the push and pop name the *same* register (symmetry mirror
+    /// of Pattern A). See implementation note below on the physical
+    /// layout of the motivating sites.
+    ///
+    /// All five shapes are gated by [`tco_arena_blocker`]:
     /// capability-boundary and effect-handler-install checks apply
     /// uniformly to direct and indirect tail-calls.
     fn apply(&self, arena: &mut IrArena, _root: IrNodeId, sink: &mut OptDiagSink) -> bool {
@@ -213,6 +282,191 @@ impl OptPass for TailCallPass {
         let mut i = 0;
 
         while i < ids.len() {
+            // ── Pattern D: Sub Rsp, imm; Call Reg; Add Rsp, imm; Ret ──
+            //
+            // SysV alignment-pad indirect tail-call. The Sub/Add pair is
+            // an rsp pad the compiler emits around the indirect call so
+            // the callee lands with `rsp%16==8` (SysV entry invariant);
+            // when the caller tail-jumps, only the *trailing* Add is
+            // needed to undo the caller-visible half of the pad — the
+            // Sub is dropped because the jump reuses the caller's
+            // already-aligned return context. Fires only when both
+            // operands are `rsp` and both immediates match exactly.
+            // Motivating sites: 14 vops.pdx dispatchers (RETIRE-5,
+            // paideia-os#2512).
+            if i + 3 < ids.len() {
+                let (sub_imm, call_reg, add_imm, is_ret_after) = {
+                    let table = arena.instructions();
+                    let si = table.get(ids[i]).and_then(sub_rsp_imm_operand);
+                    let cr = table
+                        .get(ids[i + 1])
+                        .filter(|c| c.mnemonic == Mnemonic::Call)
+                        .and_then(call_target_reg);
+                    let ai = table.get(ids[i + 2]).and_then(add_rsp_imm_operand);
+                    let rt = table
+                        .get(ids[i + 3])
+                        .map(|n| n.mnemonic == Mnemonic::Ret)
+                        .unwrap_or(false);
+                    (si, cr, ai, rt)
+                };
+                if let (Some(imm_sub), Some(target_reg), Some(imm_add), true) =
+                    (sub_imm, call_reg, add_imm, is_ret_after)
+                {
+                    if imm_sub == imm_add {
+                        let sub_id = ids[i];
+                        let call_id = ids[i + 1];
+                        let ret_id = ids[i + 3];
+                        let owner = arena
+                            .instr_owner()
+                            .get(call_id)
+                            .map(std::string::ToString::to_string)
+                            .unwrap_or_default();
+
+                        if let Some(reason) =
+                            tco_arena_blocker(arena, call_id, ret_id, &owner)
+                        {
+                            sink.emit(
+                                "tailcall",
+                                format!(
+                                    "O1516: TCO refused for i{} (indirect align-pad r{} imm={}) — {} (owner={})",
+                                    call_id.get(),
+                                    target_reg.0,
+                                    imm_sub,
+                                    blocker_reason(reason),
+                                    if owner.is_empty() { "?" } else { owner.as_str() },
+                                ),
+                            );
+                            i += 1;
+                            continue;
+                        }
+
+                        // Rewrite: drop the leading Sub Rsp,imm; leave the
+                        // trailing Add Rsp,imm in place; Call→Jmp; drop
+                        // Ret. Result window: [Add Rsp,imm; Jmp Reg].
+                        arena.instructions_mut().remove(sub_id);
+                        if let Some(inst) = arena.instructions_mut().get_mut(call_id) {
+                            inst.mnemonic = Mnemonic::Jmp;
+                        }
+                        arena.instructions_mut().remove(ret_id);
+
+                        sink.emit(
+                            "tailcall",
+                            format!(
+                                "O1520: TCO indirect align-pad Call→Jmp i{} (reg=r{}) + drop Sub i{} + drop Ret i{} (imm={})",
+                                call_id.get(),
+                                target_reg.0,
+                                sub_id.get(),
+                                ret_id.get(),
+                                imm_sub,
+                            ),
+                        );
+
+                        changed = true;
+                        i += 4;
+                        continue;
+                    }
+                }
+            }
+
+            // ── Pattern E: Push reg; Call SymbolRef; Pop reg; Ret ────
+            //
+            // Callee-save-bracketed direct tail-call. The Push+Pop pair
+            // saves and restores a callee-save register across the call;
+            // the tail-call rewrite pulls the restore (Pop) ahead of the
+            // branch so the target sees the caller-visible callee-save
+            // state fully restored. Fires only when both brackets name
+            // the *same* register — the symmetry mirror of Pattern A.
+            //
+            // Physical-layout note (paideia-as#1551): the motivating
+            // nvme_admin_events.pdx fetchers place their `push rbx` at
+            // function entry (10+ instructions before `call sym`), not
+            // adjacent to the call. That physical shape is
+            // `[Call sym, Pop rbx, Ret]` (3-inst window), which this
+            // 4-inst matcher does NOT recognise. The 4-inst window
+            // fires only when Push and Call are adjacent — the strict
+            // reading of the shape spec. A follow-up may add the
+            // 3-inst variant once the safety of "trust an earlier
+            // Push" has been justified.
+            if i + 3 < ids.len() {
+                let (push_a, call_sym, pop_b, is_ret_after) = {
+                    let table = arena.instructions();
+                    let pa = table.get(ids[i]).and_then(push_reg_operand);
+                    let call_opt = table
+                        .get(ids[i + 1])
+                        .filter(|c| c.mnemonic == Mnemonic::Call);
+                    let cs = call_opt.and_then(call_target_symbol).map(str::to_string);
+                    let pb = table.get(ids[i + 2]).and_then(pop_reg_operand);
+                    let rt = table
+                        .get(ids[i + 3])
+                        .map(|n| n.mnemonic == Mnemonic::Ret)
+                        .unwrap_or(false);
+                    (pa, cs, pb, rt)
+                };
+                if let (Some(pushed), Some(target_sym), Some(popped), true) =
+                    (push_a, call_sym, pop_b, is_ret_after)
+                {
+                    if pushed == popped {
+                        let push_id = ids[i];
+                        let call_id = ids[i + 1];
+                        let pop_id = ids[i + 2];
+                        let ret_id = ids[i + 3];
+                        let owner = arena
+                            .instr_owner()
+                            .get(call_id)
+                            .map(std::string::ToString::to_string)
+                            .unwrap_or_default();
+
+                        if let Some(reason) =
+                            tco_arena_blocker(arena, call_id, ret_id, &owner)
+                        {
+                            sink.emit(
+                                "tailcall",
+                                format!(
+                                    "O1516: TCO refused for i{} (direct push-pop-bracket r{} → {}) — {} (owner={})",
+                                    call_id.get(),
+                                    pushed.0,
+                                    target_sym,
+                                    blocker_reason(reason),
+                                    if owner.is_empty() { "?" } else { owner.as_str() },
+                                ),
+                            );
+                            i += 1;
+                            continue;
+                        }
+
+                        // Rewrite: mutate the leading Push→Pop (so the
+                        // callee-save value is restored before the tail
+                        // branch), mutate Call→Jmp, drop the trailing
+                        // Pop and Ret. Result window: [Pop reg; Jmp sym].
+                        if let Some(inst) = arena.instructions_mut().get_mut(push_id) {
+                            inst.mnemonic = Mnemonic::Pop;
+                        }
+                        if let Some(inst) = arena.instructions_mut().get_mut(call_id) {
+                            inst.mnemonic = Mnemonic::Jmp;
+                        }
+                        arena.instructions_mut().remove(pop_id);
+                        arena.instructions_mut().remove(ret_id);
+
+                        sink.emit(
+                            "tailcall",
+                            format!(
+                                "O1522: TCO direct push-pop-bracket Call→Jmp i{} (target={}) + Push→Pop i{} + drop Pop i{} + drop Ret i{} (saved=r{})",
+                                call_id.get(),
+                                target_sym,
+                                push_id.get(),
+                                pop_id.get(),
+                                ret_id.get(),
+                                pushed.0,
+                            ),
+                        );
+
+                        changed = true;
+                        i += 4;
+                        continue;
+                    }
+                }
+            }
+
             // ── Pattern A: Pop reg; Call Reg; Pop reg; Ret ────────────
             if i + 3 < ids.len() {
                 let (pop_a, call_reg, pop_b, is_ret_after) = {
@@ -476,6 +730,52 @@ mod tests {
         ops.push(Operand::Reg(RegId(reg)));
         Instruction {
             mnemonic: Mnemonic::Pop,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    /// paideia-as#1551: `push rN` — one-reg operand exactly.
+    fn push_reg_inst(reg: u8) -> Instruction {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(RegId(reg)));
+        Instruction {
+            mnemonic: Mnemonic::Push,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    /// paideia-as#1551: `sub rsp, imm64` — the SysV pre-call alignment
+    /// half of Shape 4 (align-pad indirect tail-call).
+    fn sub_rsp_imm_inst(imm: i64) -> Instruction {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(crate::abi::RSP));
+        ops.push(Operand::Imm64(imm));
+        Instruction {
+            mnemonic: Mnemonic::Sub,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        }
+    }
+
+    /// paideia-as#1551: `add rsp, imm64` — the SysV post-call alignment
+    /// half of Shape 4 (align-pad indirect tail-call).
+    fn add_rsp_imm_inst(imm: i64) -> Instruction {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(crate::abi::RSP));
+        ops.push(Operand::Imm64(imm));
+        Instruction {
+            mnemonic: Mnemonic::Add,
             operands: ops,
             encoding_hint: None,
             byte_offset_in_text: None,
@@ -1137,5 +1437,211 @@ mod tests {
         assert!(msg.contains("O1516"), "expected O1516, got: {}", msg);
         assert!(msg.contains("capability-declaration mismatch"));
         assert!(msg.contains("worker"));
+    }
+
+    // ── paideia-as#1551 — Shape D (SysV align-pad indirect) ─────────
+
+    /// Positive: `Sub Rsp,8; Call Reg(rax); Add Rsp,8; Ret` →
+    /// `Add Rsp,8; Jmp Reg(rax)`. The Sub is dropped (its purpose was
+    /// to pre-align for the callee's own `call`; a tail-jump doesn't
+    /// need it); the Add stays to undo the caller-visible half. Call
+    /// becomes Jmp, Ret is elided. Motivating sites: 14 vops.pdx
+    /// dispatchers (paideia-os#2512, RETIRE-5).
+    #[test]
+    fn wave26_rewrites_align_pad_indirect_tail_call() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let sub_id = IrNodeId::new(1).unwrap();
+        let call_id = IrNodeId::new(2).unwrap();
+        let add_id = IrNodeId::new(3).unwrap();
+        let ret_id = IrNodeId::new(4).unwrap();
+
+        arena.instructions_mut().insert(sub_id, sub_rsp_imm_inst(8));
+        arena.instructions_mut().insert(call_id, call_reg_inst(0));
+        arena.instructions_mut().insert(add_id, add_rsp_imm_inst(8));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "vops_read".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(5).unwrap(), &mut sink);
+
+        assert!(changed, "align-pad indirect Sub+Call+Add+Ret must rewrite");
+
+        // Sub dropped; Call → Jmp; Add preserved; Ret dropped.
+        assert!(arena.instructions().get(sub_id).is_none());
+        let call_now = arena.instructions().get(call_id).unwrap();
+        assert_eq!(call_now.mnemonic, Mnemonic::Jmp);
+        assert!(matches!(
+            call_now.operands.first(),
+            Some(Operand::Reg(RegId(0)))
+        ));
+        let add_now = arena.instructions().get(add_id).unwrap();
+        assert_eq!(add_now.mnemonic, Mnemonic::Add);
+        assert!(matches!(
+            add_now.operands.first(),
+            Some(Operand::Reg(r)) if *r == crate::abi::RSP
+        ));
+        assert!(matches!(add_now.operands.get(1), Some(Operand::Imm64(8))));
+        assert!(arena.instructions().get(ret_id).is_none());
+
+        assert_eq!(sink.diagnostics.len(), 1);
+        let msg = &sink.diagnostics[0].message;
+        assert!(msg.contains("O1520"), "expected O1520, got: {}", msg);
+        assert!(msg.contains("align-pad"));
+        assert!(msg.contains("imm=8"));
+    }
+
+    /// Negative: pre-call `Sub Rsp,8` paired with post-call
+    /// `Add Rsp,16` must NOT match (imm mismatch — the pad is asymmetric
+    /// and the caller's rsp balance would drift by 8 across the branch).
+    /// No other pattern applies either (Call's successor is Add, not
+    /// Ret), so the window is left intact and no diagnostics fire.
+    #[test]
+    fn wave26_preserves_mismatched_align_pad_imm() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let sub_id = IrNodeId::new(1).unwrap();
+        let call_id = IrNodeId::new(2).unwrap();
+        let add_id = IrNodeId::new(3).unwrap();
+        let ret_id = IrNodeId::new(4).unwrap();
+
+        arena.instructions_mut().insert(sub_id, sub_rsp_imm_inst(8));
+        arena.instructions_mut().insert(call_id, call_reg_inst(0));
+        arena.instructions_mut().insert(add_id, add_rsp_imm_inst(16));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "vops_read".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(5).unwrap(), &mut sink);
+
+        assert!(!changed, "mismatched-imm align pad must not rewrite");
+        assert_eq!(
+            arena.instructions().get(sub_id).unwrap().mnemonic,
+            Mnemonic::Sub
+        );
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
+        );
+        assert_eq!(
+            arena.instructions().get(add_id).unwrap().mnemonic,
+            Mnemonic::Add
+        );
+        assert!(arena.instructions().get(ret_id).is_some());
+        assert!(sink.diagnostics.is_empty());
+    }
+
+    // ── paideia-as#1551 — Shape E (push/pop-bracketed direct) ────────
+
+    /// Positive: `Push rbx; Call SymbolRef(nvme_get_log_page); Pop rbx;
+    /// Ret` → `Pop rbx; Jmp SymbolRef(nvme_get_log_page)`. The Push is
+    /// mutated to a Pop (restore the callee-save value before the tail
+    /// branch); Call becomes Jmp; the trailing Pop and Ret are elided.
+    /// The rewrite fires only when both brackets name the same register
+    /// (r3 = rbx here).
+    #[test]
+    fn wave26_rewrites_push_pop_bracketed_direct_tail_call() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let push_id = IrNodeId::new(1).unwrap();
+        let call_id = IrNodeId::new(2).unwrap();
+        let pop_id = IrNodeId::new(3).unwrap();
+        let ret_id = IrNodeId::new(4).unwrap();
+
+        arena.instructions_mut().insert(push_id, push_reg_inst(3));
+        arena
+            .instructions_mut()
+            .insert(call_id, call_to("nvme_get_log_page"));
+        arena.instructions_mut().insert(pop_id, pop_reg_inst(3));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "nvme_log_smart_fetch".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(5).unwrap(), &mut sink);
+
+        assert!(changed, "symmetric push/pop bracketed direct must rewrite");
+
+        // First window slot mutated Push → Pop, targeting the same reg.
+        let head = arena.instructions().get(push_id).unwrap();
+        assert_eq!(head.mnemonic, Mnemonic::Pop);
+        assert!(matches!(head.operands.first(), Some(Operand::Reg(RegId(3)))));
+
+        // Call → Jmp; the SymbolRef target is preserved verbatim.
+        let branch = arena.instructions().get(call_id).unwrap();
+        assert_eq!(branch.mnemonic, Mnemonic::Jmp);
+        match branch.operands.first() {
+            Some(Operand::SymbolRef { name, addend }) => {
+                assert_eq!(name, "nvme_get_log_page");
+                assert_eq!(*addend, 0);
+            }
+            other => panic!("expected SymbolRef target, got {:?}", other),
+        }
+
+        // Trailing Pop and Ret are gone.
+        assert!(arena.instructions().get(pop_id).is_none());
+        assert!(arena.instructions().get(ret_id).is_none());
+
+        assert_eq!(sink.diagnostics.len(), 1);
+        let msg = &sink.diagnostics[0].message;
+        assert!(msg.contains("O1522"), "expected O1522, got: {}", msg);
+        assert!(msg.contains("push-pop-bracket"));
+        assert!(msg.contains("saved=r3"));
+        assert!(msg.contains("nvme_get_log_page"));
+    }
+
+    /// Negative: asymmetric brackets (Push rbx, Pop rcx around a direct
+    /// call) must NOT rewrite — the mirror invariance of Pattern A/E
+    /// requires both bracket regs to be identical, else the epilogue
+    /// windows leave the machine in different states. Nothing else in
+    /// the pass matches `[Push, Call sym, Pop, Ret]` when the pop reg
+    /// disagrees, so the window is preserved intact.
+    #[test]
+    fn wave26_preserves_asymmetric_push_pop_bracket() {
+        let pass = TailCallPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let push_id = IrNodeId::new(1).unwrap();
+        let call_id = IrNodeId::new(2).unwrap();
+        let pop_id = IrNodeId::new(3).unwrap();
+        let ret_id = IrNodeId::new(4).unwrap();
+
+        // Push r3 (rbx), then Pop r1 (rcx) — different regs.
+        arena.instructions_mut().insert(push_id, push_reg_inst(3));
+        arena
+            .instructions_mut()
+            .insert(call_id, call_to("nvme_get_log_page"));
+        arena.instructions_mut().insert(pop_id, pop_reg_inst(1));
+        arena.instructions_mut().insert(ret_id, ret_inst());
+        arena
+            .instr_owner_mut()
+            .insert(call_id, "nvme_log_smart_fetch".to_string());
+
+        let changed = pass.apply(&mut arena, IrNodeId::new(5).unwrap(), &mut sink);
+
+        assert!(!changed, "asymmetric push/pop bracket must not rewrite");
+        assert_eq!(
+            arena.instructions().get(push_id).unwrap().mnemonic,
+            Mnemonic::Push
+        );
+        assert_eq!(
+            arena.instructions().get(call_id).unwrap().mnemonic,
+            Mnemonic::Call
+        );
+        assert_eq!(
+            arena.instructions().get(pop_id).unwrap().mnemonic,
+            Mnemonic::Pop
+        );
+        assert!(arena.instructions().get(ret_id).is_some());
+        assert!(sink.diagnostics.is_empty());
     }
 }

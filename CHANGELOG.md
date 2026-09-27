@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.36.64 — 2026-09-27 — Wave 35: B4-002 cpuid_leaf retirement — BLOCKED on call-site wiring
+
+**PAS-DEBT-B4-002** (issue #1524) — Retirement of the `cpuid_leaf`
+hand-rolled scalar-pair workaround (`cpuid_leaf_ad` + `cpuid_leaf_bc`
+run CPUID twice to fetch all four output regs) via the aggregate-return
+helpers landed in v0.36.62 (SysV, #1544) and v0.36.63 (MS x64, #1543).
+
+**Verdict: RETIREMENT BLOCKED.** The supply side is landed — byte-exact
+helpers for both SysV `IntPair` (RAX+RDX, since 4×u32=16 B all-INTEGER)
+and MS `Memory` (>8 B → sret via RCX) are ready in
+`crates/paideia-as-elaborator/src/aggregate_return.rs`. The demand side
+requires machinery that has not landed and cannot be introduced within
+this ticket's scope without crossing into the language-level
+record-return work that #1544's "Not done" section already flagged:
+
+1. `CpuidRegs {eax,ebx,ecx,edx}` record type is not declared in
+   `crates/paideia-as-stdlib/pdx/cpuid.pdx`, and record types are
+   unparseable at `fn` return position today (no AST syntax).
+2. `Symbol` has no return-record-layout side-table.
+3. `emit_call.rs` has no branch that classifies the return-type layout
+   via `sysv_return_placement_from_layout` /
+   `ms_return_placement_from_layout`, allocates a caller-owned buffer
+   slot, splices the sret prelude, and shifts SysV/MS argument
+   registers right by one when placement is `Memory`.
+4. `emit_ret` in `emit_walker/emit_core.rs` has no branch that reads
+   the return-type side-table and splices `sysv_callee_load_return_pair`
+   / `sysv_callee_sret_store` (or the MS mirrors) before the
+   frame-pointer epilogue + RET.
+5. `ArgConvention` has no `SysVSret` / `MsSret` variant. The current
+   `SysVRegs` convention hard-wires arg[0] to RDI, which conflicts with
+   using RDI as the SysV sret hidden pointer.
+6. For the SysV register-return alternative (Option B of
+   `design/stdlib/cpuid-record-return.md` §2), the record subsystem
+   has no lowering that consumes a register-pair return and
+   materialises it as a field-addressable temporary; without that,
+   `r.eax` / `r.ebx` / `r.ecx` / `r.edx` accesses have nowhere to
+   lower from.
+
+Files changed (documentation-only):
+- `crates/paideia-as-elaborator/src/stdlib_lowering/cpuidops.rs` —
+  module docblock extended with a "PAS-DEBT-B4-002 retirement status"
+  section: enumerates the six DEMAND-side blockers, cites the four
+  landed SUPPLY-side helper names on each side of both ABIs, and
+  points at the follow-up ticket sketch.
+- `design/paideia-as-debt-catalog.md` §5.2 — B4-002 row updated:
+  replaces "deferred to a separate design pass" with the precise
+  blocker list above, cross-references the landed helpers, and cites
+  the follow-up ticket sketch by name.
+- `.plans/scratch/CHANGELOG-1524-b4002-cpuid-sret.md` — full ticket
+  analysis with the follow-up ticket sketch ready for `gh issue create`.
+
+The scalar-pair `cpuid_leaf_ad` / `cpuid_leaf_bc` recipes remain the
+useful surface until the six DEMAND-side blockers land. Per
+`design/stdlib/cpuid-record-return.md` §1: "Consumers written against
+the AD/BC pair keep working after that migration; they just stop
+paying the second CPUID execution." No downstream consumer breakage
+from leaving the workaround in place.
+
+**Follow-up ticket sketch: PAS-DEBT-B3-007c-followup** — record-return
+type plumbing + call-site wiring for SysV/MS aggregate returns.
+Blocks B4-002 (this ticket) and B4-003 (`mldsa65_sign` sret).
+
 ## v0.36.63 — 2026-09-27 — Wave 34: B3-007b MS x64 aggregate return placement + non-exhaustive-match fix
 
 **PAS-DEBT-B3-007b** (closes #1543) — Microsoft x64 ABI aggregate return

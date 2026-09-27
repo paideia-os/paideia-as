@@ -28,6 +28,59 @@
 //! returns lets #1298 add a `cpuid_leaf(leaf, subleaf) -> LeafRecord`
 //! wrapper on top without breaking anything landed here.
 //!
+//! # PAS-DEBT-B4-002 retirement status (v0.36.64, paideia-as#1524)
+//!
+//! **SUPPLY side landed.** Byte-exact aggregate-return sequences for
+//! both x86-64 ABIs are available at:
+//!   * `crates/paideia-as-elaborator/src/aggregate_return.rs`
+//!     — `sysv_caller_sret_prelude` / `sysv_caller_read_return_pair`
+//!       (caller-side; SysV, paideia-as#1544, v0.36.62)
+//!     — `sysv_callee_load_return_pair` / `sysv_callee_sret_store`
+//!       (callee-side; SysV, paideia-as#1544, v0.36.62)
+//!     — `ms_caller_sret_prelude` / `ms_caller_read_return_reg`
+//!       (caller-side; MS x64, paideia-as#1543, v0.36.63)
+//!     — `ms_callee_load_return_reg` / `ms_callee_sret_store`
+//!       (callee-side; MS x64, paideia-as#1543, v0.36.63)
+//! For `CpuidRegs { eax, ebx, ecx, edx }` (4 × u32 = 16 B, all INTEGER)
+//! SysV classifies as `IntPair` (RAX + RDX) and MS as `Memory` (>8 B → sret via RCX).
+//!
+//! **DEMAND side still blocked.** Wiring these helpers at the
+//! `cpuid_leaf` call site requires machinery that has not landed:
+//!   1. `CpuidRegs {eax,ebx,ecx,edx}` record type not declared in
+//!      `crates/paideia-as-stdlib/pdx/cpuid.pdx`. Also unparseable at
+//!      `fn` return position (no AST syntax for record return types).
+//!   2. `Symbol` has no return-record-layout side-table — the elaborator
+//!      cannot look up whether a symbol's return type is aggregate.
+//!   3. `emit_call.rs` has no branch that inspects the return-type
+//!      layout, allocates a caller-owned buffer slot, splices
+//!      `sysv_caller_sret_prelude` (or MS mirror) before CALL, and
+//!      shifts SysV/MS argument registers right by one on `Memory`
+//!      placement (so leaf → RSI/RDX and subleaf → RDX/R8 instead
+//!      of RDI/RCX).
+//!   4. `emit_ret` in `emit_walker/emit_core.rs` has no branch that
+//!      reads the return-type side-table and splices
+//!      `sysv_callee_sret_store` / `ms_callee_sret_store` (or the
+//!      pair-load variants for the SysV register-return path) before
+//!      the frame-pointer epilogue + RET.
+//!   5. `ArgConvention` has no `SysVSret` / `MsSret` variant to signal
+//!      "arg[0] is an sret hidden pointer; real args shift right by one".
+//!      The current `SysVRegs` convention hard-wires arg[0] to RDI,
+//!      which conflicts with using RDI as the sret pointer.
+//!   6. For the SysV register-return alternative (Option B of
+//!      `design/stdlib/cpuid-record-return.md` §2 — return in RAX+RDX
+//!      per §2.2 tuple-in-registers rule), the record subsystem has no
+//!      lowering that consumes a register-pair return and materialises
+//!      it as a field-addressable temporary. Without that path, `r.ebx`
+//!      / `r.ecx` / `r.edx` accesses have nowhere to lower from.
+//!
+//! Follow-up ticket sketch: **PAS-DEBT-B3-007c-followup — record-return
+//! type plumbing + call-site wiring for SysV/MS aggregate returns.**
+//! Blocks B4-002 and B4-003 (mldsa65_sign sret, paideia-as debt-catalog
+//! §5.2). Details in
+//! `.plans/scratch/CHANGELOG-1544-b3007c-sysv-return.md` §"End-to-end
+//! fixtures — deferred" and this ticket's
+//! `.plans/scratch/CHANGELOG-1524-b4002-cpuid-sret.md`.
+//!
 //! Typed per-leaf decoders (0x01 basic feature bits, 0x0B / 0x1F
 //! topology, 0x0D XSAVE, 0x1A hybrid) live in
 //! `crates/paideia-as-stdlib/pdx/cpuid.pdx` as pdx-level functions
