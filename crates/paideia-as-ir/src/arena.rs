@@ -33,6 +33,7 @@ use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 use crate::record_layout::{FieldAccessSideTable, RecordLayoutTable, FinalisedLayoutTable};
+use crate::return_record_layout::ReturnRecordLayoutTable;
 use crate::symbol::SymbolTable;
 use crate::trip_count::TripCountTable;
 use crate::unroll_info::UnrollInfoTable;
@@ -185,6 +186,14 @@ pub struct IrArena {
     /// the elaborator sorts entries by originating Let NodeId before
     /// pushing, so builds are byte-stable.
     fingerprint_entries: Vec<crate::DataEntry>,
+    /// PAS-DEBT-B4-002 Slice A (paideia-as#1554): finalised `RecordLayout`
+    /// for each item-level Let whose declared return type is a record.
+    /// Populated by the elaborator's `populate_return_record_layouts`
+    /// pass before `emit_walker::walk`; consumed inside the walker when
+    /// it stamps `Symbol::return_record_layout` at Let-Lambda symbol
+    /// construction. Empty on symbols whose return type is not a record
+    /// or whose layout the pass could not fold.
+    return_record_layout_table: ReturnRecordLayoutTable,
 }
 
 impl IrArena {
@@ -239,6 +248,7 @@ impl IrArena {
             closure_meta: ClosureMetaTable::new(),
             closure_frame_meta: ClosureFrameMetaTable::new(),
             fingerprint_entries: Vec::new(),
+            return_record_layout_table: ReturnRecordLayoutTable::new(),
         }
     }
 
@@ -558,6 +568,23 @@ impl IrArena {
     /// Borrow the record layout table (mutable).
     pub fn record_layout_table_mut(&mut self) -> &mut RecordLayoutTable {
         &mut self.record_layout_table
+    }
+
+    /// Borrow the return-record-layout table (read-only).
+    ///
+    /// PAS-DEBT-B4-002 Slice A (paideia-as#1554). Populated by the
+    /// elaborator's `populate_return_record_layouts` pass; consumed by
+    /// `emit_walker::walk` to stamp `Symbol::return_record_layout` at
+    /// Let-Lambda symbol construction. See `return_record_layout.rs`
+    /// for the "keyed by Let, not by Lambda" convention.
+    #[must_use]
+    pub fn return_record_layout_table(&self) -> &ReturnRecordLayoutTable {
+        &self.return_record_layout_table
+    }
+
+    /// Borrow the return-record-layout table (mutable).
+    pub fn return_record_layout_table_mut(&mut self) -> &mut ReturnRecordLayoutTable {
+        &mut self.return_record_layout_table
     }
 
     /// Borrow the enum cons side-table (read-only).

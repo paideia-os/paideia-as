@@ -443,6 +443,21 @@ impl EmitWalker {
                                 if arena.is_public_let(node_id) {
                                     sym.visibility = paideia_as_ir::Visibility::Global;
                                 }
+                                // PAS-DEBT-B4-002 Slice A (paideia-as#1554):
+                                // stamp the return-record layout onto the
+                                // Symbol from the side-table populated by
+                                // `populate_return_record_layouts`. Keyed by
+                                // the outer Let's IR node id (this `node_id`,
+                                // not `symbol_ir_node` — the latter is the
+                                // Lambda's id for function symbols). Absent
+                                // entry ⇒ scalar-return codepath preserved.
+                                if let Some(layout) = arena
+                                    .return_record_layout_table()
+                                    .get(node_id)
+                                    .cloned()
+                                {
+                                    sym.return_record_layout = Some(layout);
+                                }
                                 arena.symbols_mut().insert(sym);
 
                                 // PA19-r19-006: Record the ABI for Lambda bindings in the emit state.

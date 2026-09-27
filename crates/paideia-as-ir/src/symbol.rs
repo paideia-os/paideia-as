@@ -5,6 +5,7 @@
 
 use crate::IrNodeId;
 use crate::let_meta::CallingConvention;
+use crate::record_layout::RecordLayout;
 use std::collections::HashMap;
 
 /// Visibility level of a symbol.
@@ -30,7 +31,24 @@ pub enum SymbolKind {
 }
 
 /// A top-level binding symbol.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+///
+/// PAS-DEBT-B4-002 Slice A (#1554): the `return_record_layout` field is the
+/// side-table for record-typed return values on function symbols. When a
+/// function's declared return type is a record (either the anonymous
+/// `record { … }` shape or a named struct in return position), the
+/// elaborator's `populate_return_record_layouts` pass computes a
+/// `RecordLayout` from the declaration and stamps it here so the
+/// downstream emit pipeline can drive SysV/MS aggregate-return
+/// classification (Slice B) and record-cons pair-unpack (Slice C).
+/// `None` on every other symbol — the historical case (scalar return,
+/// non-function binding, or a return type the layout computation did
+/// not recognise).
+///
+/// The field is not part of the symbol's identity: `Hash` and `Eq` skip
+/// it so redefining a symbol with the same name / kind / ir_node still
+/// replaces in place inside `SymbolTable::insert`. Two symbols that
+/// differ only in this field are treated as the same key.
+#[derive(Clone, Debug)]
 pub struct Symbol {
     /// The binding name (identifier).
     pub name: String,
@@ -42,6 +60,40 @@ pub struct Symbol {
     pub visibility: Visibility,
     /// Calling convention annotation (if present).
     pub abi: Option<CallingConvention>,
+    /// Return-value record layout when this symbol is a function whose
+    /// declared return type is a record. `None` for scalar returns,
+    /// non-function bindings, and record returns whose layout the
+    /// elaborator could not compute (unsupported field type, unresolved
+    /// name, etc.). See PAS-DEBT-B4-002 Slice A (#1554).
+    pub return_record_layout: Option<RecordLayout>,
+}
+
+// Hand-written PartialEq / Eq / Hash — exclude `return_record_layout` so
+// symbol identity stays name / kind / ir_node / visibility / abi. The
+// layout is derived metadata that a later pass may fill in without
+// changing what the symbol *is*; if we hashed it, an insert-then-
+// populate flow would produce two distinct table entries for the same
+// binding.
+impl PartialEq for Symbol {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.kind == other.kind
+            && self.ir_node == other.ir_node
+            && self.visibility == other.visibility
+            && self.abi == other.abi
+    }
+}
+
+impl Eq for Symbol {}
+
+impl std::hash::Hash for Symbol {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.kind.hash(state);
+        self.ir_node.hash(state);
+        self.visibility.hash(state);
+        self.abi.hash(state);
+    }
 }
 
 impl Symbol {
@@ -65,6 +117,7 @@ impl Symbol {
             ir_node,
             visibility,
             abi: None,
+            return_record_layout: None,
         }
     }
 
@@ -82,6 +135,7 @@ impl Symbol {
             ir_node,
             visibility,
             abi: None,
+            return_record_layout: None,
         }
     }
 
@@ -104,7 +158,23 @@ impl Symbol {
             ir_node,
             visibility,
             abi,
+            return_record_layout: None,
         }
+    }
+
+    /// Attach a return-value record layout, consuming and returning `self`.
+    ///
+    /// Builder for the PAS-DEBT-B4-002 Slice A (#1554) side-table field.
+    /// Pass `None` to explicitly clear a previously attached layout;
+    /// pass `Some(layout)` when the function's declared return type is a
+    /// record and the elaborator has computed its per-field offsets and
+    /// sizes. Callers that do not care about aggregate returns can
+    /// ignore this builder — the constructors default the field to
+    /// `None`.
+    #[must_use]
+    pub fn with_return_record_layout(mut self, layout: Option<RecordLayout>) -> Self {
+        self.return_record_layout = layout;
+        self
     }
 }
 
@@ -364,5 +434,103 @@ mod tests {
         let ep = st.entry_point().unwrap();
         assert_eq!(ep.name, "_start");
         assert_eq!(ep.visibility, Visibility::Global);
+    }
+
+    // ---- PAS-DEBT-B4-002 Slice A (#1554): return_record_layout field ----
+
+    /// Every constructor defaults `return_record_layout` to `None` — a
+    /// scalar-return or non-function binding must not carry an aggregate
+    /// return descriptor. Slice B / C code that flips a codegen switch
+    /// on `Some(_)` needs to be able to trust the absence signal.
+    #[test]
+    fn return_record_layout_defaults_to_none() {
+        use crate::let_meta::CallingConvention;
+
+        let node_id = test_ir_node_id();
+
+        let s1 = Symbol::new("s1".to_string(), SymbolKind::Function, node_id);
+        assert!(s1.return_record_layout.is_none());
+
+        let s2 = Symbol::new_with_visibility(
+            "s2".to_string(),
+            SymbolKind::Function,
+            node_id,
+            Visibility::Global,
+        );
+        assert!(s2.return_record_layout.is_none());
+
+        let s3 = Symbol::new_with_abi(
+            "s3".to_string(),
+            SymbolKind::Function,
+            node_id,
+            Some(CallingConvention::Sysv),
+        );
+        assert!(s3.return_record_layout.is_none());
+    }
+
+    /// The `with_return_record_layout` builder attaches a layout without
+    /// disturbing the other symbol fields; passing `None` clears it.
+    /// Test uses a 4×u32 shape (16 B / align 4) — the CpuidRegs case
+    /// that drove PAS-DEBT-B4-002 Slice A.
+    #[test]
+    fn with_return_record_layout_attaches_and_clears() {
+        use crate::record_layout::{FieldLayout, RecordLayout};
+
+        let node_id = test_ir_node_id();
+        let layout = RecordLayout::with_field_names(
+            16,
+            4,
+            vec![
+                FieldLayout { offset: 0,  size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4,  size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 8,  size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 12, size: 4, signed: false, is_float: false },
+            ],
+            vec!["eax".to_string(), "ebx".to_string(), "ecx".to_string(), "edx".to_string()],
+        );
+
+        let sym = Symbol::new("cpuid_leaf".to_string(), SymbolKind::Function, node_id)
+            .with_return_record_layout(Some(layout.clone()));
+
+        assert_eq!(sym.name, "cpuid_leaf");
+        assert_eq!(sym.kind, SymbolKind::Function);
+        assert_eq!(sym.return_record_layout, Some(layout));
+
+        let cleared = sym.with_return_record_layout(None);
+        assert!(cleared.return_record_layout.is_none());
+    }
+
+    /// Symbol identity (Eq / Hash) intentionally excludes the layout —
+    /// otherwise a `SymbolTable::insert` that runs AFTER a
+    /// populate-layout pass would collide with the pre-layout entry
+    /// instead of replacing it. Two symbols that differ only in this
+    /// field are the same key.
+    #[test]
+    fn return_record_layout_not_part_of_identity() {
+        use crate::record_layout::{FieldLayout, RecordLayout};
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let node_id = test_ir_node_id();
+        let layout = RecordLayout::new(
+            8,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
+            ],
+        );
+
+        let bare = Symbol::new("cpuid".to_string(), SymbolKind::Function, node_id);
+        let with_layout = Symbol::new("cpuid".to_string(), SymbolKind::Function, node_id)
+            .with_return_record_layout(Some(layout));
+
+        assert_eq!(bare, with_layout);
+
+        let mut h1 = DefaultHasher::new();
+        bare.hash(&mut h1);
+        let mut h2 = DefaultHasher::new();
+        with_layout.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
     }
 }

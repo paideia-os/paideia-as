@@ -1,5 +1,77 @@
 # Changelog
 
+## v0.36.68 — 2026-09-27 — Issue #1554 Slice A: record-return type plumbing (Symbol + side-table)
+
+PAS-DEBT-B4-002 (paideia-as#1554) Slice A wires the first two of the
+six pieces of demand-side machinery flagged in
+`.plans/scratch/CHANGELOG-1524-b4002-cpuid-sret.md`: parser support for
+record types at fn return position (lock-in tests only; the parser
+already accepted the shape via `parse_type_paren` → `parse_type` →
+`parse_type_record`) and a `Symbol::return_record_layout` side-table
+field populated by a new elaborator pass.
+
+Slice B (emit_call.rs aggregate-return branch + emit_ret sret store +
+`ArgConvention::SysVSret` / `MsSret` variants) and Slice C (record
+subsystem pair-unpack for register-return placements) are separate
+waves. This wave lands purely the plumbing that Slice B / C consumers
+will read from.
+
+- `crates/paideia-as-ir/src/symbol.rs` — added
+  `Symbol::return_record_layout: Option<RecordLayout>`; the three
+  constructors (`new`, `new_with_visibility`, `new_with_abi`) all
+  default it to `None`, plus a new
+  `with_return_record_layout` builder. Symbol identity (`Eq` / `Hash`)
+  intentionally excludes the layout so an insert-then-populate flow
+  still replaces in place inside `SymbolTable::insert`.
+- `crates/paideia-as-ir/src/return_record_layout.rs` — new
+  `ReturnRecordLayoutTable` side-table keyed by the item-level Let's
+  `IrNodeId` (not the inner Lambda's). Empty on symbols whose return
+  type is not a record or whose layout the pass could not fold.
+- `crates/paideia-as-ir/src/arena.rs` +
+  `crates/paideia-as-ir/src/lib.rs` — arena field, accessors,
+  re-export.
+- `crates/paideia-as-elaborator/src/return_record_layout_pass.rs` —
+  new `populate_return_record_layouts` pass. Walks item-level Lets
+  where the RHS is a Lambda and the annotation is a
+  `TypeFnPtr { ret, .. }`; when `ret` is either an inline
+  `TypeData::Record` or a `TypeData::Name` present in the
+  `StructRegistry`, computes a byte-exact `RecordLayout` using the
+  same natural-alignment rules as
+  `emit_pass_state::finalise_record_layouts` (u8/u16/u32/u64 + `*T` at
+  8 B; struct align = max field align; tail-padded to that align).
+- `crates/paideia-as-elaborator/src/lib.rs` — module + re-export.
+- `crates/paideia-as-elaborator/src/emit_walker/walk.rs` — Symbol
+  construction inside `walk_inner` now reads
+  `arena.return_record_layout_table().get(node_id).cloned()` and
+  stamps it onto `sym.return_record_layout` before insertion. Keyed
+  by `node_id` (the outer Let's IR id) not `symbol_ir_node` (which is
+  the Lambda's id for function symbols).
+- `crates/paideia-as/src/cmd_build/mod.rs` — invokes
+  `populate_return_record_layouts` between
+  `populate_lambda_param_enum_types` and the walker pipeline.
+- `crates/paideia-as-parser/src/parse_type/tests.rs` — 4 new lock-in
+  parser tests: `parse_fn_ptr_return_inline_record_cpuid_shape` (the
+  4×u32 CpuidRegs shape), `parse_fn_ptr_return_named_struct` (`(u32)
+  -> CpuidRegs`), `parse_fn_ptr_return_empty_record` (`() -> record
+  {}`), `parse_fn_ptr_return_record_with_effects` (record return
+  composed with an effect row).
+- `crates/paideia-as-ir/src/symbol.rs` (tests module) — 3 new tests
+  for the field + builder + identity semantics.
+- `crates/paideia-as-ir/src/return_record_layout.rs` (tests module) —
+  4 tests for the side-table CRUD shape.
+- `crates/paideia-as-elaborator/src/return_record_layout_pass.rs`
+  (tests module) — 5 unit tests for the layout helpers plus 2
+  integration tests that hand-build a minimal AST + IR + registry and
+  verify the pass populates the side-table for named-struct returns
+  and skips non-Lambda RHS bindings.
+- `Cargo.toml` (line 86): `workspace.package.version` 0.36.67 →
+  0.36.68.
+
+Follow-up (deferred to Slice B / C waves per the same issue body):
+`emit_call.rs` aggregate-return branch, `emit_ret` sret store /
+pair-load branch, `ArgConvention::SysVSret` + `MsSret` variants, and
+the record subsystem's pair-unpack lowering.
+
 ## v0.36.67 — 2026-09-27 — Issue #1557: parser-reject corpus harness
 
 New sibling test crate `tests/parser-reject-corpus/`

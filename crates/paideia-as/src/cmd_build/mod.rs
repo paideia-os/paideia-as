@@ -272,6 +272,24 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         &enum_registry,
     );
 
+    // PAS-DEBT-B4-002 Slice A (paideia-as#1554): populate the return-
+    // record-layout side-table for item-level Lets whose declared
+    // return type is a record (inline `record { … }` or named struct
+    // in the StructRegistry). The walker (`emit_walker::walk`) reads
+    // this table when constructing the Symbol for each Let-Lambda
+    // binding and stamps `Symbol::return_record_layout` accordingly.
+    // Slice B / C consumers (`emit_call.rs` aggregate-return branch,
+    // `emit_ret` sret store, record-pair unpack) then key off that
+    // field. Absent-side-table entry ⇒ scalar-return codepath, so no
+    // Slice B/C consumer regression on the historical corpus.
+    paideia_as_elaborator::populate_return_record_layouts(
+        &arena,
+        &mut lowering.ir,
+        &lowering.ast_to_ir,
+        &source_map,
+        &registry,
+    );
+
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
     // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
     // Issue #1090: Also thread StructRegistry for struct-typed variant payloads fallback.

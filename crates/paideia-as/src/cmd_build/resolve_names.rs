@@ -110,13 +110,30 @@ pub(super) fn resolve_symbol_names_and_let_meta(
                 } else {
                     paideia_as_ir::Visibility::Local
                 };
-                // Re-insert the symbol with the real name and correct visibility
-                let updated_sym = paideia_as_ir::Symbol::new_with_visibility(
+                // Re-insert the symbol with the real name and correct visibility.
+                //
+                // PAS-DEBT-B4-002 Slice A (paideia-as#1554): the walker
+                // already stamped `return_record_layout` onto `sym`
+                // during `EmitWalker::walk`; carry it across the rename
+                // so Slice B / C code sees the finalised layout on the
+                // symbol looked up by its real name. Also carry the ABI
+                // annotation (issue #1006) — dropping either here would
+                // silently regress the historical rename path.
+                let updated_sym = paideia_as_ir::Symbol::new_with_abi(
                     real_name.clone(),
                     sym.kind,
                     sym.ir_node,
+                    sym.abi,
+                )
+                .with_return_record_layout(sym.return_record_layout.clone());
+                // `new_with_abi` auto-globals _start / long_mode_entry;
+                // any explicit `pub` visibility is stamped afterwards so
+                // it wins over the default. Preserves the previous
+                // resolve-names semantics unchanged.
+                let updated_sym = paideia_as_ir::Symbol {
                     visibility,
-                );
+                    ..updated_sym
+                };
                 lowering.ir.symbols_mut().insert(updated_sym);
             } else {
                 // Symbol has no real name mapping, keep the original

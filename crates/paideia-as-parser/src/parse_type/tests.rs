@@ -2021,3 +2021,169 @@ fn parse_fn_ptr_effect_on_param() {
     assert_eq!(diag.code().number(), 100, "expected P0100 (expected closing paren)");
     assert!(result.is_err(), "expected parse error for effect on param");
 }
+
+// ---- PAS-DEBT-B4-002 Slice A (paideia-as#1554): record types at fn
+// return position. Verify the parser accepts both the inline
+// `record { … }` shape and a named struct in return position, so
+// downstream elaboration can classify the return placement and
+// stamp `Symbol::return_record_layout`. Landed as tests only:
+// `parse_type_paren` was already dispatching through `parse_type` at
+// the arrow's right side, and `parse_type` already handles KwRecord;
+// these tests lock the shape in so a future refactor cannot silently
+// drop record-typed returns. ----
+
+#[test]
+fn parse_fn_ptr_return_inline_record_cpuid_shape() {
+    // `(u32, u32) -> record { eax: u32, ebx: u32, ecx: u32, edx: u32 }`
+    // — the CpuidRegs shape that drove PAS-DEBT-B4-002 Slice A.
+    let tokens = vec![
+        tok(TokenKind::LParen, 0),
+        tok(TokenKind::Ident, 1),        // u32 (leaf)
+        tok(TokenKind::Comma, 4),
+        tok(TokenKind::Ident, 6),        // u32 (subleaf)
+        tok(TokenKind::RParen, 9),
+        tok(TokenKind::Arrow, 11),
+        tok(TokenKind::KwRecord, 14),    // record
+        tok(TokenKind::LBrace, 21),
+        tok(TokenKind::Ident, 23),       // eax
+        tok(TokenKind::Colon, 26),
+        tok(TokenKind::Ident, 28),       // u32
+        tok(TokenKind::Comma, 31),
+        tok(TokenKind::Ident, 33),       // ebx
+        tok(TokenKind::Colon, 36),
+        tok(TokenKind::Ident, 38),       // u32
+        tok(TokenKind::Comma, 41),
+        tok(TokenKind::Ident, 43),       // ecx
+        tok(TokenKind::Colon, 46),
+        tok(TokenKind::Ident, 48),       // u32
+        tok(TokenKind::Comma, 51),
+        tok(TokenKind::Ident, 53),       // edx
+        tok(TokenKind::Colon, 56),
+        tok(TokenKind::Ident, 58),       // u32
+        tok(TokenKind::RBrace, 61),
+        tok(TokenKind::Eof, 62),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0, "no diagnostics expected");
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    let ty_node = arena.get(ty_id).unwrap();
+    assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+    if let Some(TypeData::FnPtr { params, ret, .. }) = arena.type_data(ty_id) {
+        assert_eq!(params.len(), 2, "leaf + subleaf");
+        let ret_node = arena.get(*ret).unwrap();
+        assert_eq!(ret_node.kind, NodeKind::TypeRecord);
+        if let Some(TypeData::Record { fields }) = arena.type_data(*ret) {
+            assert_eq!(fields.len(), 4, "eax, ebx, ecx, edx");
+        } else {
+            panic!("expected TypeData::Record on ret");
+        }
+    } else {
+        panic!("expected TypeFnPtr");
+    }
+}
+
+#[test]
+fn parse_fn_ptr_return_named_struct() {
+    // `(u32) -> CpuidRegs` — named-struct return position. The parser
+    // does not know CpuidRegs is a struct here; the elaborator's
+    // `populate_return_record_layouts` pass resolves the name against
+    // the StructRegistry post-parse. The parse itself just yields a
+    // TypeName on the ret slot.
+    let tokens = vec![
+        tok(TokenKind::LParen, 0),
+        tok(TokenKind::Ident, 1),  // u32
+        tok(TokenKind::RParen, 4),
+        tok(TokenKind::Arrow, 6),
+        tok(TokenKind::Ident, 9),  // CpuidRegs
+        tok(TokenKind::Eof, 18),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0, "no diagnostics expected");
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    assert_eq!(arena.get(ty_id).unwrap().kind, NodeKind::TypeFnPtr);
+    if let Some(TypeData::FnPtr { ret, .. }) = arena.type_data(ty_id) {
+        let ret_node = arena.get(*ret).unwrap();
+        assert_eq!(ret_node.kind, NodeKind::TypeName);
+    } else {
+        panic!("expected TypeFnPtr");
+    }
+}
+
+#[test]
+fn parse_fn_ptr_return_empty_record() {
+    // `() -> record {}` — the degenerate empty-record return. Locks
+    // in the shape so a future parser tweak can't reject `record {}`
+    // at return position while still accepting it in param / field
+    // position.
+    let tokens = vec![
+        tok(TokenKind::LParen, 0),
+        tok(TokenKind::RParen, 1),
+        tok(TokenKind::Arrow, 3),
+        tok(TokenKind::KwRecord, 6),
+        tok(TokenKind::LBrace, 13),
+        tok(TokenKind::RBrace, 14),
+        tok(TokenKind::Eof, 15),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0, "no diagnostics expected");
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    if let Some(TypeData::FnPtr { ret, params, .. }) = arena.type_data(ty_id) {
+        assert!(params.is_empty(), "empty param list");
+        assert_eq!(arena.get(*ret).unwrap().kind, NodeKind::TypeRecord);
+        if let Some(TypeData::Record { fields }) = arena.type_data(*ret) {
+            assert!(fields.is_empty(), "empty record has no fields");
+        } else {
+            panic!("expected empty TypeData::Record on ret");
+        }
+    } else {
+        panic!("expected TypeFnPtr");
+    }
+}
+
+#[test]
+fn parse_fn_ptr_return_record_with_effects() {
+    // `(u32, u32) -> record { eax: u32, ebx: u32 } !{sysreg}` —
+    // effect-row placement after a record-typed return is unchanged
+    // from the scalar case: the effect set closes over the whole
+    // return-type-plus-effects tail. Locks in that record returns
+    // compose with effect rows.
+    let tokens = vec![
+        tok(TokenKind::LParen, 0),
+        tok(TokenKind::Ident, 1),        // u32
+        tok(TokenKind::Comma, 4),
+        tok(TokenKind::Ident, 6),        // u32
+        tok(TokenKind::RParen, 9),
+        tok(TokenKind::Arrow, 11),
+        tok(TokenKind::KwRecord, 14),
+        tok(TokenKind::LBrace, 21),
+        tok(TokenKind::Ident, 23),       // eax
+        tok(TokenKind::Colon, 26),
+        tok(TokenKind::Ident, 28),       // u32
+        tok(TokenKind::Comma, 31),
+        tok(TokenKind::Ident, 33),       // ebx
+        tok(TokenKind::Colon, 36),
+        tok(TokenKind::Ident, 38),       // u32
+        tok(TokenKind::RBrace, 41),
+        tok(TokenKind::EffectOpen, 43),
+        tok(TokenKind::Ident, 45),       // sysreg
+        tok(TokenKind::RBrace, 51),
+        tok(TokenKind::Eof, 52),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0, "no diagnostics expected");
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    if let Some(TypeData::FnPtr { ret, effects, .. }) = arena.type_data(ty_id) {
+        assert_eq!(arena.get(*ret).unwrap().kind, NodeKind::TypeRecord);
+        assert!(effects.is_some(), "effect row present on record-return FnPtr");
+    } else {
+        panic!("expected TypeFnPtr");
+    }
+}
