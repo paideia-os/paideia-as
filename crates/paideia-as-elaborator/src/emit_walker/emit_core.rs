@@ -22,9 +22,10 @@ use paideia_as_ir::abi::{
     ms_return_placement_from_layout, sysv_return_placement_from_layout, MsReturnPlacement,
     SysvReturnPlacement,
 };
-use paideia_as_ir::instruction::{InstrMode, Instruction, Mnemonic, Operand};
+use paideia_as_ir::instruction::{InstrMode, Instruction, Mnemonic, Operand, Scale};
 use paideia_as_ir::let_meta::CallingConvention;
-use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
+use paideia_as_ir::record_layout::RecordLayout;
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 
 use super::EmitWalker;
 
@@ -203,14 +204,20 @@ impl EmitWalker {
     ///     return registers.
     ///
     /// **Callee-local source buffer**: allocated with a bare
-    /// `sub rsp, padded_size` before the copy. The buffer's contents
-    /// come from whatever body-shape arm emitted before this RET —
-    /// today that is the arm's own scratch, uninitialised for the
-    /// `-> 0` fixtures (Slice C is deliberately scaffolding for
-    /// those). Slice D lands a return-position record-cons pass
-    /// that writes each field into this buffer BEFORE control
-    /// reaches `emit_ret`, giving a semantically correct end-to-end
-    /// story.
+    /// `sub rsp, padded_size` before the copy. Slice D
+    /// (paideia-as#1554) populates that buffer inside
+    /// `emit_callee_sret_splice` immediately after the `sub` and
+    /// before the sret helper's load/copy sequence: when the
+    /// current Lambda's body is `IrKind::RecordCons`,
+    /// `emit_record_cons_field_stores_into_sret_buffer` walks the
+    /// canonicalised `[type_name, values...]` children in step with
+    /// the callee's `return_record_layout.fields`, emitting
+    /// `mov [rsp + field.offset], value` for each Literal /
+    /// Var-in-`local_bindings` field. Non-record-cons bodies (a
+    /// `-> 0` scaffolding fixture or a body that materialises the
+    /// record via a nested call) leave the buffer uninitialised —
+    /// see the docblock on that helper for the deferred-diagnostic
+    /// contract.
     ///
     /// The buffer is released by the same `mov rsp, rbp` teardown
     /// below — no matching `add rsp, N` needed for frame-pointer
@@ -444,10 +451,163 @@ impl EmitWalker {
         let sub_id = self.alloc_synthetic_id();
         self.emit_inst(sub_id, sub_inst);
 
+        // PAS-DEBT-B4-002 Slice D (paideia-as#1554) Piece 1:
+        // populate the source buffer from the current Lambda's body
+        // when that body is `IrKind::RecordCons`. Field values write
+        // to `[RSP + field.offset]` — the same source-side base +
+        // disp the sret helper reads from just below.
+        //
+        // Slice C's docblock scaffolded this exact seam: "the
+        // buffer's contents come from whatever body-shape arm
+        // emitted before this RET — today that is the arm's own
+        // scratch, uninitialised for the `-> 0` fixtures". Slice D
+        // supplies those bytes.
+        self.emit_record_cons_field_stores_into_sret_buffer(
+            lambda_id, layout, arena,
+        );
+
         // Splice the helper's instruction stream.
         for inst in instructions {
             let iid = self.alloc_synthetic_id();
             self.emit_inst(iid, inst);
+        }
+    }
+
+    /// PAS-DEBT-B4-002 Slice D (paideia-as#1554): populate the
+    /// callee-local sret source buffer with each field of the
+    /// current Lambda's `IrKind::RecordCons` body.
+    ///
+    /// Called from `emit_callee_sret_splice` after the source
+    /// buffer's `sub rsp, padded_size` and before the sret helper's
+    /// load-and-copy sequence. Silently no-ops when:
+    ///
+    ///   * The Lambda has no body child (should never happen for a
+    ///     well-formed Lambda — the arena's IR-builder invariant is
+    ///     "Lambda has exactly one child" per `visit_lambda`).
+    ///   * The body's kind is not `IrKind::RecordCons` — the sret
+    ///     splice fires for every record-returning callee whose
+    ///     Symbol carries `return_record_layout`, including non-
+    ///     record-cons bodies (a bare `-> 0` scaffolding fixture, or
+    ///     a future body that materialises the record via a call).
+    ///     Those callers leave the buffer whatever the raw stack
+    ///     held (matches the Slice C scaffolding contract; still not
+    ///     semantically correct end-to-end, but the source-level
+    ///     type system prevents non-record bodies from typing
+    ///     against a record return in the future).
+    ///
+    /// Field iteration walks `arena.children(record_cons_id)[1..]`
+    /// in step with `layout.fields[..]`. Slice A's canonicalisation
+    /// (`lower/record_cons.rs`) guarantees the two are in the same
+    /// declared order.
+    ///
+    /// Value sources per field child:
+    ///   * `IrKind::Literal` → `mov [RSP + offset], imm` (imm32-
+    ///     sign-extended when the value fits; the encoder narrows to
+    ///     the 8-byte `48 C7` form).
+    ///   * `IrKind::Var` → look up the binding in `local_bindings`
+    ///     (parameter names live there after
+    ///     `register_nested_lambda_params`), then
+    ///     `mov [RSP + offset], reg`.
+    ///   * Any other kind — a leftover after canonicalisation, or a
+    ///     value shape not yet supported for record-cons bodies
+    ///     (nested App, arithmetic, EnumCons, …) — is silently
+    ///     skipped. The sret store still runs; that field's slot
+    ///     reads back as whatever the raw stack held. A follow-up
+    ///     ticket (T0522) will diagnose the unsupported shapes
+    ///     explicitly once fixture pressure demands it — for the
+    ///     Slice D fixture surface (Cpuid { eax: 1, ebx: 2, ecx: 3,
+    ///     edx: 4 }-style literal-populated records, plus the
+    ///     parameter-forwarding `fn (x, y) -> Pair { a: x, b: y }`)
+    ///     the literal + var arms cover everything.
+    fn emit_record_cons_field_stores_into_sret_buffer(
+        &mut self,
+        lambda_id: IrNodeId,
+        layout: &RecordLayout,
+        arena: &IrArena,
+    ) {
+        let body_children = arena.children(lambda_id);
+        let Some(&body_id) = body_children.first() else {
+            return;
+        };
+        let Some(body_node) = arena.get(body_id) else {
+            return;
+        };
+        if body_node.kind != IrKind::RecordCons {
+            return;
+        }
+
+        // `lower/record_cons.rs::record_cons_children` canonicalises
+        // to `[type_name, ordered_values...]`, so field values start
+        // at index 1. Length checks defensively — a malformed arena
+        // (fewer children than the layout requires) leaves the
+        // absent fields uninitialised rather than panicking.
+        let cons_children = arena.children(body_id);
+        for (field_idx, field_layout) in layout.fields.iter().enumerate() {
+            let Some(&child_id) = cons_children.get(field_idx + 1) else {
+                break;
+            };
+            let Some(child_node) = arena.get(child_id) else {
+                continue;
+            };
+            let disp = field_layout.offset as i32;
+
+            match child_node.kind {
+                IrKind::Literal => {
+                    let Some(value) = arena.literal_values().get(child_id) else {
+                        continue;
+                    };
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::MemSib {
+                        base: abi::RSP,
+                        index: None,
+                        scale: Scale::X1,
+                        disp,
+                    });
+                    ops.push(Operand::Imm64(value));
+                    let inst = Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    let iid = self.alloc_synthetic_id();
+                    self.emit_inst(iid, inst);
+                }
+                IrKind::Var => {
+                    let Some(name) = arena.binding_names().get(child_id) else {
+                        continue;
+                    };
+                    let Some(src_reg) = self.state.local_bindings.get(name) else {
+                        continue;
+                    };
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::MemSib {
+                        base: abi::RSP,
+                        index: None,
+                        scale: Scale::X1,
+                        disp,
+                    });
+                    ops.push(Operand::Reg(src_reg));
+                    let inst = Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    let iid = self.alloc_synthetic_id();
+                    self.emit_inst(iid, inst);
+                }
+                _ => {
+                    // Unsupported value shape for a record-cons
+                    // field. See docblock for the deferred T0522
+                    // diagnostic; Slice D leaves the slot
+                    // uninitialised rather than emit incorrect bytes.
+                }
+            }
         }
     }
 }

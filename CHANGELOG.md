@@ -1,5 +1,164 @@
 # Changelog
 
+## v0.36.71 — 2026-09-27 — Issue #1554 Slice D: RecordCons emit arm + pair-unpack gate lift
+
+PAS-DEBT-B4-002 (paideia-as#1554) Slice D closes the record-return
+loop end-to-end. Slice A landed the parser + `return_record_layout`
+side-table (v0.36.68); Slice B landed the caller-side sret
+prelude/postlude in `emit_call.rs` (v0.36.69); Slice C landed the
+callee-side sret splice + persistent caller frame slot (v0.36.70)
+but flagged that the callee's sret source buffer was allocated but
+never populated — the `-> 0` scaffolding fixtures returned
+uninitialised bytes. Slice D:
+
+  * **Piece 1 (RecordCons emit arm)** — `emit_visit_lambda.rs`
+    grew an `IrKind::RecordCons` body arm that arms the pending
+    first-instruction shim, marks the RecordCons handled (so the
+    flat pass at `walk.rs` doesn't re-dispatch to the cap-mint
+    `visit_record_cons` and fire T0518), and calls `emit_ret`. The
+    actual field stores land in
+    `emit_walker/emit_core.rs::emit_record_cons_field_stores_into_sret_buffer`,
+    a new helper spliced into `emit_callee_sret_splice` right
+    after its `sub rsp, padded_size` and before the aggregate-
+    return helper's copy/load sequence. The helper walks the
+    RecordCons children (canonical `[type_name, values...]` per
+    `lower/record_cons.rs`) in step with the callee's
+    `return_record_layout.fields`, emitting `mov [rsp + offset],
+    value` for each — Literal → imm32-sign-extended mov, Var →
+    `local_bindings` lookup → mov reg. Non-record-cons bodies
+    (`-> 0` scaffolding, nested-call bodies) leave the buffer
+    unpopulated exactly as Slice C did — a follow-up T0522
+    diagnoses unsupported field-value shapes once fixture pressure
+    demands it.
+
+  * **Piece 2 (caller-side pair-unpack gate lifted)** — the
+    Memory-only slot-allocation gate in
+    `return_record_cons_pass::populate_return_record_cons_slots`
+    is lifted (was `matches!(info.shape, PlacementShapeInner::Memory)`;
+    now `!matches!(info.shape, PlacementShapeInner::Absent)`).
+    Register-return placements (IntSingle, SseSingle, IntPair,
+    IntSse, SseInt, SsePair, XmmSingle) now allocate a persistent
+    `[RBP + disp]` destination slot so the post-CALL splice in
+    `emit_call.rs::emit_call_args_and_call` writes RAX / RDX /
+    XMM0 / XMM1 into a durable buffer the caller can read from.
+
+  * **`@no_frame` fallback** — a caller marked `@no_frame` has no
+    RBP anchor, so the persistent slot's `[RBP + disp]` addressing
+    is invalid. Slice D adds two guards to preserve Slice B byte
+    identity for those callers:
+    - `emit_call.rs`'s `is_caller_no_frame` computes
+      `self.state.is_lambda_no_frame(lambda_node_id.get())` and
+      clears `persistent_slot` when true → the caller-side path
+      falls back to Slice B (transient `sub/lea/add` for Memory;
+      scalar-shape for register-return, no post-CALL unpack).
+    - `emit_visit_lambda.rs`'s sret prologue-bump block is wrapped
+      in `if !is_no_frame { ... }` so the `sub rsp, N` never fires
+      for a frameless caller. The pass still writes an entry into
+      `caller_sret_frame_bump_table`, but the emit path discards
+      it.
+
+    The `sysv_intpair_16b_leaves_call_emission_byte_identical_to_scalar`
+    test in `sret_call_wiring.rs` (which marks its caller `@no_frame`
+    via `state.mark_lambda_no_frame`) still passes byte-identically.
+
+### Non-exhaustive-match hygiene
+
+`SysvReturnPlacement`, `MsReturnPlacement` and `AggregateClass`
+remain `#[non_exhaustive]`; every classifier in this slice
+(`PlacementShapeInner::from_sysv/ms`) carries the required wildcard
+arm. `emit_record_cons_field_stores_into_sret_buffer`'s value-kind
+match uses `_ => { /* deferred T0522 */ }` for the same reason.
+
+### Encoder pitfalls avoided
+
+  * Field stores use `Operand::MemSib { base: RSP, index: None,
+    scale: X1, disp }` + `Operand::Imm64(literal)` — encoder
+    narrows to `48 C7 <ModRM> <SIB> <disp8|disp32> <imm32>` (the
+    generic Mov `[Mem, Imm]` arm; not the `and r11, imm64` shape
+    called out in the encoder-pitfalls memory).
+  * `test rN, rN` is not emitted in any of Slice D's new paths.
+  * All labels are synthetic ids from `alloc_synthetic_id` — no
+    reserved-keyword collision on `loop` / `if` / `let`.
+
+### Pieces 3-5 status
+
+  * **Piece 3 (Symbol return_record_layout for record-literal
+    returns)**: already covered by Slice A's
+    `populate_return_record_layouts` — it walks every item-level
+    Let with a `TypeFnPtr` annotation whose `ret` is a record type,
+    which is exactly the fixture shape (`fn (..) -> record { ... }
+    = fn (..) -> RecName { .. }`). No new code needed; Slice D's
+    unit tests instantiate the same arena state the pass would
+    produce.
+  * **Piece 4 (end-to-end fixture test)**: two `.pdx` fixtures land
+    under `tests/data/sret_slice_d/` —
+    `sret_16b_pair_recordcons.pdx` (IntPair register return with
+    parameter forwarding) and `sret_24b_memory_recordcons.pdx`
+    (Memory placement with literal field values). The four
+    `sret_slice_d.rs` unit tests exercise the byte-shape at the
+    walker level (arena-driven, no compiler-driver dependency).
+    Runtime execution of the `.pdx` fixtures in a stub environment
+    is left to a follow-up when the `paideia-os` side picks up the
+    end-to-end pipeline.
+  * **Piece 5 (B4-002 / B4-003 retirements — cpuid_leaf,
+    mldsa65_sign)**: deferred to their own tickets. The
+    `stdlib_lowering/cpuidops.rs` retirement requires an
+    `ArgConvention::SysVRegs`-shaped recipe rewrite where the
+    recipe's "returns a u64 via RAX" contract flips to "returns
+    `CpuidRegs { eax, ebx, ecx, edx }` via IntPair pair-unpack" —
+    a substantial recipe-framework revision (see
+    `stdlib_lowering/mod.rs`'s ArgConvention docblock). Similarly
+    `mldsa65_sign` needs `ReturnConvention` sensing at the recipe
+    level plus a change to caller-side arg counting (the 3309-byte
+    output-buffer parameter goes away). Both are tracked
+    separately in paideia-as#1524 and paideia-as#1525 — Slice D
+    unblocks them at the machinery level; the callee-side recipe
+    conversions land as their own PRs.
+
+### Version + files
+
+- `Cargo.toml` `workspace.package.version` → `0.36.71`.
+- `crates/paideia-as-elaborator/src/emit_walker/emit_core.rs`:
+  new `emit_record_cons_field_stores_into_sret_buffer` helper +
+  splice call in `emit_callee_sret_splice`. Docblocks on
+  `emit_ret` and `emit_callee_sret_splice` refreshed to reflect
+  the Slice D contract.
+- `crates/paideia-as-elaborator/src/emit_visit_lambda.rs`:
+  `IrKind::RecordCons` body arm added; sret prologue-bump block
+  wrapped in `if !is_no_frame`.
+- `crates/paideia-as-elaborator/src/emit_call.rs`:
+  `is_caller_no_frame` guard on `persistent_slot`; Piece-4
+  splice narrative updated ("dormant" → "active"); dead-code
+  allow retired.
+- `crates/paideia-as-elaborator/src/return_record_cons_pass.rs`:
+  Memory-only gate lifted; `PlacementShapeInner::Register`
+  `#[allow(dead_code)]` retired; `intpair_callee_does_not_allocate_slot`
+  test renamed and inverted to
+  `intpair_callee_allocates_persistent_slot_in_slice_d`; module
+  docblock refreshed.
+- `crates/paideia-as-elaborator/src/emit_walker/walk.rs`:
+  pre-pass gate added for `Lambda → RecordCons` bodies — mirrors
+  the sibling `Lambda → EnumCons` pre-mark (#1224) so the
+  id-preorder flat pass at line 624 does NOT re-dispatch to the
+  cap-mint `visit_record_cons` (which would fire T0518 on Slice D
+  fixture shapes with field-count ≠ 4).
+- `crates/paideia-as-elaborator/src/emit_walker_tests.rs`:
+  `#[path]` module declaration for `sret_slice_d`.
+- `crates/paideia-as-elaborator/src/emit_walker_tests/sret_slice_d.rs`
+  (new): five tests covering RecordCons-body population (Memory
+  and IntPair), non-RecordCons body no-op, IntPair caller with
+  frame emits persistent slot + pair-unpack, and `@no_frame`
+  fallback byte identity.
+- `tests/data/sret_slice_d/sret_16b_pair_recordcons.pdx` (new):
+  parameter-forwarding IntPair fixture.
+- `tests/data/sret_slice_d/sret_24b_memory_recordcons.pdx` (new):
+  literal-populated Memory fixture.
+
+### Scratch changelog
+
+Full narrative + Piece-5 deferral rationale in
+`.plans/scratch/CHANGELOG-1554-sliceD-recordcons-emit.md`.
+
 ## v0.36.70 — 2026-09-27 — Issue #1554 Slice C: callee-side sret splice + persistent caller slot
 
 PAS-DEBT-B4-002 (paideia-as#1554) Slice C completes the record-return

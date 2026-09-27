@@ -1,0 +1,33 @@
+// PAS-DEBT-B4-002 Slice D (paideia-as#1554) fixture.
+//
+// SysV Memory-classified callee with a real record-cons body:
+//   fn () -> record { a: 111, b: 222, c: 333 }
+//
+// The 24 B record exceeds the SysV 16 B eightbyte-pair limit →
+// Memory placement → hidden sret via RDI. Slice D writes each field
+// into the callee's source buffer BEFORE the aggregate-return
+// helper copies it into `[RDI]`.
+//
+// Callee-side sequence:
+//   push rbp; mov rbp, rsp
+//   sub rsp, 32                        ; source buffer (24 padded to 16-mult)
+//   mov [rsp+0], 111                   ; field a
+//   mov [rsp+8], 222                   ; field b
+//   mov [rsp+16], 333                  ; field c
+//   ; sret store: 3 × (mov r10, [rsp+off]; mov [rdi+off], r10)
+//   mov rax, rdi                       ; SysV: return sret buffer pointer
+//   mov rsp, rbp; pop rbp; ret
+//
+// Caller-side sequence (Slice C persistent-slot path, unchanged):
+//   push rbp; mov rbp, rsp
+//   sub rsp, 32                        ; persistent sret dest slot
+//   lea rdi, [rbp-32]                  ; hidden sret pointer
+//   call zero_returning_triple
+//   ret                                ; consumer reads [rbp-32 + off]
+module M = structure {
+  let zero_returning_triple : () -> record { a: u64, b: u64, c: u64 } =
+    fn () -> record { a: 111, b: 222, c: 333 }
+
+  let caller : () -> u64 =
+    fn () -> zero_returning_triple()
+}

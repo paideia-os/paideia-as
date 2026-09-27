@@ -17,15 +17,15 @@
 //!   non-overlapping slot on the caller Lambda's frame.
 //!
 //! * **Piece 1 (return-position record-cons materialisation)** —
-//!   *deferred to Slice D*. That work needs an emit_visit_lambda arm
-//!   for `IrKind::RecordCons` bodies that writes each field into a
-//!   callee-local buffer BEFORE the sret store fires. The Slice C
-//!   `emit_ret` splice landed here still fires when
-//!   `Symbol::return_record_layout` is present but the source buffer
-//!   currently comes from an inline `sub rsp, padded_size` — a
-//!   scaffolding placeholder that returns whatever the top of the
-//!   callee's own frame happens to hold. Slice D will replace that
-//!   with a real record-cons buffer sourced from the body.
+//!   landed in Slice D (v0.36.71). `emit_visit_lambda.rs` grew an
+//!   `IrKind::RecordCons` body arm that calls `emit_ret`, and
+//!   `emit_walker/emit_core.rs::emit_callee_sret_splice` now
+//!   populates the source buffer inline by walking the RecordCons
+//!   children in step with the callee's `return_record_layout.fields`
+//!   (Literal → `mov [rsp+off], imm`; Var → `mov [rsp+off], reg` via
+//!   `local_bindings`). The Slice C `sub rsp, padded_size` scaffold
+//!   is retained as the buffer allocation; Slice D writes into it
+//!   before the aggregate-return helper reads it back.
 //!
 //! # Slot layout policy
 //!
@@ -172,15 +172,23 @@ pub fn populate_return_record_cons_slots(ir: &mut IrArena) {
             let Some(info) = callee_info.get(&callee_name) else {
                 continue;
             };
-            // Slice C only wires slots for Memory placement in this
-            // wave — register-return caller-side pair-unpack still
-            // rides the caller's slot when present, but the pass
-            // gates on Memory to preserve byte-identical behaviour
-            // for Slice B's IntPair regression test (which asserts
-            // no sret slot is spliced for IntPair). Register-return
-            // slots land in Slice D alongside a caller-side binding
-            // resolver that can name the pair destination.
-            let want_slot = matches!(info.shape, PlacementShapeInner::Memory);
+            // PAS-DEBT-B4-002 Slice D (paideia-as#1554): lift the
+            // Slice-C Memory-only gate. Register-return placements
+            // (IntPair, SseSingle, IntSse, SseInt, SsePair,
+            // XmmSingle, IntSingle) now also allocate a caller-side
+            // persistent slot so the post-CALL caller-side
+            // pair-unpack (`sysv_caller_read_return_pair` /
+            // `ms_caller_read_return_reg`) has a durable
+            // `[RBP + disp]` destination to spill each return
+            // register into. Slice C's IntPair byte-identity
+            // regression test carried a `@no_frame` state marker on
+            // the caller — the emit-time guards in `emit_call.rs`
+            // and `emit_visit_lambda.rs` fall back to Slice B on
+            // that shape (no RBP anchor), so allocating a slot in
+            // the arena side-table here is safe: the emit path
+            // discards it. See `emit_call.rs`'s `is_caller_no_frame`
+            // guard.
+            let want_slot = !matches!(info.shape, PlacementShapeInner::Absent);
             if !want_slot {
                 continue;
             }
@@ -229,7 +237,13 @@ struct CalleeInfo {
 enum PlacementShapeInner {
     Absent,
     Memory,
-    #[allow(dead_code)] // Slice D consumer.
+    // Slice D (paideia-as#1554): register-return placements now
+    // allocate a caller slot so the post-CALL pair-unpack has a
+    // durable destination. The pass no longer distinguishes Memory
+    // vs Register at slot-allocation time — both go through
+    // `caller_sret_slot_table`. Kept as a separate variant so
+    // future callers of this classifier (e.g. a byte-shape probe)
+    // can still discriminate without re-computing the placement.
     Register,
 }
 
@@ -380,12 +394,17 @@ mod tests {
         assert_eq!(*bump, 32);
     }
 
-    /// Register-return callee (IntPair) does NOT allocate a caller
-    /// slot in this wave — Slice C keeps register-return calls
-    /// byte-identical to Slice B (no sret wiring). Slice D wires the
-    /// caller-side pair unpack once binding resolution is in place.
+    /// PAS-DEBT-B4-002 Slice D (paideia-as#1554): register-return
+    /// callee (IntPair) now allocates a caller slot so the post-CALL
+    /// caller-side pair-unpack has a durable `[RBP + disp]`
+    /// destination to spill RAX/RDX into. Slot size mirrors the
+    /// layout's padded byte size (16 → 16). Emit-time guards in
+    /// `emit_call.rs` / `emit_visit_lambda.rs` fall back to Slice B
+    /// byte-identity when the caller carries `@no_frame` (no RBP
+    /// anchor) — that fall-back is orthogonal to slot allocation
+    /// here.
     #[test]
-    fn intpair_callee_does_not_allocate_slot() {
+    fn intpair_callee_allocates_persistent_slot_in_slice_d() {
         let mut ir = IrArena::new();
 
         let callee_let = ir.alloc(IrKind::Let, span());
@@ -405,14 +424,19 @@ mod tests {
 
         populate_return_record_cons_slots(&mut ir);
 
-        assert!(
-            ir.caller_sret_slot_table().get(app).is_none(),
-            "IntPair register-return must not allocate a caller sret slot in Slice C"
-        );
-        assert!(
-            ir.caller_sret_frame_bump_table().get(caller_lambda).is_none(),
-            "IntPair register-return must not bump the caller frame"
-        );
+        let slot = ir
+            .caller_sret_slot_table()
+            .get(app)
+            .expect("IntPair register-return must allocate a caller sret slot in Slice D");
+        // 16 padded to 16-multiple = 16; slot lives at [RBP-16].
+        assert_eq!(slot.padded_size, 16);
+        assert_eq!(slot.rbp_disp, -16);
+
+        let bump = ir
+            .caller_sret_frame_bump_table()
+            .get(caller_lambda)
+            .expect("IntPair register-return must bump the caller frame in Slice D");
+        assert_eq!(*bump, 16);
     }
 
     /// Non-record-returning callee → no side-table entries anywhere.

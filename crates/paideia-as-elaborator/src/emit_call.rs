@@ -643,8 +643,25 @@ impl EmitWalker {
         // (see `emit_visit_lambda`'s sret bump block); the enclosing
         // `mov rsp, rbp` teardown releases it at RET time. Nothing to
         // add rsp after the CALL — the slot lives on.
-        let persistent_slot: Option<paideia_as_ir::CallerSretSlot> = app_id
-            .and_then(|id| arena.caller_sret_slot_table().get(id).copied());
+        //
+        // PAS-DEBT-B4-002 Slice D (paideia-as#1554): the pass now
+        // allocates slot entries for BOTH Memory and register-return
+        // callees so the post-CALL pair-unpack has a durable
+        // destination (see `return_record_cons_pass::PlacementShapeInner`).
+        // The `@no_frame` caller-side guard below discards the
+        // persistent slot for callers whose prologue never emits
+        // `push rbp; mov rbp, rsp` — those callers have no RBP
+        // anchor to reference, and Slice D preserves their Slice B
+        // byte identity (transient sret for Memory; no wiring for
+        // register-return). Slice C's `sret_bump` prologue in
+        // `emit_visit_lambda.rs` carries the matching `!is_no_frame`
+        // guard.
+        let is_caller_no_frame = self.state.is_lambda_no_frame(lambda_node_id.get());
+        let persistent_slot: Option<paideia_as_ir::CallerSretSlot> = if is_caller_no_frame {
+            None
+        } else {
+            app_id.and_then(|id| arena.caller_sret_slot_table().get(id).copied())
+        };
         if aggregate_shape.needs_sret() {
             let sret_reg = match aggregate_shape {
                 AggregateReturnShape::SysvSret { .. } => abi::RDI,
@@ -1462,13 +1479,17 @@ impl EmitWalker {
         // placement AND this call site has a persistent slot in the
         // caller (so there's a destination buffer to write into).
         //
-        // Slice C's `return_record_cons_pass` gates slot allocation
-        // on Memory placement (see the docblock there), so this
-        // branch is dormant in this wave — register-return callers
-        // remain byte-identical to the scalar path, unchanged from
-        // Slice B. Slice D lifts the pass gate once the caller-side
-        // binding resolver names the pair's destination; this splice
-        // then fires without any further emit_call.rs churn.
+        // PAS-DEBT-B4-002 Slice D (paideia-as#1554): now active.
+        // The `return_record_cons_pass` gate that Slice C set to
+        // Memory-only has been lifted; register-return placements
+        // (IntSingle, SseSingle, IntPair, IntSse, SseInt, SsePair,
+        // XmmSingle) allocate a persistent slot too, and this
+        // splice writes RAX / RDX / XMM0 / XMM1 into it right after
+        // the CALL. Callers marked `@no_frame` still land in the
+        // scalar path because `persistent_slot` was cleared above
+        // — `is_caller_no_frame` treats them as "no dest buffer",
+        // preserving the Slice B byte-identity for the IntPair
+        // fixture.
         if !aggregate_shape.needs_sret() {
             if let Some(slot) = persistent_slot {
                 let sym_layout = arena

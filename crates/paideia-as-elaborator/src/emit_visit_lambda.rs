@@ -475,25 +475,38 @@ impl EmitWalker {
         // `rsp mod 16` invariant holds for every downstream call.
         // No matching `add rsp` is emitted here — `mov rsp, rbp` in
         // `emit_ret` releases the whole area at once.
-        if let Some(&sret_bump) = arena
-            .caller_sret_frame_bump_table()
-            .get(lambda_node_id)
-        {
-            if sret_bump > 0 {
-                self.arm_pending_first_instr_unless_claimed(lambda_node_id);
-                let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                sub_ops.push(Operand::Reg(abi::RSP));
-                sub_ops.push(Operand::Imm64(sret_bump as i64));
-                let sub_inst = Instruction {
-                    mnemonic: Mnemonic::Sub,
-                    operands: sub_ops,
-                    encoding_hint: None,
-                    byte_offset_in_text: None,
-                    mode: self.current_mode(),
-                    emission_order: 0,
-                };
-                let sret_id = self.alloc_synthetic_id();
-                self.emit_inst(sret_id, sub_inst);
+        //
+        // PAS-DEBT-B4-002 Slice D (paideia-as#1554): skip when
+        // `is_no_frame` — the sret persistent slot uses `[RBP + disp]`
+        // addressing, which requires the frame-pointer prologue this
+        // arm suppresses. Slice D's gate lift in
+        // `return_record_cons_pass.rs` allocates slot-table entries
+        // for register-return callees whose callers may be
+        // `@no_frame` (e.g. Slice B's IntPair regression test); the
+        // `emit_call.rs` sibling guard falls that call site back to
+        // Slice B behaviour, and skipping the bump here keeps the
+        // prologue byte-identical for those callers.
+        if !is_no_frame {
+            if let Some(&sret_bump) = arena
+                .caller_sret_frame_bump_table()
+                .get(lambda_node_id)
+            {
+                if sret_bump > 0 {
+                    self.arm_pending_first_instr_unless_claimed(lambda_node_id);
+                    let mut sub_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    sub_ops.push(Operand::Reg(abi::RSP));
+                    sub_ops.push(Operand::Imm64(sret_bump as i64));
+                    let sub_inst = Instruction {
+                        mnemonic: Mnemonic::Sub,
+                        operands: sub_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    let sret_id = self.alloc_synthetic_id();
+                    self.emit_inst(sret_id, sub_inst);
+                }
             }
         }
 
@@ -1333,6 +1346,74 @@ impl EmitWalker {
                     // Flat pass at emit_walker.rs:670 emitted the two constructor movs
                     // stranded outside the function symbol range, causing control to fall
                     // through into the next function → recursion → SIGSEGV.
+                    // PAS-DEBT-B4-002 Slice D (paideia-as#1554):
+                    // return-position record-cons body
+                    // `fn(..) -> RecName { field: value, ... }`.
+                    //
+                    // The RecordCons node holds each field's IR value
+                    // as `children[1..]` (children[0] is the type
+                    // name, per `lower/record_cons.rs`'s canonical
+                    // `[type_name, values...]` shape). The actual
+                    // field stores are emitted by
+                    // `emit_walker/emit_core.rs::emit_callee_sret_splice`
+                    // right after its `sub rsp, padded_size` — that
+                    // helper picks up this Lambda's body via
+                    // `arena.children(current_function)[0]`, inspects
+                    // the kind, and, when it's `IrKind::RecordCons`,
+                    // walks the children in step with the callee's
+                    // `return_record_layout.fields` to emit
+                    // `mov [rsp + field.offset], value` for each.
+                    // Doing the population inline in the splice keeps
+                    // the source buffer + writes + copy in one place
+                    // instead of threading a "buffer disp" side-
+                    // channel between this arm and `emit_ret`.
+                    //
+                    // This arm therefore does the minimum: arm the
+                    // pending-first-instr shim, mark the lambda /
+                    // record-cons as emitted so the flat pass at
+                    // `walk.rs` doesn't re-dispatch to the cap-mint
+                    // `visit_record_cons` (which expects a
+                    // 4-field-of-u64 shape and would fire T0518
+                    // otherwise), and call `emit_ret`. `emit_ret`'s
+                    // splice then does all the semantically-relevant
+                    // work.
+                    IrKind::RecordCons => {
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda RecordCons] Lambda {} body=RecordCons",
+                                lambda_node_id.get()
+                            );
+                        }
+
+                        self.arm_pending_first_instr_unless_claimed(lambda_node_id);
+                        self.state.mark_lambda_emitted(lambda_node_id.get());
+
+                        // #1086 discipline: mark the RecordCons as
+                        // handled so the flat pass at `walk.rs:624`
+                        // does not re-dispatch to
+                        // `visit_record_cons` (cap-mint path). This
+                        // arm's semantics — populate the callee's
+                        // sret source buffer — are exclusively the
+                        // responsibility of `emit_callee_sret_splice`.
+                        self.state.mark_record_cons_handled(body_id.get());
+
+                        // Snapshot bindings for `resolve_var_operands`
+                        // — mirrors the EnumCons arm below. Empty for
+                        // the current fixture shape (all fields are
+                        // literals or bare params consumed via the
+                        // shared `local_bindings`), but present so
+                        // future field values that reference locally-
+                        // bound names still resolve.
+                        self.state.per_lambda_bindings
+                            .insert(lambda_node_id.get(), self.state.local_bindings.clone());
+
+                        // Emit RET; `emit_callee_sret_splice` fires
+                        // inside `emit_ret` and consumes this
+                        // Lambda's body via arena walk. Body id is
+                        // resolved there — no need to pass it here.
+                        let ret_id = self.alloc_synthetic_id();
+                        self.emit_ret(ret_id, arena);
+                    }
                     IrKind::EnumCons => {
                         if cfg!(debug_assertions) {
                             eprintln!(

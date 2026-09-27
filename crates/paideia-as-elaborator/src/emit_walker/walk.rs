@@ -312,6 +312,31 @@ impl EmitWalker {
                                         IrKind::EnumCons => {
                                             self.state.mark_enum_cons_handled(body_id.get());
                                         }
+                                        // PAS-DEBT-B4-002 Slice D (paideia-as#1554):
+                                        // Lambda → RecordCons body is owned by
+                                        // `visit_lambda`'s new RecordCons arm; the
+                                        // field stores land inside `emit_ret`'s
+                                        // `emit_callee_sret_splice`. Mark handled
+                                        // BEFORE the id-preorder flat pass reaches
+                                        // the RecordCons node id (which is smaller
+                                        // than the enclosing Lambda's id — nodes
+                                        // are allocated child-first) so
+                                        // `walk.rs`'s IrKind::RecordCons arm at
+                                        // line 624 skips its cap-mint
+                                        // `visit_record_cons` dispatch. Without
+                                        // this, the RecordCons's non-cap-mint
+                                        // shape (fields ≠ 4, or non-u64 sizes,
+                                        // etc.) fires T0518 false-positives at
+                                        // build time.
+                                        //
+                                        // Mirrors the sibling EnumCons pre-mark
+                                        // above (#1224); shape-agnostic on the
+                                        // Lambda's parent Let, matching Slice A's
+                                        // `return_record_layout` policy (any
+                                        // record-shaped return type qualifies).
+                                        IrKind::RecordCons => {
+                                            self.state.mark_record_cons_handled(body_id.get());
+                                        }
                                         _ => {}
                                     }
                                 }

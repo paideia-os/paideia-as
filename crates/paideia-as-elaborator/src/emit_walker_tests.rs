@@ -39,3 +39,6 @@ mod sret_call_wiring;
 
 #[path = "emit_walker_tests/sret_slice_c.rs"]
 mod sret_slice_c;
+
+#[path = "emit_walker_tests/sret_slice_d.rs"]
+mod sret_slice_d;

@@ -1,0 +1,35 @@
+// PAS-DEBT-B4-002 Slice D (paideia-as#1554) fixture.
+//
+// SysV IntPair register-return with a real record-cons body:
+//   fn (x, y) -> record { a: x, b: y }
+//
+// Callee-side sequence (post-Slice-D):
+//   push rbp; mov rbp, rsp             ; frame prologue
+//   sub rsp, 16                        ; sret source buffer
+//   mov [rsp+0], rdi                   ; field a ← param x (SysV RDI)
+//   mov [rsp+8], rsi                   ; field b ← param y (SysV RSI)
+//   mov rax, [rsp+0]                   ; low eightbyte → RAX
+//   mov rdx, [rsp+8]                   ; high eightbyte → RDX
+//   mov rsp, rbp; pop rbp; ret         ; teardown
+//
+// Caller-side sequence (with frame prologue; Piece 2 gate lifted):
+//   push rbp; mov rbp, rsp             ; frame prologue
+//   sub rsp, 16                        ; persistent sret slot
+//   mov rdi, x
+//   mov rsi, y
+//   call make_pair
+//   mov [rbp-16], rax                  ; low eightbyte → slot
+//   mov [rbp-8], rdx                   ; high eightbyte → slot
+//   ret                                ; consumer would read [rbp-16] / [rbp-8]
+//
+// Contrast with the Slice B/C `sret_16b_pair.pdx` fixture: the body
+// was `-> 0` (uninitialised buffer, register-return placement, no
+// caller-side unpack). Slice D lands both halves: the body writes
+// real values and the caller unpacks them.
+module M = structure {
+  let make_pair : (u64, u64) -> record { a: u64, b: u64 } =
+    fn (x: u64, y: u64) -> record { a: x, b: y }
+
+  let caller : (u64, u64) -> u64 =
+    fn (x: u64, y: u64) -> make_pair(x, y)
+}
