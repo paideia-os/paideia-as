@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.36.59 — 2026-09-26 — Wave 28: B1-006 + B1-007 SARIF-fixture reactivation
+
+- #1489 (B1-006 duplicate-symbol): new `tests/build-emit/duplicate_symbol.pdx`
+  fixture with two `@fingerprint("dup_tag")` markers; test
+  `symbol_layout_invalid_typed_diagnostic_in_sarif` un-ignored, asserts B1703
+  ruleId + exit code 2.
+- #1537 (B1-007 lambda-no-offset): reused existing `pa8_add_imm_out_of_range.pdx`
+  (already triggers B1704 via out-of-range imm skipping `record_lambda_entry`);
+  test `lambda_no_offset_typed_diagnostic_in_sarif` un-ignored, asserts B1704
+  warning + exit code 0.
+- #1488 (B1-005 unresolved-label): SCOPE-BLOCKED. Softarch discovered
+  `parse_operand_from_ast` falls back to SymbolRef for unknown identifiers,
+  so `.pdx` fixture cannot reach fixup-pass U1610. Test kept #[ignore]d;
+  follow-up filed as #1553 with 3 options (unit driver / retire fixup U1610 /
+  relax operand parsing).
+
 ## v0.36.58 — 2026-09-26 — Wave 18: true-imm64 auto-staging for arithmetic
 
 - #1548 (B4-005): extend imm64 auto-staging from `mov [mem]` to

@@ -1,0 +1,25 @@
+// PAS-DEBT-B1-006 (issue #1489): trigger B1703 (symbol-layout-invalid).
+//
+// Two `pub let` bindings carry the SAME `@fingerprint("<tag>")` attribute.
+// - The parser stamps each attribute onto AstArena::item_fingerprint keyed
+//   by the freshly allocated Let NodeId, so both entries survive parsing
+//   (the tag itself is not part of the key).
+// - The elaborator's `populate_fingerprints` pass stages one .rodata
+//   DataEntry per attribute under the synthetic symbol `fp_<tag>`. Two
+//   attributes with the same tag → two DataEntries with the identical
+//   `symbol_name = "fp_dup_tag"`.
+// - `cmd_build/elf.rs` walks `arena.fingerprints()` and calls
+//   `writer.add_symbol(...)` for each; `add_symbol` accepts both (no
+//   dedup at add time — the second overwrites `self.symbols`, but
+//   `self.symbol_names_added` retains both).
+// - `writer.finalize()` runs `validate_symbol_layout` which iterates
+//   `symbol_names_added` through a HashSet and returns
+//   `EmitterError::SymbolLayoutInvalid { message: "duplicate symbol
+//   name: `fp_dup_tag`" }`.
+// - `build_elf_object` maps that to a typed B1703 diagnostic emitted to
+//   the sink and returns `BuildError::Failed` → exit code 2, SARIF
+//   contains a `ruleId` matching `B1703`.
+module DuplicateSymbol = structure {
+  pub let marker_a : u64 = 0 @fingerprint("dup_tag")
+  pub let marker_b : u64 = 1 @fingerprint("dup_tag")
+}
