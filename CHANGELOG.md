@@ -1,5 +1,60 @@
 # Changelog
 
+## v0.36.75 — 2026-09-27 — Issue #1524 Wave 46: cpuid_leaf retirement re-attempt (PAS-DEBT-B4-002)
+
+paideia-as#1524 Wave 46 re-attempts `cpuid_leaf_ad`/`cpuid_leaf_bc`
+retirement now that #1554 Slices A-D (v0.36.68..v0.36.71) have
+landed the reference record-return machinery. **Verdict:
+RETIREMENT STILL DEFERRED** — three specific gaps between Slice A-D
+and the composition shape `cpuid_leaf` needs. Doc-only landing;
+no behavioural change; recipe pair unchanged.
+
+  * **cpuidops.rs docblock** — Retirement-status section rewritten
+    against v0.36.75 reality. Blockers 1-5 from the Wave 35 gap
+    enumeration are now resolved by Slice A-D; Blocker 6 (register-
+    pair unpack) is partially resolved via Slice C's persistent
+    caller frame slot + Slice D's post-CALL RAX/RDX spill. Three
+    NEW gaps identified:
+    - **Gap A**: Slice D's `emit_record_cons_field_stores_into_sret_buffer`
+      supports only `IrKind::Literal` + `IrKind::Var` field values;
+      `cpuid_leaf`'s field values are `App` (call to
+      `cpuid_leaf_ad`/`bc`) plus arithmetic (shift + mask + `as u32`
+      cast), which the arm silently skips.
+    - **Gap B**: A raw-asm body (`unsafe { block: { cpuid; mov
+      [rdi+…], … } }`) is clobbered by Slice C's unconditional
+      `emit_callee_sret_splice`, which appends copies from an
+      uninitialised source buffer over the hand-written stores.
+      The `@no_frame` opt-out is a semantic overload here.
+    - **Gap C**: `stdlib_lowering` recipes do not participate in
+      `Symbol::return_record_layout` — trait-method resolution
+      does not run `populate_return_record_layouts` for the
+      substituted callee, so any sret-shaped recipe lacks the
+      side-table entry `emit_call.rs`'s Slice B probe reads.
+
+  * **B4-003 status noted** — `MlDsa65::sign` (paideia-as#1525) is
+    NOT similarly retirable: it already uses Choice A (caller-
+    allocated 3309-byte output buffer + `i64` status return in RAX),
+    the intended extern-C ABI shape shared by every crypto FFI
+    thunk. Not a record-return workaround.
+
+  * **Follow-up ticket sketches**:
+    - **PAS-DEBT-B4-002-followup** — stdlib-recipe participation in
+      `return_record_layout` side-table + per-recipe Slice C splice
+      opt-out (Gaps B + C).
+    - **PAS-DEBT-B4-002-alt** — extend Slice D's RecordCons body
+      arm to handle App / arithmetic field values (Gap A).
+    Either one alone unblocks the record-returning `cpuid_leaf`.
+
+  * **Cargo.toml** — workspace.version 0.36.74 → 0.36.75.
+
+  * **No source-of-truth code changes.** `cpuidops.rs` recipes
+    (`cpuid_leaf_ad`/`cpuid_leaf_bc`) unchanged; test surface
+    unchanged. paideia-os callers already use raw `cpuid` inside
+    `unsafe { block: { … } }` (`src/kernel/core/smp/topology.pdx`),
+    not the typed AD/BC intrinsics — no callsite churn needed.
+
+  * Scratch changelog: `.plans/scratch/CHANGELOG-1524-b4002-cpuid-retirement-attempt.md`.
+
 ## v0.36.74 — 2026-09-27 — Issue #1556: `@macro_expand` compile-time driver (PAS-DEBT-B7-001-b)
 
 paideia-as#1556 lands the compile-time `@macro_expand([<macro>, "<input>"])`

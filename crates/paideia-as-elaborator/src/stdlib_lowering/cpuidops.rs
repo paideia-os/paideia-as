@@ -28,58 +28,124 @@
 //! returns lets #1298 add a `cpuid_leaf(leaf, subleaf) -> LeafRecord`
 //! wrapper on top without breaking anything landed here.
 //!
-//! # PAS-DEBT-B4-002 retirement status (v0.36.64, paideia-as#1524)
+//! # PAS-DEBT-B4-002 retirement status (v0.36.75, paideia-as#1524, Wave 46)
 //!
-//! **SUPPLY side landed.** Byte-exact aggregate-return sequences for
-//! both x86-64 ABIs are available at:
-//!   * `crates/paideia-as-elaborator/src/aggregate_return.rs`
-//!     — `sysv_caller_sret_prelude` / `sysv_caller_read_return_pair`
-//!       (caller-side; SysV, paideia-as#1544, v0.36.62)
-//!     — `sysv_callee_load_return_pair` / `sysv_callee_sret_store`
-//!       (callee-side; SysV, paideia-as#1544, v0.36.62)
-//!     — `ms_caller_sret_prelude` / `ms_caller_read_return_reg`
-//!       (caller-side; MS x64, paideia-as#1543, v0.36.63)
-//!     — `ms_callee_load_return_reg` / `ms_callee_sret_store`
-//!       (callee-side; MS x64, paideia-as#1543, v0.36.63)
-//! For `CpuidRegs { eax, ebx, ecx, edx }` (4 × u32 = 16 B, all INTEGER)
-//! SysV classifies as `IntPair` (RAX + RDX) and MS as `Memory` (>8 B → sret via RCX).
+//! **Blockers 1-5 CLEARED** by #1554 Slices A-D (v0.36.68..v0.36.71).
+//! **Blocker 6 partially cleared** (register-return pair-unpack gate
+//! lifted in Slice D via a caller-side persistent frame slot; RAX+RDX
+//! spills into `[RBP + disp]` after CALL, from which field-addressed
+//! loads read individual eightbytes).
 //!
-//! **DEMAND side still blocked.** Wiring these helpers at the
-//! `cpuid_leaf` call site requires machinery that has not landed:
-//!   1. `CpuidRegs {eax,ebx,ecx,edx}` record type not declared in
-//!      `crates/paideia-as-stdlib/pdx/cpuid.pdx`. Also unparseable at
-//!      `fn` return position (no AST syntax for record return types).
-//!   2. `Symbol` has no return-record-layout side-table — the elaborator
-//!      cannot look up whether a symbol's return type is aggregate.
-//!   3. `emit_call.rs` has no branch that inspects the return-type
-//!      layout, allocates a caller-owned buffer slot, splices
-//!      `sysv_caller_sret_prelude` (or MS mirror) before CALL, and
-//!      shifts SysV/MS argument registers right by one on `Memory`
-//!      placement (so leaf → RSI/RDX and subleaf → RDX/R8 instead
-//!      of RDI/RCX).
-//!   4. `emit_ret` in `emit_walker/emit_core.rs` has no branch that
-//!      reads the return-type side-table and splices
-//!      `sysv_callee_sret_store` / `ms_callee_sret_store` (or the
-//!      pair-load variants for the SysV register-return path) before
-//!      the frame-pointer epilogue + RET.
-//!   5. `ArgConvention` has no `SysVSret` / `MsSret` variant to signal
-//!      "arg[0] is an sret hidden pointer; real args shift right by one".
-//!      The current `SysVRegs` convention hard-wires arg[0] to RDI,
-//!      which conflicts with using RDI as the sret pointer.
-//!   6. For the SysV register-return alternative (Option B of
-//!      `design/stdlib/cpuid-record-return.md` §2 — return in RAX+RDX
-//!      per §2.2 tuple-in-registers rule), the record subsystem has no
-//!      lowering that consumes a register-pair return and materialises
-//!      it as a field-addressable temporary. Without that path, `r.ebx`
-//!      / `r.ecx` / `r.edx` accesses have nowhere to lower from.
+//! **Retirement STILL DEFERRED** by two mismatches between the newly-
+//! landed Slice A-D machinery and the specific composition shape
+//! `cpuid_leaf` would need. Neither is a "small enough for this wave"
+//! extension; both belong in a dedicated follow-up.
 //!
-//! Follow-up ticket sketch: **PAS-DEBT-B3-007c-followup — record-return
-//! type plumbing + call-site wiring for SysV/MS aggregate returns.**
-//! Blocks B4-002 and B4-003 (mldsa65_sign sret, paideia-as debt-catalog
-//! §5.2). Details in
-//! `.plans/scratch/CHANGELOG-1544-b3007c-sysv-return.md` §"End-to-end
-//! fixtures — deferred" and this ticket's
-//! `.plans/scratch/CHANGELOG-1524-b4002-cpuid-sret.md`.
+//! ## Where Slice A-D lands cleanly
+//!
+//! Slice A-D wire the record-return path for user-code Lambda callees
+//! whose body is `IrKind::RecordCons` and whose declared return type
+//! is a record (inline `record { … }` or a named struct in the
+//! `StructRegistry`). For such a callee:
+//!   * Slice A: `populate_return_record_layouts` fills
+//!     `IrArena::return_record_layout_table`, stamped onto the callee
+//!     `Symbol::return_record_layout` at walker construction.
+//!   * Slice B: `emit_call.rs` probes the callee Symbol's layout and,
+//!     on `Memory` placement, splices the sret prelude / arg-shift /
+//!     slot release around the CALL (byte-identical scalar-path on
+//!     register-return placements).
+//!   * Slice C: caller-side persistent frame slot in
+//!     `caller_sret_slot_table`, sized off the callee layout;
+//!     `caller_sret_frame_bump_table` sums per-caller-Lambda and
+//!     drives a single `sub rsp, total` in the prologue.
+//!   * Slice D: `emit_callee_sret_splice` emits `sub rsp, padded` +
+//!     per-field `mov [rsp+off], value` (populating from the Lambda's
+//!     RecordCons body) + the byte-exact
+//!     `sysv_callee_sret_store` / `sysv_callee_load_return_pair`
+//!     helper stream.
+//!
+//! ## Why `cpuid_leaf` does not fit that shape
+//!
+//! **Gap A — Slice D's RecordCons body arm supports only `Literal`
+//! and `Var` (parameter-forwarding) field values.** See
+//! `emit_walker/emit_core.rs::emit_record_cons_field_stores_into_sret_buffer`
+//! (v0.36.71): any child that is not `IrKind::Literal` or `IrKind::Var`
+//! is silently skipped, leaving the slot uninitialised until a future
+//! T0522 diagnostic replaces the skip. A record-returning `cpuid_leaf`
+//! written as a .pdx wrapper over `cpuid_leaf_ad`/`cpuid_leaf_bc`
+//! would have field values shaped as call-result + shift + mask + cast
+//! (`(cpuid_leaf_ad(l, s) & 0xFFFFFFFF) as u32`) — an `App` subtree,
+//! not a `Literal` or `Var`. Slice D would emit the sret store over an
+//! uninitialised buffer.
+//!
+//! **Gap B — a raw-assembly body (`unsafe { block: { cpuid; mov
+//! [rdi+…], … } }`) is clobbered by Slice C's unconditional
+//! `emit_callee_sret_splice`.** The splice fires in `emit_ret` for
+//! every RET whose enclosing Lambda has `return_record_layout`
+//! populated and is not `@no_frame`. For a hand-written body whose
+//! block itself writes the return slots, Slice C would append a
+//! duplicate `sub rsp, padded` + copy-from-uninitialised-source-buffer
+//! + `mov rax, rdi` sequence, garbling the hand-written stores. The
+//! `@no_frame` opt-out is the only current escape hatch and interacts
+//! poorly with CPUID's callee-saved RBX bracket (push/pop around
+//! CPUID is trivially compatible with `@no_frame`, but discipline in
+//! the surrounding stdlib is that `@no_frame` is reserved for pure-
+//! prologueless leaf helpers — using it here as a "skip the Slice C
+//! splice" flag is a semantic overload).
+//!
+//! **Gap C — stdlib-lowering recipes do not participate in
+//! `Symbol::return_record_layout`.** The current `stdlib_lowering`
+//! pipeline intercepts calls by `(trait_name, method_name)` pair and
+//! substitutes an instruction sequence. Trait-method resolution does
+//! not run `populate_return_record_layouts` for the substituted
+//! callee, so any sret-shaped recipe would need either (a) a parallel
+//! recipe-side layout table + emit_call probe, or (b) trait-method
+//! plumbing that produces a Symbol carrying the trait method's return
+//! type. Either is substantive elaborator surgery, not a two-line
+//! change.
+//!
+//! ## Path B minimum-scope estimate (not landing here)
+//!
+//! A minimum-scope Path B (`ArgConvention::SysVSret { layout }`
+//! variant + emit_call.rs arg-shift wiring for recipe-driven callees
+//! + per-recipe suppression of `emit_callee_sret_splice`) requires:
+//!   * A new `ArgConvention` variant (opt-in per recipe).
+//!   * A recipe-side layout side-table keyed by trait method (Gap C).
+//!   * A callee-side suppression flag so recipes that emit register
+//!     packing manually skip the Slice C splice (Gap B in a new form).
+//!   * Composition tests against the existing 40+ `SysVRegs` recipes
+//!     to prove none of them changed byte-shape.
+//! Estimated at one Wave dedicated to Path B; not compatible with
+//! landing alongside the Slice A-D reference machinery that just
+//! shipped.
+//!
+//! ## Deferral
+//!
+//! Retirement remains blocked pending a dedicated follow-up: **PAS-
+//! DEBT-B4-002-followup — stdlib-recipe participation in
+//! return_record_layout side-table + per-recipe Slice C splice
+//! opt-out (Gaps B + C)**, OR **PAS-DEBT-B4-002-alt — extend Slice D's
+//! RecordCons body arm to handle App / arithmetic field values
+//! (Gap A)**. The two paths are alternatives; either one alone
+//! unblocks the record-returning `cpuid_leaf`.
+//!
+//! Cross-refs: `.plans/scratch/CHANGELOG-1524-b4002-cpuid-sret.md`
+//! (the original Wave 35 gap enumeration; blockers 1-5 there are now
+//! resolved) and `.plans/scratch/CHANGELOG-1524-b4002-cpuid-retirement-
+//! attempt.md` (this Wave 46 re-attempt: Gap A/B/C analysis + Path A
+//! infeasibility proof).
+//!
+//! ## B4-003 (mldsa65_sign) status — NOT similarly retirable
+//!
+//! B4-003 targets `MlDsa65::sign` (see `mldsaops.rs`). That recipe
+//! already uses **Choice A**: caller-allocated `MLDSA65_SIG_BYTES`
+//! output buffer passed in RCX + `i64` status return in RAX. It is
+//! not a record-return workaround at all — it is the intended long-
+//! term extern-C ABI for a 3309-byte signature (matches every other
+//! crypto FFI thunk: `argon2id_derive`, `chacha20_poly1305_seal` /
+//! `open`, `ml_kem_768_*`, `mldsa65_verify`). Retiring B4-003 does
+//! not depend on the record-return machinery landed in #1554 and does
+//! not benefit from either Path A or Path B above.
 //!
 //! Typed per-leaf decoders (0x01 basic feature bits, 0x0B / 0x1F
 //! topology, 0x0D XSAVE, 0x1A hybrid) live in
