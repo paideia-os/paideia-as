@@ -38,10 +38,16 @@
 //! DONE(PAS-DEBT-B3-007 Slice 1 / paideia-as#1520): SysV aggregate classifier
 //! (`AggregateClass` + `classify_sysv_aggregate`) per SysV AMD64 psABI §3.2.3.
 //! Foundation for the two return-value slices below.
-//! TODO(PAS-DEBT-B3-007b): MS hidden-pointer aggregate return value handling
-//! (aggregates > 8 bytes returned via caller-allocated buffer in RCX).
-//! TODO(PAS-DEBT-B3-007c): SysV RDX:RAX 128-bit return pair (aggregates
-//! ≤ 16 bytes classified as INTEGER,INTEGER split across RDX:RAX).
+//! TODO(PAS-DEBT-B3-007b / paideia-as#1543): MS hidden-pointer aggregate
+//! return value handling (aggregates > 8 bytes returned via caller-allocated
+//! buffer in RCX).
+//! DONE(PAS-DEBT-B3-007c / paideia-as#1544): SysV aggregate return placement
+//! selector — `SysvReturnPlacement` + `sysv_return_placement` consume a
+//! classifier vector and resolve the register-pair (RAX / RDX / XMM0 / XMM1)
+//! or Memory-sret shape per SysV AMD64 psABI §3.2.3. The instruction-sequence
+//! synthesiser lives in `paideia_as_elaborator::aggregate_return` (byte-exact
+//! epilogue/prelude helpers). End-to-end wiring at call sites gates on an
+//! upstream return-record-layout side-table (tracked separately).
 
 use crate::instruction::RegId;
 use crate::let_meta::CallingConvention;
@@ -469,6 +475,124 @@ pub fn classify_sysv_aggregate(layout: &RecordLayout) -> Vec<AggregateClass> {
     // The psABI treats those as absent from the return placement schedule.
     classes.retain(|c| !matches!(c, AggregateClass::Nothing));
     classes
+}
+
+/// Resolved SysV return-value placement for an aggregate.
+///
+/// Consumes the `Vec<AggregateClass>` produced by
+/// [`classify_sysv_aggregate`] and reduces it to one of the six register
+/// shapes the SysV AMD64 psABI §3.2.3 defines for return placement,
+/// plus the Memory-sret shape and a `None` sentinel for zero-sized
+/// aggregates. Downstream emitters branch on this enum rather than
+/// re-classifying at each call site.
+///
+/// PAS-DEBT-B3-007c / paideia-as#1544.
+///
+/// # Register-pair conventions
+/// - `IntSingle` — one eightbyte in `RAX`.
+/// - `SseSingle` — one eightbyte in `XMM0`.
+/// - `IntPair` — low eightbyte in `RAX`, high in `RDX`.
+/// - `IntSse` — low in `RAX`, high in `XMM0`.
+/// - `SseInt` — low in `XMM0`, high in `RAX`.
+/// - `SsePair` — low in `XMM0`, high in `XMM1`.
+/// - `Memory` — caller allocates a buffer, passes its address in `RDI`
+///   as an implicit first argument (shifting the real args right by
+///   one), and the callee must also return that pointer in `RAX`.
+/// - `None` — void / zero-sized aggregate return; nothing to place.
+///
+/// The SSE placement rules follow psABI §3.2.3 Table 3.4 ("Merging the
+/// classified registers"): the first `SSE` eightbyte uses `XMM0`, the
+/// second `SSE` eightbyte uses `XMM1` — even in the mixed `[Integer,
+/// SSE]` case where the low half is INTEGER (in `RAX`) and the high
+/// half is SSE (still `XMM0`, per the psABI rule that XMM slots advance
+/// independently of INTEGER slots).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum SysvReturnPlacement {
+    /// Void / zero-size aggregate return. Callee touches nothing.
+    None,
+    /// Single INTEGER eightbyte in `RAX`.
+    IntSingle,
+    /// Single SSE eightbyte in `XMM0`.
+    SseSingle,
+    /// `[Integer, Integer]` → low eightbyte in `RAX`, high in `RDX`.
+    IntPair,
+    /// `[Integer, SSE]` → low eightbyte in `RAX`, high in `XMM0`.
+    IntSse,
+    /// `[SSE, Integer]` → low eightbyte in `XMM0`, high in `RAX`.
+    SseInt,
+    /// `[SSE, SSE]` → low eightbyte in `XMM0`, high in `XMM1`.
+    SsePair,
+    /// Aggregate returned via caller-provided sret buffer. Caller passes
+    /// the buffer address in `RDI` as an implicit first arg; callee
+    /// copies the aggregate into `[RDI]` and returns the same pointer in
+    /// `RAX` per psABI §3.2.3.
+    Memory,
+}
+
+/// Reduce a `classify_sysv_aggregate` output into a
+/// [`SysvReturnPlacement`].
+///
+/// Handles the full range of shapes the classifier can produce today:
+/// `[]` (zero-size), `[Integer]`, `[SSE]`, `[Integer, Integer]`,
+/// `[Integer, SSE]`, `[SSE, Integer]`, `[SSE, SSE]`, `[Memory]`. The
+/// psABI-reserved `ComplexX87` class (never produced by the current
+/// classifier — paideia has no `long double`) degrades to `Memory` as a
+/// safe conservative choice; the encoder cannot emit an x87 return pair
+/// either way.
+///
+/// Panics only on internally-inconsistent input (a length > 2 without
+/// the whole aggregate being `[Memory]`), which the classifier
+/// guarantees is unreachable — `classify_sysv_aggregate` caps eightbyte
+/// count at 2 for non-Memory aggregates (size ≤ 16).
+///
+/// PAS-DEBT-B3-007c / paideia-as#1544.
+#[must_use]
+pub fn sysv_return_placement(classes: &[AggregateClass]) -> SysvReturnPlacement {
+    use AggregateClass::*;
+    match classes {
+        [] => SysvReturnPlacement::None,
+        [Memory] => SysvReturnPlacement::Memory,
+        [Integer] => SysvReturnPlacement::IntSingle,
+        [SSE] => SysvReturnPlacement::SseSingle,
+        [Integer, Integer] => SysvReturnPlacement::IntPair,
+        [Integer, SSE] => SysvReturnPlacement::IntSse,
+        [SSE, Integer] => SysvReturnPlacement::SseInt,
+        [SSE, SSE] => SysvReturnPlacement::SsePair,
+        // Nothing / ComplexX87 in the reduced output degrades to Memory
+        // (conservative — encoder can't emit an x87 return pair, and
+        // classify_sysv_aggregate is expected to have already stripped
+        // trailing `Nothing`). Any other multi-element shape is an
+        // internal inconsistency; treating it as Memory keeps the ABI
+        // safe (worst case: an unnecessary sret round-trip).
+        _ => SysvReturnPlacement::Memory,
+    }
+}
+
+impl SysvReturnPlacement {
+    /// True when this placement demands the caller to pass a hidden sret
+    /// pointer in `RDI` (shifting real args to `RSI, RDX, RCX, R8, R9`).
+    ///
+    /// This is the single question a caller-side arg-marshalling loop
+    /// asks before mapping arguments to registers.
+    #[must_use]
+    pub fn needs_hidden_sret(self) -> bool {
+        matches!(self, SysvReturnPlacement::Memory)
+    }
+
+    /// True when at least one return eightbyte uses an XMM register
+    /// (`XMM0` or `XMM1`). Emitters use this to decide whether to
+    /// reserve/save an XMM before overwriting it.
+    #[must_use]
+    pub fn uses_xmm(self) -> bool {
+        matches!(
+            self,
+            SysvReturnPlacement::SseSingle
+                | SysvReturnPlacement::IntSse
+                | SysvReturnPlacement::SseInt
+                | SysvReturnPlacement::SsePair
+        )
+    }
 }
 
 /// Merge two class assignments for the same eightbyte per SysV §3.2.3.
@@ -960,5 +1084,130 @@ mod tests {
             classify_sysv_aggregate(&layout),
             vec![AggregateClass::Integer, AggregateClass::SSE]
         );
+    }
+
+    // ============================================================================
+    // SysvReturnPlacement classifier consumer (PAS-DEBT-B3-007c / paideia-as#1544)
+    // ============================================================================
+
+    #[test]
+    fn placement_zero_size_is_none() {
+        assert_eq!(sysv_return_placement(&[]), SysvReturnPlacement::None);
+    }
+
+    #[test]
+    fn placement_single_integer_is_rax() {
+        assert_eq!(
+            sysv_return_placement(&[AggregateClass::Integer]),
+            SysvReturnPlacement::IntSingle
+        );
+    }
+
+    #[test]
+    fn placement_single_sse_is_xmm0() {
+        assert_eq!(
+            sysv_return_placement(&[AggregateClass::SSE]),
+            SysvReturnPlacement::SseSingle
+        );
+    }
+
+    #[test]
+    fn placement_integer_pair_is_rdx_rax_pair() {
+        // The canonical B3-007c shape: `{ u64 lo; u64 hi }` — low in RAX,
+        // high in RDX per psABI §3.2.3.
+        assert_eq!(
+            sysv_return_placement(&[AggregateClass::Integer, AggregateClass::Integer]),
+            SysvReturnPlacement::IntPair
+        );
+    }
+
+    #[test]
+    fn placement_integer_sse_is_rax_xmm0() {
+        assert_eq!(
+            sysv_return_placement(&[AggregateClass::Integer, AggregateClass::SSE]),
+            SysvReturnPlacement::IntSse
+        );
+    }
+
+    #[test]
+    fn placement_sse_integer_is_xmm0_rax() {
+        assert_eq!(
+            sysv_return_placement(&[AggregateClass::SSE, AggregateClass::Integer]),
+            SysvReturnPlacement::SseInt
+        );
+    }
+
+    #[test]
+    fn placement_sse_pair_is_xmm0_xmm1() {
+        // `{ f64 x; f64 y }` — low in XMM0, high in XMM1 per psABI §3.2.3.
+        assert_eq!(
+            sysv_return_placement(&[AggregateClass::SSE, AggregateClass::SSE]),
+            SysvReturnPlacement::SsePair
+        );
+    }
+
+    #[test]
+    fn placement_memory_flags_hidden_sret() {
+        let placement = sysv_return_placement(&[AggregateClass::Memory]);
+        assert_eq!(placement, SysvReturnPlacement::Memory);
+        assert!(placement.needs_hidden_sret());
+        assert!(!placement.uses_xmm());
+    }
+
+    #[test]
+    fn placement_register_shapes_never_flag_hidden_sret() {
+        for placement in [
+            SysvReturnPlacement::None,
+            SysvReturnPlacement::IntSingle,
+            SysvReturnPlacement::SseSingle,
+            SysvReturnPlacement::IntPair,
+            SysvReturnPlacement::IntSse,
+            SysvReturnPlacement::SseInt,
+            SysvReturnPlacement::SsePair,
+        ] {
+            assert!(
+                !placement.needs_hidden_sret(),
+                "placement {:?} unexpectedly requested a hidden sret",
+                placement
+            );
+        }
+    }
+
+    #[test]
+    fn placement_uses_xmm_flags_every_sse_shape() {
+        for placement in [
+            SysvReturnPlacement::SseSingle,
+            SysvReturnPlacement::IntSse,
+            SysvReturnPlacement::SseInt,
+            SysvReturnPlacement::SsePair,
+        ] {
+            assert!(placement.uses_xmm(), "placement {:?} missed uses_xmm", placement);
+        }
+        for placement in [
+            SysvReturnPlacement::None,
+            SysvReturnPlacement::IntSingle,
+            SysvReturnPlacement::IntPair,
+            SysvReturnPlacement::Memory,
+        ] {
+            assert!(!placement.uses_xmm(), "placement {:?} falsely uses_xmm", placement);
+        }
+    }
+
+    /// End-to-end: run the classifier on `{ u64, f64 }` and then reduce it
+    /// with `sysv_return_placement` — pins that the two functions compose
+    /// so downstream emitters can chain them without an intermediate
+    /// hand-massage of the class vector.
+    #[test]
+    fn placement_composes_with_classifier_int_then_float() {
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: true },
+            ],
+        );
+        let classes = classify_sysv_aggregate(&layout);
+        assert_eq!(sysv_return_placement(&classes), SysvReturnPlacement::IntSse);
     }
 }

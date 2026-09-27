@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.36.62 — 2026-09-27 — Wave 33: B3-007c SysV aggregate return placement
+
+**PAS-DEBT-B3-007c** (closes #1544) — SysV AMD64 psABI §3.2.3 aggregate
+return-value register-pair placement consumer, built on the Slice 1
+classifier (`AggregateClass` / `classify_sysv_aggregate`, v0.36.53).
+
+- `crates/paideia-as-ir/src/abi.rs`: new `SysvReturnPlacement` enum
+  (8 variants: `None`, `IntSingle`, `SseSingle`, `IntPair`, `IntSse`,
+  `SseInt`, `SsePair`, `Memory`) + `sysv_return_placement(&[AggregateClass])`
+  reducer + `needs_hidden_sret()` / `uses_xmm()` predicates. Module
+  docblock's TODO/DONE map updated (B3-007c → DONE, B3-007b (#1543)
+  still TODO). 10 new unit tests pin every placement + predicate +
+  classifier composition.
+- `crates/paideia-as-elaborator/src/aggregate_return.rs`: new module
+  with 4 public free functions returning `Vec<Instruction>`:
+  `sysv_caller_sret_prelude` (LEA into RDI), `sysv_caller_read_return_pair`
+  (post-CALL register-to-memory writeback), `sysv_callee_load_return_pair`
+  (pre-RET memory-to-register loads), `sysv_callee_sret_store` (bulk sret
+  qword copy + `mov rax, rdi`). Byte-exact tests via
+  `paideia_as_encoder::encode_instruction` cover: caller-side sret prelude,
+  IntPair (RDX:RAX) callee+caller, SsePair (XMM0:XMM1) callee+caller,
+  24-byte Memory-sret callee epilogue, IntSingle/SseSingle scalar-return
+  byte-identity, IntSse/SseInt operand-level shape, panic guards on
+  sret precondition, None/Memory inertness, end-to-end classifier chain.
+- SSE eightbytes round-trip through R10 via `MovqBitcast` (memory-form
+  scalar SSE moves are deferred in this encoder; the shim is
+  byte-identical to a memory-form `movsd` — both write only the low
+  eightbyte).
+- **Deferred as follow-up (no ticket filed yet)**: end-to-end wiring at
+  `emit_call.rs` (caller-side classify + splice + arg-reg shift for
+  Memory placements) and `emit_walker/emit_core.rs::emit_ret`
+  (callee-side classify + splice before frame-pointer epilogue).
+  Gates on an upstream return-record-layout side-table on `Symbol` +
+  AST/parser support for record return types on `fn` bindings; neither
+  is in scope here.
+- **Sibling B3-007b (paideia-as#1543)** — MS x64 hidden-pointer sret —
+  remains open. Independent of this ticket.
+
+Workspace `workspace.version` 0.36.61 → 0.36.62.
+
 ## v0.36.61 — 2026-09-27 — Wave 32: B7-005 + B7-006 + B7-007 reactivation
 
 - #1533 (B7-005 opt-regression encode-tight): missing dev-dep on

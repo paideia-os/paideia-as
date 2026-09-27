@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod aggregate_return;
 pub mod borrow_walker;
 pub mod branch_merge;
 pub mod cap_infer;
