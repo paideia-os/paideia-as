@@ -1,10 +1,13 @@
-//! SysV AMD64 aggregate return-value instruction sequences.
+//! x86-64 aggregate return-value instruction sequences (SysV + MS).
 //!
-//! PAS-DEBT-B3-007c (paideia-as#1544). Consumes the classifier landed in
+//! PAS-DEBT-B3-007c (paideia-as#1544, SysV side) and PAS-DEBT-B3-007b
+//! (paideia-as#1543, MS x64 side). Consumes the classifiers landed in
 //! Slice 1 ([`paideia_as_ir::abi::classify_sysv_aggregate`],
-//! [`paideia_as_ir::abi::sysv_return_placement`]) and synthesises the
-//! byte-exact instruction sequences the SysV AMD64 psABI §3.2.3 requires
-//! at:
+//! [`paideia_as_ir::abi::sysv_return_placement`],
+//! [`paideia_as_ir::abi::classify_ms_aggregate`],
+//! [`paideia_as_ir::abi::ms_return_placement`]) and synthesises the
+//! byte-exact instruction sequences the SysV AMD64 psABI §3.2.3 and
+//! Microsoft x64 ABI require at:
 //!
 //!   * **Caller-side sret prelude** — before a CALL whose callee returns
 //!     a Memory-classified aggregate, the caller must compute the hidden
@@ -72,7 +75,7 @@
 
 use paideia_as_ir::abi;
 use paideia_as_ir::instruction::{InstrMode, Instruction, Mnemonic, Operand, RegId, Scale};
-use paideia_as_ir::abi::SysvReturnPlacement;
+use paideia_as_ir::abi::{MsReturnPlacement, SysvReturnPlacement};
 use paideia_as_ir::SmallVec;
 
 /// Default scratch GPR used to round-trip SSE eightbytes through a GPR
@@ -283,6 +286,10 @@ pub fn sysv_caller_read_return_pair(
             out.extend(store_xmm_to_mem(dest_base, dest_disp, abi::XMM0));
             out.extend(store_xmm_to_mem(dest_base, dest_disp + 8, abi::XMM1));
         }
+        _ => {
+            // SysvReturnPlacement is #[non_exhaustive]; any future variant
+            // is a no-op here — call-site wiring must opt-in explicitly.
+        }
     }
     out
 }
@@ -330,6 +337,10 @@ pub fn sysv_callee_load_return_pair(
         SysvReturnPlacement::SsePair => {
             out.extend(load_xmm_from_mem(abi::XMM0, buf_base, buf_disp));
             out.extend(load_xmm_from_mem(abi::XMM1, buf_base, buf_disp + 8));
+        }
+        _ => {
+            // SysvReturnPlacement is #[non_exhaustive]; any future variant
+            // is a no-op here — call-site wiring must opt-in explicitly.
         }
     }
     out
@@ -428,6 +439,190 @@ pub fn sysv_callee_sret_epilogue_with_ret(
     src_disp: i32,
 ) -> Vec<Instruction> {
     let mut out = sysv_callee_sret_store(size_bytes, src_base, src_disp);
+    out.push(ret_inst());
+    out
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MS x64 aggregate return sequences (PAS-DEBT-B3-007b / paideia-as#1543)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Mirrors the SysV shape above with three ABI differences pinned by
+// dedicated byte-exact tests:
+//
+//   1. Caller sret prelude uses `RCX` (implicit first arg) instead of
+//      `RDI`. Real args then shift right by one to `RDX`, `R8`, `R9`,
+//      then stack past the 32-byte MS shadow space.
+//   2. Return path never splits an aggregate across two registers —
+//      MS x64 either fits in a single register (`RAX` or `XMM0`) or
+//      goes through the sret buffer. So the register-side helpers only
+//      ever emit single-register sequences (there is no MS analogue of
+//      SysV's `IntPair` / `IntSse` / `SseInt` / `SsePair` shapes).
+//   3. Callee sret store writes to `[RCX]` (not `[RDI]`) and returns
+//      that same pointer in `RAX` on the way out (mirrors the SysV
+//      rule of returning the sret buffer pointer).
+//
+// The MovqBitcast SSE shim (used for `XmmSingle` placements) reuses
+// `R10` (`SSE_SCRATCH_GPR`) — the same caller-saved GPR the SysV side
+// uses. `R10` is disjoint from `RCX` (MS sret pointer / MS arg-0),
+// from `RDX / R8 / R9` (real MS args after sret), and from `RAX`
+// (return-pointer register), so the shim never aliases a live MS
+// return-value or arg register.
+
+/// Caller-side MS sret prelude: `lea rcx, [dest_base + dest_disp]`.
+///
+/// Emitted **before** the CALL to a Memory-classified MS aggregate-
+/// returning callee. `dest_base + dest_disp` must name a caller-owned
+/// buffer at least `layout.size` bytes large. Real args continue into
+/// `RDX / R8 / R9 / stack` — the sret pointer occupies the first arg
+/// slot.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_caller_sret_prelude(dest_base: RegId, dest_disp: i32) -> Vec<Instruction> {
+    vec![lea_reg_from_mem(abi::RCX, dest_base, dest_disp)]
+}
+
+/// Caller-side MS return-register writeback: after the CALL returns,
+/// spill the single-register return value (RAX or XMM0) into a
+/// caller-owned destination buffer at `[dest_base + dest_disp]`.
+///
+/// `None` and `Memory` produce empty sequences: for `Memory`, the
+/// return value already lives in the sret buffer set up by
+/// [`ms_caller_sret_prelude`]; for `None`, there is nothing to place.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_caller_read_return_reg(
+    placement: MsReturnPlacement,
+    dest_base: RegId,
+    dest_disp: i32,
+) -> Vec<Instruction> {
+    match placement {
+        MsReturnPlacement::None | MsReturnPlacement::Memory => Vec::new(),
+        MsReturnPlacement::IntSingle => vec![mov_mem_from_reg(dest_base, dest_disp, abi::RAX)],
+        MsReturnPlacement::XmmSingle => store_xmm_to_mem(dest_base, dest_disp, abi::XMM0),
+        // MsReturnPlacement is #[non_exhaustive]; any future variant is a no-op.
+        _ => Vec::new(),
+    }
+}
+
+/// Callee-side MS return-register load: emitted before the trailing
+/// `RET` of a Register-shaped MS aggregate-returning callee. Loads the
+/// single return register (RAX or XMM0) from a source buffer at
+/// `[buf_base + buf_disp]`.
+///
+/// Does NOT emit the trailing RET — the caller composes this with the
+/// frame-pointer teardown (mirrors [`sysv_callee_load_return_pair`]).
+///
+/// `None` and `Memory` produce empty sequences; see
+/// [`ms_callee_sret_store`] for the Memory-return callee side.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_callee_load_return_reg(
+    placement: MsReturnPlacement,
+    buf_base: RegId,
+    buf_disp: i32,
+) -> Vec<Instruction> {
+    match placement {
+        MsReturnPlacement::None | MsReturnPlacement::Memory => Vec::new(),
+        MsReturnPlacement::IntSingle => vec![mov_reg_from_mem(abi::RAX, buf_base, buf_disp)],
+        MsReturnPlacement::XmmSingle => load_xmm_from_mem(abi::XMM0, buf_base, buf_disp),
+        // MsReturnPlacement is #[non_exhaustive]; any future variant is a no-op.
+        _ => Vec::new(),
+    }
+}
+
+/// Callee-side MS sret store: bulk-copy the aggregate from
+/// `[src_base + src_disp]` into the caller-provided sret buffer at
+/// `[RCX]`, then `mov rax, rcx` (MS x64 requires the callee to return
+/// the sret buffer pointer in `RAX` on the way out).
+///
+/// Precondition: `RCX` must still hold the entry-time hidden-pointer
+/// argument. Callees that clobber `RCX` (e.g. as an arg-marshalling
+/// scratch) must spill/restore it before invoking this helper.
+///
+/// Bulk copy strategy mirrors the SysV side: for aggregates whose size
+/// is a multiple of 8 bytes, emit `size / 8` qword MOVs via the SSE
+/// scratch GPR ([`SSE_SCRATCH_GPR`], `R10`). Non-multiple-of-8 sizes
+/// are deferred (asserted); the classifier only produces `Memory` for
+/// sizes ∉ {1, 2, 4, 8}, and real MS aggregates that reach this helper
+/// will have been laid out with 8-byte-aligned tail padding by
+/// [`paideia_as_ir::RecordLayout`].
+///
+/// # Panics
+///
+/// * `size_bytes == 0` — MS `Memory` placement never applies to a
+///   zero-size aggregate; the void-return path bypasses this helper.
+/// * `size_bytes % 8 != 0` — tail-byte handling is deferred (mirrors
+///   the SysV `sysv_callee_sret_store` restriction). Follow-up would
+///   add a byte-granular MOV chain or a REP MOVSB variant.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_callee_sret_store(
+    size_bytes: u32,
+    src_base: RegId,
+    src_disp: i32,
+) -> Vec<Instruction> {
+    assert!(
+        size_bytes > 0,
+        "ms_callee_sret_store: zero-size aggregate cannot be Memory-classified"
+    );
+    assert!(
+        size_bytes % 8 == 0,
+        "ms_callee_sret_store: non-multiple-of-8 aggregate size {} not yet supported \
+         (follow-up: tail-byte MOV chain / REP MOVSB variant)",
+        size_bytes
+    );
+
+    let qwords = (size_bytes / 8) as i32;
+    let mut out = Vec::with_capacity((qwords as usize) * 2 + 1);
+    for i in 0..qwords {
+        let off = i * 8;
+        // load [src_base + src_disp + off] → SSE_SCRATCH_GPR (R10)
+        out.push(mov_reg_from_mem(SSE_SCRATCH_GPR, src_base, src_disp + off));
+        // store SSE_SCRATCH_GPR → [RCX + off]
+        out.push(mov_mem_from_reg(abi::RCX, off, SSE_SCRATCH_GPR));
+    }
+    // Return the sret buffer pointer in RAX per MS x64 ABI.
+    out.push(mov_reg_from_reg(abi::RAX, abi::RCX));
+    out
+}
+
+/// Compose [`ms_callee_load_return_reg`] with a trailing `RET`.
+///
+/// Convenience shim for tests and future emitter wire-ups that emit
+/// the full pre-RET tail as a single sequence. Emitters that need to
+/// interleave frame-pointer teardown between the register load and
+/// the RET should use [`ms_callee_load_return_reg`] directly.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_callee_return_reg_epilogue_with_ret(
+    placement: MsReturnPlacement,
+    buf_base: RegId,
+    buf_disp: i32,
+) -> Vec<Instruction> {
+    let mut out = ms_callee_load_return_reg(placement, buf_base, buf_disp);
+    out.push(ret_inst());
+    out
+}
+
+/// Compose [`ms_callee_sret_store`] with a trailing `RET`.
+///
+/// Convenience shim mirroring
+/// [`ms_callee_return_reg_epilogue_with_ret`].
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_callee_sret_epilogue_with_ret(
+    size_bytes: u32,
+    src_base: RegId,
+    src_disp: i32,
+) -> Vec<Instruction> {
+    let mut out = ms_callee_sret_store(size_bytes, src_base, src_disp);
     out.push(ret_inst());
     out
 }
@@ -778,6 +973,214 @@ mod tests {
         assert_eq!(
             encode_seq(&seq),
             vec![0x48, 0x8B, 0x45, 0x00, 0x48, 0x8B, 0x55, 0x08, 0xC3]
+        );
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // MS x64 aggregate return sequences (PAS-DEBT-B3-007b / paideia-as#1543)
+    // ────────────────────────────────────────────────────────────────────
+
+    /// `lea rcx, [rbp - 32]` — the canonical MS sret prelude for a
+    /// caller with a 32-byte-below-RBP stack buffer.
+    ///
+    /// Bytes: `48 8D 4D E0`
+    /// (REX.W=48, opcode 8D, ModRM=0x4D: mod=01, reg=RCX(1), rm=RBP(5),
+    /// disp8=-32=0xE0.)
+    ///
+    /// Contrast with the SysV prelude (`lea rdi, [rbp-32]` = `48 8D 7D E0`)
+    /// — same LEA form, only the destination register differs (RDI vs RCX).
+    #[test]
+    fn caller_ms_sret_prelude_lea_rcx_rbp_minus_32_bytes_exact() {
+        let seq = ms_caller_sret_prelude(abi::RBP, -32);
+        assert_eq!(seq.len(), 1, "MS sret prelude must be a single LEA");
+        assert_eq!(encode_seq(&seq), vec![0x48, 0x8D, 0x4D, 0xE0]);
+    }
+
+    /// `IntSingle` MS callee epilogue: `mov rax, [rbp-8]; ret`.
+    ///
+    /// Bytes: `48 8B 45 F8 C3` (5 bytes) — identical to the SysV
+    /// IntSingle sequence (both ABIs return an integer in RAX).
+    #[test]
+    fn callee_ms_int_single_load_bytes_exact() {
+        let seq = ms_callee_return_reg_epilogue_with_ret(
+            MsReturnPlacement::IntSingle,
+            abi::RBP,
+            -8,
+        );
+        assert_eq!(seq.len(), 2, "IntSingle MS epilogue = load + ret");
+        assert_eq!(encode_seq(&seq), vec![0x48, 0x8B, 0x45, 0xF8, 0xC3]);
+    }
+
+    /// `XmmSingle` MS callee epilogue: `mov r10, [rbp-8]; movq xmm0, r10; ret`.
+    ///
+    /// Bytes:
+    /// - `mov r10, [rbp-8]`  = `4C 8B 55 F8`
+    /// - `movq xmm0, r10`    = `66 49 0F 6E C2`
+    /// - `ret`               = `C3`
+    /// Total = 10 bytes.
+    ///
+    /// Byte-identical to the SysV `SseSingle` sequence — the register
+    /// choice (XMM0) and shim scratch (R10) match.
+    #[test]
+    fn callee_ms_xmm_single_load_bytes_exact() {
+        let seq = ms_callee_return_reg_epilogue_with_ret(
+            MsReturnPlacement::XmmSingle,
+            abi::RBP,
+            -8,
+        );
+        assert_eq!(seq.len(), 3, "XmmSingle MS epilogue = load + movq + ret");
+        assert_eq!(
+            encode_seq(&seq),
+            vec![0x4C, 0x8B, 0x55, 0xF8, 0x66, 0x49, 0x0F, 0x6E, 0xC2, 0xC3]
+        );
+    }
+
+    /// Companion caller-side: after CALL, write RAX into `[rbp-8]`.
+    /// Bytes: `48 89 45 F8`.
+    #[test]
+    fn caller_ms_int_single_readback_bytes_exact() {
+        let seq = ms_caller_read_return_reg(
+            MsReturnPlacement::IntSingle,
+            abi::RBP,
+            -8,
+        );
+        assert_eq!(seq.len(), 1, "IntSingle readback = single store");
+        assert_eq!(encode_seq(&seq), vec![0x48, 0x89, 0x45, 0xF8]);
+    }
+
+    /// Companion caller-side: after CALL, write XMM0 into `[rbp-8]`
+    /// via the SSE_SCRATCH_GPR round-trip. Bytes: `66 49 0F 7E C2` +
+    /// `4C 89 55 F8` = 9 bytes.
+    #[test]
+    fn caller_ms_xmm_single_readback_bytes_exact() {
+        let seq = ms_caller_read_return_reg(
+            MsReturnPlacement::XmmSingle,
+            abi::RBP,
+            -8,
+        );
+        assert_eq!(seq.len(), 2, "XmmSingle readback = movq + store");
+        assert_eq!(
+            encode_seq(&seq),
+            vec![
+                0x66, 0x49, 0x0F, 0x7E, 0xC2, // movq r10, xmm0
+                0x4C, 0x89, 0x55, 0xF8,       // mov [rbp-8], r10
+            ]
+        );
+    }
+
+    /// 24-byte Memory-classified MS aggregate copied from `[rbp - 24]`
+    /// into `[rcx]`, then `mov rax, rcx; ret`.
+    ///
+    /// Bytes:
+    /// - `mov r10, [rbp-24]` = `4C 8B 55 E8` (REX.W+R=4C, 8B, ModRM=55, disp8=E8)
+    /// - `mov [rcx+0], r10`  = `4C 89 11`
+    ///   (REX.W+R=4C, 89, ModRM=0x11: mod=00, reg=r10&7=2, rm=RCX(1) —
+    ///    disp elides because base=RCX is not the RBP/R13 escape.)
+    /// - `mov r10, [rbp-16]` = `4C 8B 55 F0`
+    /// - `mov [rcx+8], r10`  = `4C 89 51 08`
+    ///   (ModRM=0x51: mod=01 disp8, reg=2, rm=RCX(1); disp8=0x08.)
+    /// - `mov r10, [rbp-8]`  = `4C 8B 55 F8`
+    /// - `mov [rcx+16], r10` = `4C 89 51 10`
+    /// - `mov rax, rcx`      = `48 89 C8`
+    ///   (REX.W=48, 89, ModRM=0xC8: mod=11, reg=RCX(1), rm=RAX(0).)
+    /// - `ret`               = `C3`
+    /// Total = 4 + 3 + 4 + 4 + 4 + 4 + 3 + 1 = 27 bytes.
+    ///
+    /// Same shape as the SysV 24-byte sret sequence, with RCX/RDI
+    /// swapped throughout — the two ABIs' sret helpers produce
+    /// identical byte counts and instruction counts.
+    #[test]
+    fn callee_ms_sret_24byte_epilogue_bytes_exact() {
+        let seq = ms_callee_sret_epilogue_with_ret(24, abi::RBP, -24);
+        // 3 (load+store) pairs + mov rax,rcx + ret = 3*2 + 1 + 1 = 8 insts
+        assert_eq!(seq.len(), 8, "24-byte MS sret = 3 qword copies + rax-load + ret");
+        assert_eq!(
+            encode_seq(&seq),
+            vec![
+                0x4C, 0x8B, 0x55, 0xE8, // mov r10, [rbp-24]
+                0x4C, 0x89, 0x11,       // mov [rcx+0], r10   (disp elides — base=RCX)
+                0x4C, 0x8B, 0x55, 0xF0, // mov r10, [rbp-16]
+                0x4C, 0x89, 0x51, 0x08, // mov [rcx+8], r10
+                0x4C, 0x8B, 0x55, 0xF8, // mov r10, [rbp-8]
+                0x4C, 0x89, 0x51, 0x10, // mov [rcx+16], r10
+                0x48, 0x89, 0xC8,       // mov rax, rcx
+                0xC3,                   // ret
+            ]
+        );
+    }
+
+    // ── MS panic guards ─────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "zero-size aggregate cannot be Memory-classified")]
+    fn ms_sret_store_zero_size_panics() {
+        let _ = ms_callee_sret_store(0, abi::RBP, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-multiple-of-8 aggregate size 17")]
+    fn ms_sret_store_non_multiple_of_8_panics() {
+        let _ = ms_callee_sret_store(17, abi::RBP, 0);
+    }
+
+    // ── MS placement inertness for None / Memory ────────────────────
+
+    /// `None` MS placement → both callee-load and caller-read produce
+    /// empty sequences.
+    #[test]
+    fn ms_none_placement_produces_empty_sequences() {
+        assert!(ms_callee_load_return_reg(MsReturnPlacement::None, abi::RBP, 0).is_empty());
+        assert!(ms_caller_read_return_reg(MsReturnPlacement::None, abi::RBP, 0).is_empty());
+    }
+
+    /// `Memory` MS placement at the register-load helpers → empty
+    /// sequences; the sret path is handled separately.
+    #[test]
+    fn ms_memory_placement_bypasses_register_helpers() {
+        assert!(ms_callee_load_return_reg(MsReturnPlacement::Memory, abi::RBP, 0).is_empty());
+        assert!(ms_caller_read_return_reg(MsReturnPlacement::Memory, abi::RBP, 0).is_empty());
+    }
+
+    // ── End-to-end classifier → placement → sequence chain (MS) ────
+
+    /// End-to-end: classify a 24-byte aggregate via
+    /// `ms_return_placement_from_layout`, materialise the callee sret
+    /// epilogue, and pin the same 27-byte string as the direct-placement
+    /// test above. Confirms the three-layer MS pipeline composes.
+    #[test]
+    fn ms_classifier_to_placement_to_sret_epilogue_24byte() {
+        use paideia_as_ir::record_layout::{FieldLayout, RecordLayout};
+
+        let layout = RecordLayout::new(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 16, size: 8, signed: false, is_float: false },
+            ],
+        );
+        let placement = abi::ms_return_placement_from_layout(&layout);
+        assert_eq!(placement, MsReturnPlacement::Memory);
+        assert!(placement.needs_hidden_sret());
+
+        let seq = ms_callee_sret_epilogue_with_ret(
+            layout.size as u32,
+            abi::RBP,
+            -24,
+        );
+        assert_eq!(
+            encode_seq(&seq),
+            vec![
+                0x4C, 0x8B, 0x55, 0xE8,
+                0x4C, 0x89, 0x11,
+                0x4C, 0x8B, 0x55, 0xF0,
+                0x4C, 0x89, 0x51, 0x08,
+                0x4C, 0x8B, 0x55, 0xF8,
+                0x4C, 0x89, 0x51, 0x10,
+                0x48, 0x89, 0xC8,
+                0xC3,
+            ]
         );
     }
 }

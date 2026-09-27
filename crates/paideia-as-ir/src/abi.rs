@@ -38,9 +38,17 @@
 //! DONE(PAS-DEBT-B3-007 Slice 1 / paideia-as#1520): SysV aggregate classifier
 //! (`AggregateClass` + `classify_sysv_aggregate`) per SysV AMD64 psABI §3.2.3.
 //! Foundation for the two return-value slices below.
-//! TODO(PAS-DEBT-B3-007b / paideia-as#1543): MS hidden-pointer aggregate
-//! return value handling (aggregates > 8 bytes returned via caller-allocated
-//! buffer in RCX).
+//! DONE(PAS-DEBT-B3-007b / paideia-as#1543): MS x64 aggregate return
+//! placement selector — `MsAggregateClass` + `classify_ms_aggregate` +
+//! `MsReturnPlacement` + `ms_return_placement`. Aggregates fitting in a
+//! single register (size ∈ {1,2,4,8}, or scalar float/double →
+//! `Register(Xmm)`) go through RAX/XMM0; anything else uses a hidden RCX
+//! sret pointer with the callee mirroring it back through RAX. The
+//! instruction-sequence synthesiser lives alongside the SysV one in
+//! `paideia_as_elaborator::aggregate_return` (`ms_caller_sret_prelude`,
+//! `ms_caller_read_return_reg`, `ms_callee_load_return_reg`,
+//! `ms_callee_sret_store`). Call-site wiring gates on the same upstream
+//! return-record-layout side-table the SysV path waits on.
 //! DONE(PAS-DEBT-B3-007c / paideia-as#1544): SysV aggregate return placement
 //! selector — `SysvReturnPlacement` + `sysv_return_placement` consume a
 //! classifier vector and resolve the register-pair (RAX / RDX / XMM0 / XMM1)
@@ -592,6 +600,182 @@ impl SysvReturnPlacement {
                 | SysvReturnPlacement::SseInt
                 | SysvReturnPlacement::SsePair
         )
+    }
+}
+
+// ============================================================================
+// MS x64 aggregate classification (PAS-DEBT-B3-007b / paideia-as#1543)
+// ============================================================================
+
+/// MS x64 aggregate return-value register class.
+///
+/// Unlike SysV, MS x64 does **not** split aggregates across two return
+/// registers: an aggregate either fits in a single register (size ∈
+/// {1, 2, 4, 8}) and returns through that register, or it goes through
+/// a caller-allocated sret buffer whose pointer is passed as an
+/// implicit first argument in `RCX` (shifting the real args right by
+/// one to `RDX`, `R8`, `R9`, then stack past the 32-byte shadow space).
+///
+/// The `Register` variant carries an [`MsRegClass`] that names which
+/// register bank the value uses (`INTEGER → RAX`, `XMM → XMM0`). The
+/// two-variant shape mirrors the binary caller-side decision (pass an
+/// sret pointer in RCX or not?) — the register-class distinction is a
+/// second, orthogonal decision consumed by the callee-side load helper.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum MsAggregateClass {
+    /// Aggregate fits in a single return register.
+    Register(MsRegClass),
+    /// Aggregate uses caller-allocated sret buffer (hidden `RCX`
+    /// pointer at CALL time; callee mirrors that pointer back through
+    /// `RAX` on RET per MS x64 ABI).
+    Memory,
+}
+
+/// Which register bank a `Register`-classified MS aggregate uses.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum MsRegClass {
+    /// GPR: `RAX` for a register-sized aggregate return value.
+    Int,
+    /// XMM: `XMM0` for a scalar float/double return value.
+    Xmm,
+}
+
+/// Classify a `RecordLayout` for MS x64 return placement.
+///
+/// Rules per Microsoft x64 ABI:
+///
+/// 1. A single-field aggregate whose sole field is a scalar
+///    float/double (`is_float=true`, size ∈ {4, 8}, no tail padding)
+///    is `Register(Xmm)` — returned in `XMM0`. Mirrors the plain
+///    scalar-float-return path (a bare `f32`/`f64` returns in `XMM0`
+///    on both ABIs; MS treats a single-float wrapper struct
+///    equivalently for the SSE-return decision).
+/// 2. Any other aggregate whose total size is 1, 2, 4, or 8 bytes is
+///    `Register(Int)` — returned in `RAX`. This includes multi-field
+///    aggregates (e.g. `{ u32 a; u32 b }`) and mixed-scalar aggregates
+///    (e.g. `{ f32 a; f32 b }`), which MS returns in `RAX` even though
+///    both fields are float — the MS ABI's `XMM0` slot is reserved for
+///    a *single* scalar float/double, not for aggregates.
+/// 3. All other sizes (0, 3, 5, 6, 7, or > 8) are `Memory` — returned
+///    through the hidden `RCX` sret buffer.
+///
+/// Zero-size aggregates classify as `Memory` here as a benign default;
+/// callers that need to distinguish void returns from real
+/// zero-size-aggregate returns should use
+/// [`ms_return_placement_from_layout`], which maps `size == 0` to
+/// [`MsReturnPlacement::None`].
+///
+/// Note: MS x64 differs from SysV in that it does **not** split
+/// aggregates across two return registers. There is no `RegisterPair`
+/// class here.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn classify_ms_aggregate(layout: &RecordLayout) -> MsAggregateClass {
+    // Special case: single scalar float/double field → XMM0. Only
+    // fires when the field completely fills the aggregate (no padding,
+    // no siblings) so a tagged wrapper doesn't accidentally get an SSE
+    // return where MS ABI expects RAX.
+    if layout.fields.len() == 1
+        && layout.fields[0].is_float
+        && matches!(layout.size, 4 | 8)
+        && layout.fields[0].size as u64 == layout.size
+        && layout.fields[0].offset == 0
+    {
+        return MsAggregateClass::Register(MsRegClass::Xmm);
+    }
+    match layout.size {
+        1 | 2 | 4 | 8 => MsAggregateClass::Register(MsRegClass::Int),
+        _ => MsAggregateClass::Memory,
+    }
+}
+
+/// Resolved MS x64 return-value placement for an aggregate.
+///
+/// Mirrors [`SysvReturnPlacement`] in role — a small enum consumed by
+/// call-site emitters — but has fewer variants because MS x64 never
+/// splits aggregates across two return registers.
+///
+/// * `None` — void / zero-size aggregate return; callee touches
+///   nothing.
+/// * `IntSingle` — `RAX` (all register-sized aggregates and scalar
+///   integers).
+/// * `XmmSingle` — `XMM0` (scalar float/double aggregate and bare
+///   float/double return).
+/// * `Memory` — hidden `RCX` sret pointer; callee copies the aggregate
+///   into `[RCX]` and returns that same pointer in `RAX`.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum MsReturnPlacement {
+    /// Void / zero-size aggregate return. Callee touches nothing.
+    None,
+    /// Single INTEGER-class return in `RAX`.
+    IntSingle,
+    /// Single SSE-class return in `XMM0`.
+    XmmSingle,
+    /// Aggregate returned via caller-provided sret buffer whose pointer
+    /// is passed as an implicit first argument in `RCX`; callee copies
+    /// the aggregate into `[RCX]` and returns the same pointer in
+    /// `RAX` per MS x64 ABI.
+    Memory,
+}
+
+/// Reduce an [`MsAggregateClass`] into an [`MsReturnPlacement`].
+///
+/// Does not model the zero-size aggregate case; use
+/// [`ms_return_placement_from_layout`] for the layout-driven entry
+/// point that maps `size == 0` to [`MsReturnPlacement::None`].
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_return_placement(class: MsAggregateClass) -> MsReturnPlacement {
+    match class {
+        MsAggregateClass::Register(MsRegClass::Int) => MsReturnPlacement::IntSingle,
+        MsAggregateClass::Register(MsRegClass::Xmm) => MsReturnPlacement::XmmSingle,
+        MsAggregateClass::Memory => MsReturnPlacement::Memory,
+    }
+}
+
+/// Layout-driven entry point that composes [`classify_ms_aggregate`]
+/// with [`ms_return_placement`] and handles the zero-size aggregate
+/// case (→ [`MsReturnPlacement::None`]).
+///
+/// This is the single-call helper an MS x64 emitter integration will
+/// invoke at a call site or a callee epilogue once the upstream
+/// return-record-layout side-table lands.
+///
+/// PAS-DEBT-B3-007b / paideia-as#1543.
+#[must_use]
+pub fn ms_return_placement_from_layout(layout: &RecordLayout) -> MsReturnPlacement {
+    if layout.size == 0 {
+        return MsReturnPlacement::None;
+    }
+    ms_return_placement(classify_ms_aggregate(layout))
+}
+
+impl MsReturnPlacement {
+    /// True when the caller must pass a hidden sret pointer in `RCX`
+    /// (shifting real args right by one to `RDX`, `R8`, `R9`, then
+    /// stack past the 32-byte shadow space).
+    #[must_use]
+    pub fn needs_hidden_sret(self) -> bool {
+        matches!(self, MsReturnPlacement::Memory)
+    }
+
+    /// True when the return path uses `XMM0` (i.e. the `XmmSingle`
+    /// shape). Callers use this to decide whether to reserve/save
+    /// `XMM0` before overwriting it.
+    #[must_use]
+    pub fn uses_xmm(self) -> bool {
+        matches!(self, MsReturnPlacement::XmmSingle)
     }
 }
 
@@ -1209,5 +1393,240 @@ mod tests {
         );
         let classes = classify_sysv_aggregate(&layout);
         assert_eq!(sysv_return_placement(&classes), SysvReturnPlacement::IntSse);
+    }
+
+    // ============================================================================
+    // MS x64 aggregate classifier (PAS-DEBT-B3-007b / paideia-as#1543)
+    // ============================================================================
+
+    /// Single u64 field → RAX (register-sized integer aggregate).
+    #[test]
+    fn classify_ms_single_u64_is_register_int() {
+        let layout = RecordLayout::new(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: false }],
+        );
+        assert_eq!(
+            classify_ms_aggregate(&layout),
+            MsAggregateClass::Register(MsRegClass::Int)
+        );
+    }
+
+    /// Single f64 field → XMM0 (MS scalar-float return path).
+    #[test]
+    fn classify_ms_single_f64_is_register_xmm() {
+        let layout = RecordLayout::new(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: true }],
+        );
+        assert_eq!(
+            classify_ms_aggregate(&layout),
+            MsAggregateClass::Register(MsRegClass::Xmm)
+        );
+    }
+
+    /// Single f32 field (size 4, fills the aggregate) → XMM0.
+    #[test]
+    fn classify_ms_single_f32_is_register_xmm() {
+        let layout = RecordLayout::new(
+            4,
+            4,
+            vec![FieldLayout { offset: 0, size: 4, signed: false, is_float: true }],
+        );
+        assert_eq!(
+            classify_ms_aggregate(&layout),
+            MsAggregateClass::Register(MsRegClass::Xmm)
+        );
+    }
+
+    /// `{ u32 a; u32 b }` — 8 bytes with two integer fields → RAX.
+    #[test]
+    fn classify_ms_pair_u32_is_register_int() {
+        let layout = RecordLayout::new(
+            8,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(
+            classify_ms_aggregate(&layout),
+            MsAggregateClass::Register(MsRegClass::Int)
+        );
+    }
+
+    /// `{ f32 a; f32 b }` — 8 bytes with two float fields → RAX
+    /// (MS returns aggregate float pairs in RAX; only single-scalar
+    /// float aggregates go to XMM0).
+    #[test]
+    fn classify_ms_two_f32_in_one_reg_is_register_int() {
+        let layout = RecordLayout::new(
+            8,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: true },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: true },
+            ],
+        );
+        assert_eq!(
+            classify_ms_aggregate(&layout),
+            MsAggregateClass::Register(MsRegClass::Int)
+        );
+    }
+
+    /// Non-power-of-2 aggregate size (3 bytes) → Memory (sret via RCX).
+    #[test]
+    fn classify_ms_size_3_is_memory() {
+        let layout = RecordLayout::new(
+            3,
+            1,
+            vec![
+                FieldLayout { offset: 0, size: 1, signed: false, is_float: false },
+                FieldLayout { offset: 1, size: 1, signed: false, is_float: false },
+                FieldLayout { offset: 2, size: 1, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(classify_ms_aggregate(&layout), MsAggregateClass::Memory);
+    }
+
+    /// 16-byte aggregate → Memory. Unlike SysV, MS does not split into
+    /// a register pair at 16 bytes — anything over 8 goes through sret.
+    #[test]
+    fn classify_ms_size_16_is_memory() {
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(classify_ms_aggregate(&layout), MsAggregateClass::Memory);
+    }
+
+    /// 24-byte aggregate → Memory (mirror of SysV's oversized case).
+    #[test]
+    fn classify_ms_size_24_is_memory() {
+        let layout = RecordLayout::new(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 16, size: 8, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(classify_ms_aggregate(&layout), MsAggregateClass::Memory);
+    }
+
+    // ============================================================================
+    // MsReturnPlacement selector (PAS-DEBT-B3-007b / paideia-as#1543)
+    // ============================================================================
+
+    #[test]
+    fn ms_return_placement_int_maps_to_rax() {
+        assert_eq!(
+            ms_return_placement(MsAggregateClass::Register(MsRegClass::Int)),
+            MsReturnPlacement::IntSingle
+        );
+    }
+
+    #[test]
+    fn ms_return_placement_xmm_maps_to_xmm0() {
+        assert_eq!(
+            ms_return_placement(MsAggregateClass::Register(MsRegClass::Xmm)),
+            MsReturnPlacement::XmmSingle
+        );
+    }
+
+    #[test]
+    fn ms_return_placement_memory_flags_hidden_sret() {
+        let placement = ms_return_placement(MsAggregateClass::Memory);
+        assert_eq!(placement, MsReturnPlacement::Memory);
+        assert!(placement.needs_hidden_sret());
+        assert!(!placement.uses_xmm());
+    }
+
+    /// Zero-size aggregate at the layout-entry point → None.
+    #[test]
+    fn ms_return_placement_from_layout_zero_size_is_none() {
+        let layout = RecordLayout::new(0, 1, vec![]);
+        assert_eq!(
+            ms_return_placement_from_layout(&layout),
+            MsReturnPlacement::None
+        );
+    }
+
+    /// End-to-end: 24-byte aggregate → Memory placement. Pins that the
+    /// three-layer chain (RecordLayout → classify_ms_aggregate →
+    /// ms_return_placement) composes through the from-layout wrapper.
+    #[test]
+    fn ms_return_placement_from_layout_composes_with_classifier() {
+        let layout = RecordLayout::new(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+                FieldLayout { offset: 16, size: 8, signed: false, is_float: false },
+            ],
+        );
+        assert_eq!(
+            ms_return_placement_from_layout(&layout),
+            MsReturnPlacement::Memory
+        );
+    }
+
+    /// `uses_xmm` fires only on the XmmSingle placement — everything
+    /// else is false.
+    #[test]
+    fn ms_placement_uses_xmm_only_for_xmm_single() {
+        for placement in [
+            MsReturnPlacement::None,
+            MsReturnPlacement::IntSingle,
+            MsReturnPlacement::Memory,
+        ] {
+            assert!(
+                !placement.uses_xmm(),
+                "MS placement {:?} falsely uses_xmm",
+                placement
+            );
+        }
+        assert!(MsReturnPlacement::XmmSingle.uses_xmm());
+    }
+
+    /// `needs_hidden_sret` fires only on the Memory placement.
+    #[test]
+    fn ms_placement_needs_hidden_sret_only_for_memory() {
+        for placement in [
+            MsReturnPlacement::None,
+            MsReturnPlacement::IntSingle,
+            MsReturnPlacement::XmmSingle,
+        ] {
+            assert!(
+                !placement.needs_hidden_sret(),
+                "MS placement {:?} unexpectedly requested a hidden sret",
+                placement
+            );
+        }
+        assert!(MsReturnPlacement::Memory.needs_hidden_sret());
+    }
+
+    /// End-to-end: scalar-f64 aggregate goes through the XmmSingle
+    /// placement via the layout entry point.
+    #[test]
+    fn ms_return_placement_from_layout_scalar_f64_is_xmm_single() {
+        let layout = RecordLayout::new(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false, is_float: true }],
+        );
+        assert_eq!(
+            ms_return_placement_from_layout(&layout),
+            MsReturnPlacement::XmmSingle
+        );
     }
 }

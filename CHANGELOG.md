@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.36.63 — 2026-09-27 — Wave 34: B3-007b MS x64 aggregate return placement + non-exhaustive-match fix
+
+**PAS-DEBT-B3-007b** (closes #1543) — Microsoft x64 ABI aggregate return
+placement (RCX hidden-pointer sret + IntSingle/XmmSingle scalar paths).
+
+**Also fixes:** wildcard arms added to all 4 `match placement` sites in
+`aggregate_return.rs` for both `SysvReturnPlacement` and `MsReturnPlacement`
+enums. Both are `#[non_exhaustive]`; matches from the `paideia-as-elaborator`
+crate against these `paideia-as-ir` enums without a wildcard hard-fail
+compilation with E0004. The SysV side (v0.36.62 Wave 33) shipped with the
+same defect — undetected because "exit 0" from a background `bash ...;
+echo EXIT=$?` pipeline reflects the trailing echo, not cargo. Debugger
+caught it during Wave 34 verification.
+
+**PAS-DEBT-B3-007b** (closes #1543) — Microsoft x64 ABI aggregate
+return-value classification + hidden-RCX sret sequences, completing the
+x86-64 ABI trilogy alongside SysV's B3-007a (classifier) and B3-007c
+(SysV placement + sequences).
+
+- `crates/paideia-as-ir/src/abi.rs`: new MS x64 classification API —
+  `MsAggregateClass` (2 variants: `Register(MsRegClass)`, `Memory`),
+  `MsRegClass` (2 variants: `Int`, `Xmm`), `classify_ms_aggregate` +
+  `MsReturnPlacement` (4 variants: `None`, `IntSingle`, `XmmSingle`,
+  `Memory`), `ms_return_placement` + `ms_return_placement_from_layout`
+  (layout-driven entry point that handles zero-size → None), plus
+  `needs_hidden_sret()` / `uses_xmm()` predicates on
+  `MsReturnPlacement`. Module docblock's TODO/DONE map updated
+  (B3-007b → DONE). 15 new unit tests pin every classification path,
+  every placement, and both predicates.
+- `crates/paideia-as-elaborator/src/aggregate_return.rs`: extended
+  in-place (SysV helpers unchanged) with 4 public MS free functions —
+  `ms_caller_sret_prelude` (LEA into RCX), `ms_caller_read_return_reg`
+  (post-CALL RAX/XMM0 → memory writeback), `ms_callee_load_return_reg`
+  (pre-RET memory → RAX/XMM0 load), `ms_callee_sret_store` (bulk qword
+  copy to `[RCX]` + `mov rax, rcx`), plus two `_with_ret` composition
+  shims mirroring the SysV convenience layer. Reuses the existing
+  `SSE_SCRATCH_GPR` (R10) shim and low-level primitives —
+  `mov_reg_from_mem`, `mov_mem_from_reg`, `mov_reg_from_reg`,
+  `lea_reg_from_mem`, `load_xmm_from_mem`, `store_xmm_to_mem` —
+  without duplication. 10 new byte-exact tests pin every emitted
+  sequence.
+- `Cargo.toml`: workspace.package.version 0.36.62 → 0.36.63.
+
+SysV path is byte-identical (no touches to SysV helpers, primitives, or
+tests). Call-site wiring gates on the same upstream
+return-record-layout side-table both B3-007c and this ticket wait on.
+
+Scratch changelog: `.plans/scratch/CHANGELOG-1543-b3007b-ms-return.md`.
+
 ## v0.36.62 — 2026-09-27 — Wave 33: B3-007c SysV aggregate return placement
 
 **PAS-DEBT-B3-007c** (closes #1544) — SysV AMD64 psABI §3.2.3 aggregate
