@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.36.61 — 2026-09-27 — Wave 32: B7-005 + B7-006 + B7-007 reactivation
+
+- #1533 (B7-005 opt-regression encode-tight): missing dev-dep on
+  `paideia-as-emitter-elf` was the harness gap, not a pass gap.
+  `EncodeTightPass` has always emitted O1506 would-fire. Added dev-dep,
+  replaced 1 `#[ignore]`d placeholder with 2 active tests
+  (`encode_tight_pass_registered`, `encode_tight_apply_emits_o1506_would_fire`).
+- #1534 (B7-006 uefi-smoke): both blockers landed (m6-008 structural PE +
+  pa-r19-013 paideia-as-compiled hello.efi). Removed `#[ignore]` from
+  `boot_and_print_under_ovmf` + `boot_and_print_paideia_compiled`; layered
+  skip pattern (UefiEnv::probe → require_tool mkfs.vfat → mcopy → run).
+- #1535 (B7-007 lsp-harness latency): catalog was stale — test was never
+  `#[ignore]`d. Added `cfg!(debug_assertions)` early-return so debug runs
+  skip cleanly with a documented invocation for release-profile lane.
+- #1532 (B7-004 linearity-regression): NOT reactivated. Compound-blocked
+  (BorrowWalker not wired into walker_pipeline.rs + LinearityWalker
+  payload starved by lower.rs::type_kind + S0906/S0907 spec collision).
+  Sharpened `#[ignore]` reason, expanded doc comment enumerating S-codes /
+  fixture inventory / spec collision / 5-step reactivation sequence.
+
+Workspace `cargo check --tests` verified.
+
 ## v0.36.60 — 2026-09-26 — Wave 29: B1-002 + B1-003 readelf-gate wiring
 
 - #1486 (B1-002) + #1487 (B1-003): removed `#[ignore]` from

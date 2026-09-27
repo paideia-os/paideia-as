@@ -48,6 +48,8 @@ Per-pass status after m3 closure (PRs #553–#560):
 
 m3-008 (PR #560) shipped `tests/opt-regression/` as a workspace member with 10 per-pass regression test files (19 active + 1 ignored for encode-tight's diagnostic-side wiring) that pin each pass's diagnostic shape. A real-rewrite landing in a future PR (e.g., loop-entry markers activating unroll's body duplication) breaks the regression test and forces an honest update.
 
+**B7-005 reactivation (PAS-DEBT #1533):** the encode-tight ignore was a harness dependency gap, not a pass gap — `EncodeTightPass` lives in `paideia-as-emitter-elf::opt` and has always emitted its O1506 would-fire marker through `OptDiagSink`, but `tests/opt-regression/Cargo.toml` did not depend on `paideia-as-emitter-elf`, so the pass symbol was unreachable from the harness. The dev-dependency was added and `encode_tight_regression.rs` now carries two active assertions (`encode_tight_pass_registered` + `encode_tight_apply_emits_o1506_would_fire`) modelled on `align_regression.rs`. Harness state is now **20 active + 0 ignored**. The message assertion pins the would-fire shape and must flip in lock-step if the pass ever grows into a real IR-side rewrite that mutates `InstructionSideTable`.
+
 ## 2.1 Phase 4 m1 — would-fire flip closure
 
 Phase 4 m1-007..010 closed the 4 would-fire passes from Phase 3 m3-007:

@@ -2462,6 +2462,7 @@ name = "paideia-opt-regression"
 version = "0.36.60"
 dependencies = [
  "paideia-as-diagnostics",
+ "paideia-as-emitter-elf",
  "paideia-as-ir",
  "smallvec",
 ]

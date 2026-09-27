@@ -24,4 +24,8 @@ path = "src/lib.rs"
 [dev-dependencies]
 paideia-as-ir = { path = "../../crates/paideia-as-ir" }
 paideia-as-diagnostics = { path = "../../crates/paideia-as-diagnostics" }
+# emitter-side passes (encode-tight lives here); dev-only so no cycle from
+# the shipping surface — paideia-as-emitter-elf depends on paideia-as-ir,
+# not the other way around.
+paideia-as-emitter-elf = { path = "../../crates/paideia-as-emitter-elf" }
 smallvec.workspace = true

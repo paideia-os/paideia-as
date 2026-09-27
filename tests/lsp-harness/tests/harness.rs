@@ -1,7 +1,9 @@
 //! LSP harness end-to-end tests.
 //!
 //! Four correctness tests exercising LSP handlers end-to-end via direct library API.
-//! One #[ignore]'d latency probe for release-build profiling.
+//! One latency probe that is a documented no-op under `debug_assertions` and enforces
+//! the <100 ms single-character-change budget under release-profile runs
+//! (`cargo test --release -p lsp-harness`). See B7-007 (issue #1535).
 
 use lsp_harness::{
     DocumentStore, ParseCache, create_document, definition_at, diagnose_document,
@@ -168,8 +170,25 @@ fn correctness_references_returns_all_occurrences_across_documents() {
 /// Until elaborator-side population fires (m4 phase gap), the PositionIndex
 /// is not populated and the latency is near-zero. The <100ms assertion holds
 /// trivially today; it gains meaning when elaboration integration is complete.
+///
+/// Release-profile only: debug builds skip the assertion (unoptimized parser
+/// timing is not representative of the LSP hot path). To measure the real
+/// budget, run: `cargo test --release -p lsp-harness latency_single_char`.
+/// B7-007 (issue #1535): replaced prior `#[ignore]` gate with a runtime
+/// `debug_assertions` skip so the test is visible in `cargo test` output
+/// rather than silently suppressed.
 #[test]
 fn latency_single_char_change_under_100ms() {
+    // Debug builds: report skip and return. Optimizer-off timings are noise;
+    // the <100 ms budget is only meaningful under release-profile compilation.
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "latency_single_char_change_under_100ms: skipped (debug build); \
+             rerun with `cargo test --release -p lsp-harness` to enforce the budget"
+        );
+        return;
+    }
+
     let uri = test_url("latency_test.pax");
 
     // Build a 1000-line synthetic document.
