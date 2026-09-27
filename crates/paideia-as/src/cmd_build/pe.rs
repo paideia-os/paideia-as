@@ -126,16 +126,14 @@ pub(super) fn build_pe_object(
             }
         }
 
-        let strict_mode = true;
+        // Wave 29 (paideia-as#1553): patch_label_fixups no longer emits a
+        // user-facing U1610 (that path is exclusively the elaborator's
+        // process_stmt guard now); an unresolved fixup here would be an
+        // elaborator ICE and is panic'd by patch_label_fixups.
         patch_label_fixups(
             &mut text_bytes,
             &emit_result.label_fixups,
             &resolved_labels,
-            strict_mode,
-            sink,
-            arena,
-            arena.instructions(),
-            file,
         )?;
     }
 

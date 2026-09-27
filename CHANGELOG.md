@@ -1,5 +1,60 @@
 # Changelog
 
+## v0.36.73 — 2026-09-27 — Issue #1553: retire unreachable fixup-pass U1610 (closes #1488)
+
+paideia-as#1553 retires the user-facing U1610 (`unresolved-label`)
+emission in `crates/paideia-as/src/cmd_build/fixup.rs`. Wave 28
+(paideia-as#1488) attempted a `.pdx` fixture that would reach this arm
+and could not author one: `parse_operand_from_ast`
+(`crates/paideia-as-elaborator/src/unsafe_walker/operand.rs:93,125,182`)
+only produces `Operand::LabelRef` when the identifier is already
+registered in the per-block `labels` map, and otherwise falls through
+to `Operand::SymbolRef` (link-time resolution). The elaborator's own
+U1610 guard at
+`crates/paideia-as-elaborator/src/unsafe_walker/process_stmt.rs:215-232`
+therefore catches every user-authored unresolved label before encoding
+begins — reaching the fixup arm requires an `emit_*` site that
+synthesised a `LabelRef { name }` without a paired
+`insert_label(name, ...)`, which is an elaborator invariant violation,
+not a user diagnostic.
+
+  * **fixup.rs** — `patch_label_fixups` no longer takes `strict_mode`,
+    `sink`, `arena`, `instructions`, or `file`. The `None` arm now
+    `panic!`s with a bug-report message naming the missing label, the
+    `.text` offset, and the instruction size. Users cannot reach this
+    branch; the panic is the ICE story if an elaborator regression
+    ever wires up a stray `LabelRef`.
+
+  * **elf.rs / pe.rs** — Both call sites dropped the four extra args
+    and the `let strict_mode = true;` scaffolding. The elaborator's
+    diagnostic sink is still threaded through the emitters for
+    encoder/emitter diagnostics (B1703/B1704/B1705/B1706); only the
+    fixup pass no longer takes it.
+
+  * **diagnostics.rs** — Removed the `unresolved_label` U1610 builder
+    and the `node_for_fixup` reverse-lookup helper (with its unit
+    test), and dropped the `paideia_as_encoder::LabelFixup` import.
+    `span_of`, `find_failing_instruction`, `encoder_error`,
+    `encoder_warn`, `symbol_layout_invalid`, and
+    `function_symbol_no_offset` are preserved — they cover the
+    encoder/emitter diagnostics still routed through the sink.
+
+  * **typed_encoder_diagnostics.rs** — Deleted the ignored placeholder
+    `unresolved_label_typed_diagnostic_in_sarif` test that Wave 28
+    (paideia-as#1488) left behind, since no fixture can reach the
+    retired code path. Elaborator-side U1610 regression coverage
+    already lives in
+    `paideia-as-elaborator/tests/unsafe_walker/top_level.rs` around
+    lines 1433 / 1463. Closes paideia-as#1488.
+
+  * **label_patches.rs** — Header updated to reflect the retirement
+    (integration behaviour is unchanged; the U1610 sentence was
+    stale).
+
+The `U1610` diagnostic code itself is unaffected — the elaborator's
+`unsafe_walker/diag.rs` remains the canonical (and only) emitter, and
+the catalog registration in the elaborator crate stays intact.
+
 ## v0.36.72 — 2026-09-27 — Issue #1555: TCO Shape E' (3-inst trailing pop-bracket, upstream Push)
 
 paideia-as#1555 adds Shape E' to `crates/paideia-as-ir/src/opt/tailcall.rs`

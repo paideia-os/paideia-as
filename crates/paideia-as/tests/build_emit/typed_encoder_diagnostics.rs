@@ -3,9 +3,17 @@
 //! Verifies that:
 //! - B1705 (encoder-error) fires on encoding failures
 //! - B1706 (encoder-warn) fires on warnings with --encoder-warn
-//! - U1610 (unresolved-label) fires on label fixup failures
 //! - B1703 (symbol-layout-invalid) fires on symbol validation failures
 //! - B1704 (function-symbol-no-offset) fires on missing function offsets
+//!
+//! Wave 29 (paideia-as#1553): the U1610 (unresolved-label) SARIF fixture
+//! has been removed. The fixup-pass emission it was written for is no
+//! longer reachable from user `.pdx` syntax — `parse_operand_from_ast`
+//! only produces `LabelRef` when the identifier is already registered as
+//! a label, so the elaborator's `process_stmt` U1610 guard fires first
+//! and any leftover fixup at encoding time is an elaborator ICE that
+//! panics with a bug-report message. Elaborator-side U1610 coverage
+//! lives in `paideia-as-elaborator/tests/unsafe_walker/top_level.rs`.
 //!
 //! These tests use SARIF output to verify diagnostic codes and locations.
 
@@ -136,17 +144,11 @@ fn encoder_warn_typed_diagnostic_in_sarif() {
     );
 }
 
-#[test]
-#[ignore = "TODO(#1488): U1610 fixup-pass fixture unreachable via user syntax; see paideia-as#1553"]
-fn unresolved_label_typed_diagnostic_in_sarif() {
-    // Phase 8 m1-004: Verify U1610 fires on unresolved labels in fixup pass.
-    // Scope re-check (paideia-as#1553): parse_operand_from_ast falls back to
-    // SymbolRef for unknown identifiers with `jmp`, so a `.pdx` fixture cannot
-    // reach the LabelFixup path that emits U1610. Either add a unit-level driver
-    // that synthesizes a LabelRef without insert_label, retire the fixup-pass
-    // U1610 as unreachable, or relax operand parsing. Left ignored pending decision.
-    panic!("TODO: create fixture with unresolved label reference (see paideia-as#1553)");
-}
+// Wave 29 (paideia-as#1553 / closes #1488): removed the ignored
+// `unresolved_label_typed_diagnostic_in_sarif` placeholder — no fixture
+// can reach the retired fixup-pass U1610 emission from user `.pdx`
+// syntax (see module header). Elaborator-side U1610 coverage lives in
+// `paideia-as-elaborator/tests/unsafe_walker/top_level.rs`.
 
 #[test]
 fn symbol_layout_invalid_typed_diagnostic_in_sarif() {

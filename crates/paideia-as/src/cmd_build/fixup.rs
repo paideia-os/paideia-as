@@ -1,11 +1,22 @@
 //! Label-fixup patching for the encoded `.text` section.
 //! Split out of `cmd_build.rs` (2026-07-08).
 //!
-//! Phase 8 m1-004: Routes unresolved-label errors through DiagnosticSink as U1610.
+//! Wave 29 (paideia-as#1553): Retired the user-facing U1610 emission on
+//! the unresolved-label branch. The elaborator's own U1610 guard at
+//! `paideia_as_elaborator::unsafe_walker::process_stmt` catches every
+//! user-authored unresolved label BEFORE encoding: `parse_operand_from_ast`
+//! only emits `Operand::LabelRef` when the identifier is present in the
+//! per-block labels map, and otherwise falls through to `Operand::SymbolRef`
+//! (link-time resolution). No `.pdx` source can therefore reach this pass
+//! with an unresolved `LabelRef`.
+//!
+//! A LabelFixup arriving here without a matching entry is exclusively a
+//! compiler invariant violation — an `emit_*` site synthesised a
+//! `LabelRef { name }` without a paired `insert_label(name, ...)`. That is
+//! an ICE, not a user diagnostic, so this pass now panics with a bug-report
+//! message instead of emitting U1610 through the diagnostic sink.
 
-use paideia_as_diagnostics::DiagnosticSink;
 use paideia_as_encoder::LabelFixup;
-use paideia_as_ir::{IrArena, InstructionSideTable};
 
 use super::BuildError;
 
@@ -16,36 +27,31 @@ use super::BuildError;
 /// displacement as: label_offset - (fixup_byte_offset + 4), then
 /// writes the i32 LE value into the buffer at the fixup location.
 ///
-/// Phase 8 m1-004: Routes unresolved-label errors through DiagnosticSink as U1610.
+/// Wave 29 (paideia-as#1553): An unresolved label at this stage is a
+/// compiler invariant violation (see module doc); the previous
+/// user-diagnostic U1610 path has been retired.
 ///
 /// # Arguments
 ///
 /// * `buffer` - Mutable reference to the .text section bytes
 /// * `label_fixups` - List of fixup sites collected during encoding
 /// * `labels` - Map of label names to their byte offsets in .text
-/// * `strict_mode` - Whether to abort on unresolved labels
-/// * `sink` - Diagnostic sink for emitting U1610 errors
-/// * `arena` - IR arena for span lookups
-/// * `instructions` - Instruction side-table for reverse lookup
-/// * `file` - Source file ID for span generation
 ///
 /// # Returns
 ///
-/// `Ok(())` if all fixups applied successfully, or
-/// `Err(BuildError::Failed)` if a label is unresolved in strict mode.
+/// `Ok(())` if all fixups applied successfully.
+///
+/// # Panics
+///
+/// Panics if a fixup references a label that is not present in `labels`.
+/// This indicates an elaborator bug — a compiler-synthesised `LabelRef`
+/// without a matching `insert_label`. Users cannot trigger this branch;
+/// see the module documentation.
 pub(super) fn patch_label_fixups(
     buffer: &mut [u8],
     label_fixups: &[LabelFixup],
     labels: &std::collections::HashMap<String, u32>,
-    strict_mode: bool,
-    sink: &mut dyn DiagnosticSink,
-    arena: &IrArena,
-    instructions: &InstructionSideTable,
-    file: paideia_as_diagnostics::FileId,
 ) -> Result<(), BuildError> {
-    use super::diagnostics::{unresolved_label, node_for_fixup, span_of};
-    use paideia_as_diagnostics::Span;
-
     for fixup in label_fixups {
         match labels.get(&fixup.label_name) {
             Some(&label_offset) => {
@@ -63,18 +69,20 @@ pub(super) fn patch_label_fixups(
                 }
             }
             None => {
-                // Unresolved label: emit U1610 with real span if possible
-                // Phase 8 m1-004: Attempt to resolve the instruction node via node_for_fixup,
-                // then extract span from arena. Fall back to placeholder span if lookup fails.
-                let span = node_for_fixup(instructions, fixup)
-                    .and_then(|node_id| span_of(arena, node_id))
-                    .or_else(|| Some(Span::new(file, 0, 1)));
-
-                let diag = unresolved_label(&fixup.label_name, span);
-                let _ = sink.emit(diag);
-                if strict_mode {
-                    return Err(BuildError::Failed);
-                }
+                // Wave 29 (paideia-as#1553): user-side unresolved-label handling
+                // now lives entirely in the elaborator (U1610 in
+                // `unsafe_walker::process_stmt`). Reaching this branch means
+                // an elaborator emit site produced `Operand::LabelRef { name }`
+                // without a paired `insert_label(name, ...)` — a compiler bug.
+                panic!(
+                    "internal compiler error: label fixup references unresolved label \
+                     `{}` at .text offset 0x{:x} (instruction_size={}). This indicates \
+                     an elaborator emit site synthesised a LabelRef without registering \
+                     the matching label. Please file a bug at \
+                     https://github.com/paideia-os/paideia-as/issues with the offending \
+                     .pdx source.",
+                    fixup.label_name, fixup.byte_offset, fixup.instruction_size,
+                );
             }
         }
     }

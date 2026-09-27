@@ -3,11 +3,16 @@
 //!
 //! Phase 8 m1-004: Helper builders for typed diagnostics routed through DiagnosticSink.
 //! - encoder_error / encoder_warn: B1705/B1706 for encoding failures
-//! - unresolved_label: U1610 for label fixups
 //! - symbol_layout_invalid: B1703 for emitter validation
 //! - function_symbol_no_offset: B1704 for missing function offsets
 //! - span_of: Lookup IR node span from arena
-//! - node_for_fixup: Reverse lookup instruction node ID from label fixup
+//!
+//! Wave 29 (paideia-as#1553): the `unresolved_label` (U1610) builder and
+//! its `node_for_fixup` reverse-lookup helper were retired here — the
+//! fixup pass can no longer reach an unresolved label from user syntax
+//! (the elaborator's `process_stmt` guard catches every user-authored
+//! case), and a stray fixup at that stage is now an elaborator ICE panic
+//! rather than a user diagnostic. See `cmd_build/fixup.rs`.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -16,7 +21,6 @@ use std::str::FromStr;
 
 use paideia_as_diagnostics::{Catalog, Diagnostic, DiagnosticCode, DiagnosticSink, HumanRenderer, HumanSink, SourceMap, Span, VecSink};
 use paideia_as_ir::{IrArena, IrNodeId, InstructionSideTable};
-use paideia_as_encoder::LabelFixup;
 
 use crate::cmd_common;
 use super::BuildError;
@@ -56,27 +60,6 @@ pub(super) fn span_of(arena: &IrArena, node: IrNodeId) -> Option<Span> {
     // Returns Some(span) if the node exists and has recorded source info,
     // None otherwise (internal nodes, rewritten nodes, etc.).
     arena.get(node).map(|node_data| node_data.span)
-}
-
-/// Reverse lookup: find the IR node ID of the instruction that failed to encode.
-/// Used to correlate label fixups with IR source locations.
-/// Phase 8 m1-004: Implementation via byte_offset reverse lookup.
-pub(super) fn node_for_fixup(instructions: &InstructionSideTable, fixup: &LabelFixup) -> Option<IrNodeId> {
-    // Phase 8 m1-004: For label fixups, reverse-lookup the instruction node via byte_offset.
-    // The fixup's byte_offset is where the 4-byte rel32 sits. The instruction starts
-    // at byte_offset - (instruction_size - 4). We iterate through the side-table
-    // and match on the calculated start offset.
-    let expected_instr_start = fixup.byte_offset.saturating_sub(fixup.instruction_size - 4);
-
-    for (&node_id, instr) in instructions.entries().iter() {
-        if let Some(byte_offset) = instr.byte_offset_in_text {
-            if byte_offset == expected_instr_start {
-                return Some(node_id);
-            }
-        }
-    }
-
-    None
 }
 
 /// Find the first (earliest) instruction in the table that likely caused an encoder failure.
@@ -121,20 +104,12 @@ pub(super) fn encoder_warn(
     diag.finish()
 }
 
-/// Build a typed U1610 unresolved-label diagnostic.
-pub(super) fn unresolved_label(
-    label: &str,
-    span: Option<Span>,
-) -> Diagnostic {
-    // Phase 6 m4-002: U1610 fires when a label reference is unresolved.
-    let code = DiagnosticCode::from_str("U1610").expect("U1610 is a valid code");
-    let msg = format!("unresolved label '{}'", label);
-    let mut diag = Diagnostic::error(code).message(&msg);
-    if let Some(s) = span {
-        diag = diag.with_span(s);
-    }
-    diag.finish()
-}
+// Wave 29 (paideia-as#1553): removed `unresolved_label` (U1610 builder).
+// The only call site was `patch_label_fixups` in `cmd_build/fixup.rs`,
+// which no longer emits user diagnostics on the unresolved branch — see
+// that module's header for the reachability argument. The elaborator's
+// own U1610 emission in `paideia_as_elaborator::unsafe_walker::process_stmt`
+// remains the canonical (and only) source of this code.
 
 /// Build a typed B1703 symbol-layout-invalid diagnostic.
 pub(super) fn symbol_layout_invalid(message: &str) -> Diagnostic {
@@ -165,7 +140,6 @@ pub(super) fn function_symbol_no_offset(name: &str, _ir_node: u32) -> Diagnostic
 mod tests {
     use super::*;
     use paideia_as_ir::{IrKind, IrArena};
-    use paideia_as_encoder::LabelFixup;
 
     #[test]
     fn span_of_returns_arena_span_for_encoder_node() {
@@ -185,45 +159,9 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn node_for_fixup_finds_referring_instruction() {
-        // Phase 8 m1-004: Verify node_for_fixup reverse-lookups the instruction by byte_offset.
-        use paideia_as_ir::{Instruction, Mnemonic, InstrMode};
-
-        let mut instructions = InstructionSideTable::new();
-
-        // Construct a known instruction at a specific byte offset
-        let node_id = IrNodeId::new(42).expect("42 is valid");
-        let instr = Instruction {
-            mnemonic: Mnemonic::Jmp,
-            operands: Default::default(),
-            encoding_hint: None,
-            byte_offset_in_text: Some(100),
-            mode: InstrMode::Mode64,
-            emission_order: 0,
-};
-        instructions.insert(node_id, instr);
-
-        // Construct a LabelFixup pointing to offset 101 (start at 100, instruction_size=5 for jmp)
-        // Reverse calculation: fixup.byte_offset - (fixup.instruction_size - 4) = 101 - 1 = 100 ✓
-        let fixup = LabelFixup {
-            byte_offset: 101,  // Where the 4-byte rel32 sits (1 byte into the instruction)
-            label_name: "test_label".to_string(),
-            addend: 0,
-            instruction_size: 5,  // jmp is 5 bytes
-        };
-
-        let result = node_for_fixup(&instructions, &fixup);
-        assert_eq!(result, Some(node_id));
-
-        // Test with a nonexistent fixup (different byte offset)
-        let nonexistent_fixup = LabelFixup {
-            byte_offset: 999,
-            label_name: "nonexistent".to_string(),
-            addend: 0,
-            instruction_size: 5,
-        };
-        let result = node_for_fixup(&instructions, &nonexistent_fixup);
-        assert_eq!(result, None);
-    }
+    // Wave 29 (paideia-as#1553): removed `node_for_fixup_finds_referring_instruction`.
+    // The `node_for_fixup` helper it exercised was retired along with the
+    // `unresolved_label` (U1610) builder above — the fixup pass no longer
+    // needs to correlate a stray fixup with an IR span because it now panics
+    // with an ICE message on that branch (unreachable from user syntax).
 }

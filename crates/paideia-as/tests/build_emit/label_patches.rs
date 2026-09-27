@@ -5,8 +5,12 @@
 //! Verifies that:
 //! - Label fixups are applied after encoding completes
 //! - Displacements are computed correctly
-//! - Unresolved labels emit U1610 and cause build failure in strict mode
 //! - Label maps are properly scoped per-function
+//!
+//! Wave 29 (paideia-as#1553): the fixup-pass U1610 emission was retired
+//! (unreachable from user syntax; the elaborator's `process_stmt` guard
+//! catches every user-authored unresolved label first). A stray fixup at
+//! this stage is now an elaborator ICE panic, not a user diagnostic.
 
 use std::process::Command;
 
