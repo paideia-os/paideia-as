@@ -21,11 +21,13 @@ paideia-as-encoder = { path = "../paideia-as-encoder" }
 # so `expand_reflective_hygienic` can mint a fresh scope per macro
 # invocation and expose it through the reflection API a hosted DSL sees.
 paideia-as-reflection = { path = "../paideia-as-reflection" }
+# B2-010b (#1541): macro_expand.rs needs Token / SourceText from the lexer
+# to compose the substituted token stream.
+paideia-as-lexer = { path = "../paideia-as-lexer" }
 blake3 = { workspace = true }
 
 [dev-dependencies]
 paideia-as-encoder = { path = "../paideia-as-encoder" }
 paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe" }
-paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 smallvec = { workspace = true }

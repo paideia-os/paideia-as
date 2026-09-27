@@ -1,12 +1,17 @@
 //! Slice A fixture corpus for PAS-DEBT-B2-010 (#1503): fragment-kind
 //! pattern grammar. Six positive fixtures — one per required fragment
 //! kind (expr, ident, type, pat, stmt, block) — plus one negative
-//! (unknown fragment kind emits P0110). Template substitution
-//! (follow-up B2-010b) and repetition + hygiene (B2-010c) are out of
-//! scope here.
+//! (unknown fragment kind emits P0110).
+//!
+//! Slice B (PAS-DEBT-B2-010b, #1541) extends this file with template
+//! structural checks: templates now parse to a
+//! `Vec<MacroTemplateElem>` sitting on a `NodeKind::MacroTemplate`
+//! arena node, and the interleaving of fragment references with
+//! literal spans is exercised alongside the pattern-side coverage.
+//! Repetition + hygiene (B2-010c, #1542) remain out of scope.
 
 use paideia_as_ast::{
-    AstArena, ItemData, MacroFragmentKind, MacroPatternElem, NodeId, NodeKind,
+    AstArena, ItemData, MacroFragmentKind, MacroPatternElem, MacroTemplateElem, NodeId, NodeKind,
 };
 use paideia_as_diagnostics::{Diagnostic, DiagnosticSink, Severity, VecSink};
 use paideia_as_lexer::{Lexer, SourceText};
@@ -197,5 +202,133 @@ fn interleaved_literal_and_fragment_elements_preserved_in_order() {
     assert!(
         saw_literal_between,
         "expected a Literal separator between the two fragments"
+    );
+}
+
+// ─── Slice B (PAS-DEBT-B2-010b, #1541) template_elems coverage ────────
+
+/// Count fragment references (by NodeId identity, not name spelling)
+/// in a template-elem sequence.
+fn fragment_ref_count(elems: &[MacroTemplateElem]) -> usize {
+    elems
+        .iter()
+        .filter(|e| matches!(e, MacroTemplateElem::Fragment { .. }))
+        .count()
+}
+
+#[test]
+fn slice_b_template_node_is_macrotemplate_not_placeholder() {
+    let (arena, result, diags) = parse_source_str("macro m($x:expr) => { $x }");
+    let root = result.expect("should parse");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+    let Some(ItemData::Structure { items, .. }) = arena.item_data(root) else {
+        panic!("expected Structure root");
+    };
+    let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) else {
+        panic!("expected MacroDecl");
+    };
+    let rule = &decl.rules[0];
+    let template_node = &arena[rule.template];
+    assert_eq!(
+        template_node.kind,
+        NodeKind::MacroTemplate,
+        "template node should be MacroTemplate (not Placeholder) since Slice B"
+    );
+    assert_eq!(
+        fragment_ref_count(&rule.template_elems),
+        1,
+        "template_elems should contain exactly one Fragment reference for `$x`"
+    );
+}
+
+#[test]
+fn slice_b_template_with_no_refs_is_all_literal() {
+    let (arena, result, diags) = parse_source_str("macro m($x:expr) => { 42 }");
+    let root = result.expect("should parse");
+    assert!(
+        diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .next()
+            .is_none()
+    );
+
+    let Some(ItemData::Structure { items, .. }) = arena.item_data(root) else {
+        panic!("expected Structure root");
+    };
+    let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) else {
+        panic!("expected MacroDecl");
+    };
+    let rule = &decl.rules[0];
+    assert_eq!(
+        fragment_ref_count(&rule.template_elems),
+        0,
+        "no `$name` references in template → zero Fragment elems"
+    );
+    assert!(
+        rule.template_elems
+            .iter()
+            .all(|e| matches!(e, MacroTemplateElem::Literal { .. })),
+        "template with no `$name` should be all Literal segments"
+    );
+}
+
+#[test]
+fn slice_b_template_multiple_refs_preserved_in_order() {
+    // Two references to `$a` and one to `$b` — expect three Fragment
+    // elems in source order.
+    let (arena, result, diags) = parse_source_str(
+        "macro pair($a:expr, $b:expr) => { { let t = $a; $a = $b; } }",
+    );
+    let root = result.expect("should parse");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+    let Some(ItemData::Structure { items, .. }) = arena.item_data(root) else {
+        panic!("expected Structure root");
+    };
+    let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) else {
+        panic!("expected MacroDecl");
+    };
+    let rule = &decl.rules[0];
+    assert_eq!(
+        fragment_ref_count(&rule.template_elems),
+        3,
+        "expected three fragment references in template: $a, $a, $b"
+    );
+}
+
+#[test]
+fn slice_b_template_lone_dollar_stays_literal() {
+    // A lone `$` not followed by an ident-start char collapses into
+    // the surrounding literal — no phantom Fragment element.
+    let (arena, result, diags) = parse_source_str("macro m($x:expr) => { a $ b }");
+    let root = result.expect("should parse");
+    // Trailing `$` inside a brace-delimited template — no error.
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+    let Some(ItemData::Structure { items, .. }) = arena.item_data(root) else {
+        panic!("expected Structure root");
+    };
+    let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) else {
+        panic!("expected MacroDecl");
+    };
+    let rule = &decl.rules[0];
+    assert_eq!(
+        fragment_ref_count(&rule.template_elems),
+        0,
+        "lone `$` must not become a Fragment element"
     );
 }

@@ -1,0 +1,5 @@
+# Accept: 3-fragment macro (ident + literal + expr) expansion is clean.
+# End-to-end code emission gated on PAS-DEBT-B7-001; the fixture
+# ships today so the parser + expand_macro round trip has a
+# stable multi-kind source.
+ok

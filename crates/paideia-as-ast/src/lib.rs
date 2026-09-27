@@ -46,6 +46,7 @@ pub use items::{
 };
 pub use macros::{
     MacroDeclData, MacroFragment, MacroFragmentKind, MacroPatternElem, MacroRule,
+    MacroTemplateElem,
 };
 pub use modules::{
     Def, Functor, IncludeDecl, ModuleDecl, SigDecl, Signature, Structure, TypeAbstraction,

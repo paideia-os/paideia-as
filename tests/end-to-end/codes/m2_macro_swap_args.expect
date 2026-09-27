@@ -1,0 +1,6 @@
+# Accept: swap macro expansion is clean (no diagnostics).
+# Exercises duplicate-fragment substitution: `$a` appears twice and
+# `$b` appears twice; both must bind to their matched capture on
+# every occurrence.
+# End-to-end code emission gated on PAS-DEBT-B7-001.
+ok

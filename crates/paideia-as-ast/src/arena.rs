@@ -72,6 +72,12 @@ pub enum NodeKind {
     /// in [`crate::MacroRule::pattern_elems`]; this variant labels the
     /// arena node so `Placeholder` no longer stands in for the pattern.
     MacroPattern,
+    /// Macro rule template (RHS of `pattern => template`).
+    /// PAS-DEBT-B2-010b Slice B (#1541, v0.36.65). Structural detail
+    /// lives in [`crate::MacroRule::template_elems`]; this variant
+    /// labels the arena node so `Placeholder` no longer stands in for
+    /// the template.
+    MacroTemplate,
 
     // Expressions (§8 Expr: LambdaExpr | ActionBlock | WithHandlerExpr | UnsafeExpr | InfixExpr | ...)
     /// `fn/λ params -> body` or `|x, y| body`.

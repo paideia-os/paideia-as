@@ -7,13 +7,19 @@
 //! Slice A (PAS-DEBT-B2-010, #1503, v0.36.52) upgraded the pattern side to a
 //! real fragment-kind grammar: the pattern arena node is now
 //! [`NodeKind::MacroPattern`] and [`MacroRule::pattern_elems`] carries the
-//! ordered fragment / literal sequence. Templates remain span-only
-//! `Placeholder` nodes; template substitution is deferred to follow-up
-//! B2-010b, and repetition + hygiene to B2-010c.
+//! ordered fragment / literal sequence.
+//!
+//! Slice B (PAS-DEBT-B2-010b, #1541, v0.36.65) lifts templates to the
+//! same shape: the template arena node is now
+//! [`NodeKind::MacroTemplate`] and [`MacroRule::template_elems`]
+//! carries the ordered fragment-reference / literal sequence. The
+//! structured expander lives in
+//! `paideia-as-elaborator::macro_expand::expand_macro`. Repetition +
+//! hygiene remain deferred to Slice C (#1542).
 
 use paideia_as_ast::{
     ItemData, MacroDeclData, MacroFragment, MacroFragmentKind, MacroPatternElem, MacroRule,
-    NodeId, NodeKind,
+    MacroTemplateElem, NodeId, NodeKind,
 };
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
@@ -167,14 +173,23 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 - template_start.byte_start(),
         );
 
-        // Allocate template placeholder
-        let template_id = self.arena_mut().alloc(NodeKind::Placeholder, template_span);
+        // Slice B: allocate a real MacroTemplate node (was Placeholder)
+        // and populate a structured element list. #1541.
+        let template_id = self.arena_mut().alloc(NodeKind::MacroTemplate, template_span);
+
+        // Extract structured template elements (fragment refs + literal
+        // spans). Unknown fragment references remain permissive here —
+        // the expander in `paideia-as-elaborator::macro_expand` emits
+        // M0309 when a `$name` reference has no binding in the matched
+        // rule; there is no template-side kind selector to reject.
+        let template_elems = self.extract_macro_template(template_span);
 
         Ok(MacroRule {
             pattern: pattern_id,
             template: template_id,
             pattern_elems,
             fragments,
+            template_elems,
         })
     }
 
@@ -435,6 +450,122 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
 
         Ok((pattern_elems, fragments))
+    }
+
+    /// Extract the structured template element list from `template_span`
+    /// by scanning source bytes for `$name` fragment references; every
+    /// span in between becomes a `MacroTemplateElem::Literal`.
+    ///
+    /// Distinguishing detail vs. the pattern extractor:
+    /// - There is no `:kind` suffix; templates carry references only.
+    ///   A lone `$` (not followed by an ident-start char) collapses
+    ///   into the surrounding literal — the phase-1 string expander
+    ///   (`expand_template`) has always accepted stray `$` bytes, so
+    ///   the structured form matches that shape rather than reject.
+    /// - No diagnostic is emitted here for unbound references; the
+    ///   expander (`expand_macro`) will emit M0309 when a `$name`
+    ///   fails to resolve in the matched rule's bindings.
+    ///
+    /// Slice B only: repetition groups (`$( ... )*`) are not yet
+    /// recognised — the interior scans as ordinary text. See #1542.
+    fn extract_macro_template(&mut self, template_span: Span) -> Vec<MacroTemplateElem> {
+        let start = template_span.byte_start() as usize;
+        let end = (template_span.byte_start() + template_span.byte_len()) as usize;
+
+        // Clone the template text so the arena borrow does not conflict
+        // with a live source-string borrow in the second pass. Template
+        // texts are small; clone cost is negligible.
+        let template_text: String = {
+            let source = self.source();
+            if start >= source.len() || end > source.len() {
+                return vec![];
+            }
+            source[start..end].to_string()
+        };
+
+        // First pass: collect fragment reference sites (byte offsets
+        // relative to `template_text`), so the second pass can allocate
+        // Ident nodes without an outstanding borrow of the source
+        // string.
+        #[derive(Clone)]
+        struct RefSite {
+            site_start: usize, // byte offset of leading `$`
+            site_end: usize,   // byte offset one past last ident char
+            name_start: usize,
+            name_end: usize,
+        }
+
+        let mut sites = vec![];
+        let mut chars = template_text.char_indices().peekable();
+
+        while let Some((i, ch)) = chars.next() {
+            if ch == '$'
+                && let Some((_, name_ch)) = chars.peek()
+                && (name_ch.is_alphabetic() || *name_ch == '_')
+            {
+                let name_start = i + 1;
+                let mut name_end = name_start;
+                while let Some((j, c)) = chars.peek() {
+                    if c.is_alphanumeric() || *c == '_' {
+                        name_end = j + 1;
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+
+                if name_end > name_start {
+                    sites.push(RefSite {
+                        site_start: i,
+                        site_end: name_end,
+                        name_start,
+                        name_end,
+                    });
+                }
+            }
+        }
+
+        // Second pass: interleave literal + fragment-reference elements
+        // in source order.
+        let mut template_elems: Vec<MacroTemplateElem> =
+            Vec::with_capacity(sites.len() * 2 + 1);
+        let mut cursor = 0usize;
+
+        for site in sites {
+            if site.site_start > cursor {
+                let lit_pos = (start + cursor) as u32;
+                let lit_len = (site.site_start - cursor) as u32;
+                template_elems.push(MacroTemplateElem::Literal {
+                    span: Span::new(template_span.file(), lit_pos, lit_len),
+                });
+            }
+
+            let name_byte_pos = (start + site.name_start) as u32;
+            let name_byte_len = (site.name_end - site.name_start) as u32;
+            let name_span = Span::new(template_span.file(), name_byte_pos, name_byte_len);
+            let name_id = self.arena_mut().alloc(NodeKind::Ident, name_span);
+
+            let site_pos = (start + site.site_start) as u32;
+            let site_len = (site.site_end - site.site_start) as u32;
+            let ref_span = Span::new(template_span.file(), site_pos, site_len);
+
+            template_elems.push(MacroTemplateElem::Fragment {
+                name: name_id,
+                span: ref_span,
+            });
+
+            cursor = site.site_end;
+        }
+
+        if cursor < template_text.len() {
+            let lit_pos = (start + cursor) as u32;
+            let lit_len = (template_text.len() - cursor) as u32;
+            template_elems.push(MacroTemplateElem::Literal {
+                span: Span::new(template_span.file(), lit_pos, lit_len),
+            });
+        }
+
+        template_elems
     }
 }
 

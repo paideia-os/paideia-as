@@ -1,5 +1,115 @@
 # Changelog
 
+## v0.36.65 — 2026-09-27 — Wave 36: B2-010b Slice B — macro template expansion (structured)
+
+**PAS-DEBT-B2-010b** (issue #1541) — Slice B of the macro grammar work.
+Templates now parse to a structured `Vec<MacroTemplateElem>` sitting on
+a `NodeKind::MacroTemplate` arena node (previously a bare
+`Placeholder`), and the elaborator gains a real `expand_macro` that
+walks the structured template + rule bindings and returns a re-lexed
+`Vec<Token>` ready for the next parse pass.
+
+Shape shipped by Slice B:
+
+- `MacroTemplateElem::{ Fragment { name: NodeId, span: Span } |
+  Literal { span: Span } }` — mirrors `MacroPatternElem` on the
+  template side. No `:kind` on template fragments: the kind lives on
+  the matching pattern-side `MacroPatternElem::Fragment` and is
+  recovered through the binding lookup.
+- `NodeKind::MacroTemplate` — new arena-node variant labelling the
+  template's identity + span.
+- `MacroRule::template_elems: Vec<MacroTemplateElem>` — populated by
+  `parse_macro.rs`'s new `extract_macro_template` char-scan pass;
+  interleaves literal source spans with `$name` fragment references
+  in source order.
+- `expand_macro(pattern_elems, template_elems, bindings,
+  template_source, file, invocation_span) -> MacroExpansion` in
+  `paideia-as-elaborator::macro_expand` — composes literal spans +
+  fragment substitutions, re-lexes the composed source under `file`,
+  and returns `{ source, tokens, diagnostics }`. Unbound `$name`
+  references emit exactly one `M0309` per unique name and leave the
+  literal `$name` in the emitted source so the re-lexer surfaces a
+  useful location downstream.
+- `FragmentName` type alias — the ident spelling used as the
+  `BTreeMap` key type in `bindings_by_name` and `expand_macro`.
+- `bindings_by_name(&[MatchBinding]) -> BTreeMap<FragmentName,
+  MatchBinding>` helper — bridges the phase-1 matcher's flat output
+  shape to the map required by `expand_macro`. First-write wins on
+  duplicate pattern names, matching Rust `macro_rules!` semantics.
+
+Files changed:
+
+- `crates/paideia-as-ast/src/macros.rs` — added `MacroTemplateElem`
+  enum; extended `MacroRule` with `template_elems: Vec<MacroTemplateElem>`;
+  updated module docstring to describe Slice B alongside Slice A.
+- `crates/paideia-as-ast/src/arena.rs` — added `NodeKind::MacroTemplate`
+  variant beside `MacroPattern` (safe: `NodeKind` is `#[repr(u32)]` +
+  `#[non_exhaustive]`; the `NodeData` size const_assert is unchanged).
+- `crates/paideia-as-ast/src/lib.rs` — re-exported `MacroTemplateElem`.
+- `crates/paideia-as-parser/src/parse_macro.rs` — allocated the
+  template node as `NodeKind::MacroTemplate` (was `Placeholder`);
+  added `extract_macro_template` that scans template bytes for
+  `$name` references and returns the interleaved
+  `Vec<MacroTemplateElem>`; wired the new field into every `MacroRule`
+  construction site.
+- `crates/paideia-as-elaborator/src/macro_expand.rs` — added
+  `FragmentName`, `MacroExpansion`, `bindings_by_name`, and the new
+  `expand_macro` function. `expand_template` (phase-1 string-based
+  path) is retained unchanged as a fallback.
+- `crates/paideia-as-elaborator/src/macro_match.rs` — updated the
+  test-only `MacroRule` literal to include `template_elems: Vec::new()`
+  so the new field construction does not break existing matcher tests.
+
+Test coverage added (all in-crate; no build/test runs from this ticket):
+
+- `paideia-as-elaborator::macro_expand::tests` — 6 new tests:
+  - `expand_macro_identity_round_trip` — trivial identity template.
+  - `expand_macro_swap_round_trip` — 2-fragment, each ref appearing
+    twice in template.
+  - `expand_macro_multi_fragment_round_trip` — 3 fragments of 3
+    different kinds (ident + literal + expr).
+  - `expand_macro_unbound_metavariable_emits_m0309` — single M0309
+    for one unbound ref.
+  - `expand_macro_unbound_reported_once_per_unique_name` — three
+    duplicate unbound refs → still one M0309.
+  - `bindings_by_name_first_wins` — duplicate-name bindings retain
+    the first entry.
+  - `expand_macro_pattern_elems_parameter_reserved_no_panic` —
+    documents that `pattern_elems` is reserved for Slice C.
+- `paideia-as-parser/tests/macro_fragment_kinds.rs` — 4 new tests:
+  - `slice_b_template_node_is_macrotemplate_not_placeholder`
+  - `slice_b_template_with_no_refs_is_all_literal`
+  - `slice_b_template_multiple_refs_preserved_in_order`
+  - `slice_b_template_lone_dollar_stays_literal`
+
+Corpus fixtures created:
+
+- `tests/end-to-end/codes/m2_macro_identity.pdx` + `.expect`
+- `tests/end-to-end/codes/m2_macro_swap_args.pdx` + `.expect`
+- `tests/end-to-end/codes/m2_macro_multi_fragment.pdx` + `.expect`
+
+The corpus runner for these fixtures (`codes_corpus_matches_expect_files`)
+remains `#[ignore]`-gated in `tests/end-to-end/tests/runner.rs` per the
+B7-001 blocker list; the fixtures ship today so the parser + expand_macro
+round trip has a stable source, and the runner reactivation is one
+`#[ignore]` deletion once the macro driver is wired (still gated on
+issue #1529's structured-IR payload emission plus #1542 for repetition
++ hygiene).
+
+Scope kept out (Slice C follow-ups, ticket #1542):
+
+- Repetition groups (`$( ... )*`) — parser still scans the interior as
+  ordinary text; `expand_macro`'s wildcard-arm `MacroTemplateElem`
+  match leaves room for the new variants without a signature break.
+- Hygiene — no scope tagging on the composed tokens today; Slice C
+  will layer `hygiene::MacroId` tagging over `expand_macro`'s output.
+- Pattern-side validation of template `$name` refs against
+  `pattern_elems` — the parameter is passed through today but not
+  consumed; the M0309 fallback is sufficient for the Slice B
+  contract.
+
+Version bump: 0.36.64 → 0.36.65.
+
 ## v0.36.64 — 2026-09-27 — Wave 35: B4-002 cpuid_leaf retirement — BLOCKED on call-site wiring
 
 **PAS-DEBT-B4-002** (issue #1524) — Retirement of the `cpuid_leaf`

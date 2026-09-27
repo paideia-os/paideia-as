@@ -1,0 +1,20 @@
+// PAS-DEBT-B2-010b Slice B (#1541, v0.36.65) — round-trip fixture.
+//
+// Three-fragment macro exercising three DIFFERENT fragment kinds
+// (ident, literal, expr) in one pattern, with the corresponding
+// references interleaved with literal template text. Under Slice B,
+// `bind_local(counter, 0, counter + 1)` composes into
+// `{ let counter = 0; counter + 1 }`.
+//
+// This is the maximal cross-kind fixture for Slice B round-trip
+// coverage: it validates that MacroFragmentKind::{Ident, Literal,
+// Expr} all round-trip through the parser's structured
+// template_elems output and the elaborator's expand_macro
+// substitution.
+//
+// End-to-end code-emission coverage waits on the macro-driver work
+// (PAS-DEBT-B7-001, #1529).
+
+module M = structure {
+  macro bind_local($name:ident, $init:literal, $body:expr) => { { let $name = $init; $body } }
+}

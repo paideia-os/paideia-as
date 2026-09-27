@@ -248,6 +248,7 @@ mod tests {
                 template: placeholder_id(),
                 pattern_elems: Vec::new(),
                 fragments: Vec::<MacroFragment>::new(),
+                template_elems: Vec::new(),
             })
             .collect();
         let decl = MacroDeclData {

@@ -3,9 +3,14 @@
 //! Slice A (PAS-DEBT-B2-010, #1503, v0.36.52) landed a real fragment-kind
 //! pattern grammar: `MacroRule::pattern_elems` is now a structured
 //! `Vec<MacroPatternElem>`, and the pattern arena node is
-//! [`crate::NodeKind::MacroPattern`] (not a bare `Placeholder`). Template
-//! substitution (Slice B → follow-up B2-010b) and repetition + hygiene
-//! (Slice C → follow-up B2-010c) remain deferred.
+//! [`crate::NodeKind::MacroPattern`] (not a bare `Placeholder`).
+//!
+//! Slice B (PAS-DEBT-B2-010b, #1541, v0.36.65) lifts templates to the
+//! same structured shape: `MacroRule::template_elems` is a
+//! `Vec<MacroTemplateElem>` (fragment references + literal spans), and
+//! the template arena node is [`crate::NodeKind::MacroTemplate`] (also
+//! no longer a bare `Placeholder`). Repetition + hygiene (Slice C →
+//! follow-up B2-010c, #1542) remain deferred.
 
 use crate::NodeId;
 use paideia_as_diagnostics::Span;
@@ -110,6 +115,44 @@ pub enum MacroPatternElem {
     },
 }
 
+/// One element of a macro rule's template.
+///
+/// Slice B (PAS-DEBT-B2-010b, #1541) structures the template as an
+/// ordered sequence of literal source spans and fragment references
+/// (`$name`), mirroring [`MacroPatternElem`] on the pattern side.
+///
+/// Unlike the pattern side, the template's fragment reference carries
+/// no `kind` field — the kind lives on the matching
+/// [`MacroPatternElem::Fragment`] and is resolved through the fragment
+/// name during expansion.
+///
+/// Repetition (`$( ... )*`) is Slice C's concern (#1542); marking
+/// this enum `#[non_exhaustive]` at introduction so Slice C can add
+/// variants without a SemVer-blocking break at cross-crate match
+/// sites — every external `match` on `MacroTemplateElem` must carry
+/// a wildcard `_` arm.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum MacroTemplateElem {
+    /// `$name` — a reference to a fragment bound by the rule's pattern.
+    Fragment {
+        /// Name of the fragment reference (Ident node, spans just the
+        /// name text without the leading `$`).
+        name: NodeId,
+        /// Span of the entire `$name` reference site (leading `$`
+        /// through the last char of the name).
+        span: Span,
+    },
+    /// A literal source range in the template (anything that is not a
+    /// `$name` reference). The expander copies these bytes verbatim
+    /// into the emitted token stream. Kept as a raw span in Slice B;
+    /// pre-tokenising the literal segments is a follow-up nicety.
+    Literal {
+        /// Byte range covered by the literal segment.
+        span: Span,
+    },
+}
+
 /// One rule: pattern → template.
 ///
 /// A macro has one or more rules. When invoked, the macro expander tries to
@@ -123,12 +166,16 @@ pub struct MacroRule {
     /// structural detail lives in [`Self::pattern_elems`]; the arena node
     /// carries the identity + span.
     pub pattern: NodeId,
-    /// Template node. Slice B (follow-up B2-010b) will replace this with a
-    /// real token-stream node. Until then it stays a `Placeholder` whose
-    /// span covers the raw template bytes (after `=>` until `;` in
-    /// multi-rule form, or until end-of-rule in single-rule form). The
-    /// text-walking expander in `paideia-as-elaborator::macro_match`
-    /// interpolates `$var` references directly against source bytes.
+    /// Template node. Since Slice B (v0.36.65) this is a
+    /// [`crate::NodeKind::MacroTemplate`] node whose span covers the
+    /// raw template bytes (after `=>` until `;` in multi-rule form, or
+    /// until end-of-rule in single-rule form). The structural detail
+    /// lives in [`Self::template_elems`]; the arena node carries the
+    /// identity + span. Prior to Slice B this was a bare `Placeholder`
+    /// and the text-walking expander in
+    /// `paideia-as-elaborator::macro_expand::expand_template`
+    /// interpolated `$var` references directly against source bytes
+    /// (that path still exists as a fallback).
     pub template: NodeId,
     /// Structured pattern element sequence.
     ///
@@ -143,6 +190,14 @@ pub struct MacroRule {
     /// declarations do not have to re-walk the interleaved element list.
     /// Slice A holds both fields in sync at parse time.
     pub fragments: Vec<MacroFragment>,
+    /// Structured template element sequence.
+    ///
+    /// Interleaves fragment references (`$name`) with literal source
+    /// spans in the order they appear in source. Slice B (#1541) parses
+    /// this out of the char-scanned template text alongside
+    /// [`Self::pattern_elems`]; Slice C (#1542) will add repetition
+    /// groups (`$( ... )*`).
+    pub template_elems: Vec<MacroTemplateElem>,
 }
 
 /// `MacroDecl` ItemData payload.

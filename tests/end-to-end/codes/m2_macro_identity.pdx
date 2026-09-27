@@ -1,0 +1,16 @@
+// PAS-DEBT-B2-010b Slice B (#1541, v0.36.65) — round-trip fixture.
+//
+// Trivial identity macro. Under Slice B's structured template
+// expansion, the invocation `id(42)` composes into the source `{ 42 }`
+// and re-lexes into LBrace + Int + RBrace tokens. The parser produces
+// pattern_elems `[Fragment("x", expr)]` and template_elems
+// `[Literal("{ "), Fragment("$x"), Literal(" }")]`; `expand_macro`
+// substitutes the fragment binding to yield the expanded source.
+//
+// End-to-end code-emission coverage waits on the macro-driver work
+// (PAS-DEBT-B7-001, #1529) that wires expand_macro into the pass
+// pipeline; this fixture documents the intended shape today.
+
+module M = structure {
+  macro id($x:expr) => { $x }
+}

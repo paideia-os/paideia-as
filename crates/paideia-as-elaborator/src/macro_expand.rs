@@ -27,11 +27,16 @@
 //!
 //! [`macro_match`]: crate::macro_match
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use paideia_as_ast::{AstArena, NodeId};
-use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
+use paideia_as_ast::{
+    AstArena, MacroPatternElem, MacroTemplateElem, NodeId,
+};
+use paideia_as_diagnostics::{
+    Category, Diagnostic, DiagnosticCode, FileId, Severity, Span,
+};
 use paideia_as_effects::EffectRow;
+use paideia_as_lexer::{Lexer, SourceText, Token};
 
 use crate::macro_match::MatchBinding;
 use crate::term_eval::{Env, Value, eval};
@@ -125,6 +130,191 @@ pub fn expand_template(
     ExpansionOutcome {
         expanded: out,
         diagnostics: diags,
+    }
+}
+
+/// Name of a fragment binding as it appears in a pattern / template
+/// (the identifier spelling, without the leading `$`). Kept as a plain
+/// `String` alias — [`MatchBinding::name`] already carries the same
+/// shape and interning is out of scope for phase-1 substitution.
+///
+/// Introduced by PAS-DEBT-B2-010b Slice B (#1541, v0.36.65) to give the
+/// structured template expander a name it can pass through its
+/// [`BTreeMap`] key type without inventing a new wrapper.
+pub type FragmentName = String;
+
+/// Result of a structured macro expansion via [`expand_macro`].
+///
+/// Carries the composed source text (owning the bytes so tokens'
+/// spans stay valid), the re-lexed token stream, and any diagnostics
+/// raised during substitution or re-lexing.
+#[derive(Debug, Clone)]
+pub struct MacroExpansion {
+    /// Substituted source text ready to be re-parsed.
+    ///
+    /// Owns the bytes referenced by [`Self::tokens`]' spans, so the
+    /// caller must keep the expansion alive while consuming tokens.
+    pub source: String,
+    /// Tokens produced by re-lexing [`Self::source`] under `file`.
+    pub tokens: Vec<Token>,
+    /// Diagnostics from substitution (M0309 on unbound `$name` refs)
+    /// and from the re-lex pass.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Build the name → binding map required by [`expand_macro`] from the
+/// matcher's flat `Vec<MatchBinding>` output.
+///
+/// Kept as a helper (rather than inlined at every call site) so future
+/// changes to the fragment-name key type only need to touch one place.
+/// Duplicate bindings — the same `$name` appearing twice in the
+/// pattern — keep the first occurrence, matching Rust `macro_rules!`
+/// semantics where a later pattern reference to the same name is a
+/// consistency check, not a rebinding.
+#[must_use]
+pub fn bindings_by_name(bindings: &[MatchBinding]) -> BTreeMap<FragmentName, MatchBinding> {
+    let mut map: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+    for b in bindings {
+        map.entry(b.name.clone()).or_insert_with(|| b.clone());
+    }
+    map
+}
+
+/// Expand a matched macro rule into a token stream by walking its
+/// structured template.
+///
+/// This is the Slice B (PAS-DEBT-B2-010b, #1541, v0.36.65) successor
+/// to [`expand_template`]. Where the phase-1 expander scans a raw
+/// template string for `$name` sites at expansion time, this variant
+/// consumes the pre-parsed [`MacroTemplateElem`] sequence built by
+/// `parse_macro`, guaranteeing that literal / fragment segmentation
+/// stays consistent across match + expand and giving downstream passes
+/// a stable structured view of the template.
+///
+/// **Algorithm.** Walk `template_elems` in order:
+///
+/// - [`MacroTemplateElem::Literal`] — copy the byte range from
+///   `template_source` verbatim.
+/// - [`MacroTemplateElem::Fragment`] — recover the reference name by
+///   stripping the leading `$` from the site span, look it up in
+///   `bindings`, and copy its [`MatchBinding::captured`] text. An
+///   unbound name emits one `M0309` diagnostic per unique unbound name
+///   and leaves the literal `$name` sequence in the emitted source so
+///   the re-lexer surfaces an error at a useful location.
+///
+/// The composed source is then re-lexed under `file` so the caller
+/// receives a `Vec<Token>` ready for the next parse pass.
+///
+/// **`pattern_elems` parameter.** Retained in the signature both for
+/// symmetry with the task contract and to leave room for a
+/// pattern-side validation pass (e.g. rejecting `$name` template refs
+/// that no pattern fragment declares before expansion time). Slice B
+/// does not consume it yet — the M0309 fallback in the Fragment arm is
+/// sufficient for the round-trip contract — but the parameter is
+/// documented as reserved so Slice C (#1542) can layer repetition
+/// consistency checks without a signature break.
+///
+/// **Repetition and hygiene.** Not handled here; Slice C (#1542) will
+/// extend both [`MacroTemplateElem`] and this function with
+/// `$( ... )*` group support and a hygiene-aware rename pass over
+/// the emitted tokens.
+///
+/// **Wildcard arms.** [`MacroTemplateElem`] is `#[non_exhaustive]`, so
+/// this cross-crate `match` carries a `_` catch-all — Slice C variants
+/// added ahead of this function's update downgrade to a silent no-op
+/// rather than a hard compile failure at the call site. Mirrors the
+/// Slice A guidance that cross-crate matches on macro-family enums
+/// always carry a wildcard.
+#[must_use]
+pub fn expand_macro(
+    _pattern_elems: &[MacroPatternElem],
+    template_elems: &[MacroTemplateElem],
+    bindings: &BTreeMap<FragmentName, MatchBinding>,
+    template_source: &str,
+    file: FileId,
+    invocation_span: Span,
+) -> MacroExpansion {
+    let mut expanded = String::new();
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+    let mut reported_unbound: BTreeMap<String, ()> = BTreeMap::new();
+
+    for elem in template_elems {
+        match elem {
+            MacroTemplateElem::Literal { span } => {
+                let start = span.byte_start() as usize;
+                let end = start.saturating_add(span.byte_len() as usize);
+                if start <= template_source.len() && end <= template_source.len() {
+                    expanded.push_str(&template_source[start..end]);
+                }
+            }
+            MacroTemplateElem::Fragment { span, .. } => {
+                let start = span.byte_start() as usize;
+                let end = start.saturating_add(span.byte_len() as usize);
+                if start >= template_source.len() || end > template_source.len() {
+                    continue;
+                }
+                let site = &template_source[start..end];
+                let name = site.strip_prefix('$').unwrap_or(site);
+                if let Some(binding) = bindings.get(name) {
+                    expanded.push_str(&binding.captured);
+                } else {
+                    if !reported_unbound.contains_key(name) {
+                        diagnostics.push(
+                            Diagnostic::error(m_code(M_UNBOUND_META))
+                                .message(format!(
+                                    "unbound metavariable `${name}` in macro template"
+                                ))
+                                .with_span(invocation_span)
+                                .finish(),
+                        );
+                        reported_unbound.insert(name.to_string(), ());
+                    }
+                    // Emit the literal `$name` so the re-lexer surfaces
+                    // the problem at a useful location downstream.
+                    expanded.push_str(site);
+                }
+            }
+            // #[non_exhaustive] guard: newer template-elem variants
+            // (Slice C repetition, hygiene tags) collapse to a silent
+            // no-op here rather than a hard compile failure at
+            // cross-crate call sites.
+            _ => {}
+        }
+    }
+
+    // Re-lex the composed source. UTF-8 validity is preserved because
+    // every source_text and captured slice is already valid UTF-8.
+    // Empty output — a template that expanded to nothing — degrades to
+    // an empty token vector rather than a hard panic: SourceText treats
+    // zero-byte input as a fatal E0018, and a well-formed expansion
+    // that legitimately produces no source (e.g. an all-Literal
+    // template whose spans were empty) should not blow up here.
+    let tokens = if expanded.is_empty() {
+        Vec::new()
+    } else {
+        match SourceText::from_bytes(file, expanded.as_bytes()) {
+            Ok(source_text) => {
+                let mut lex_sink = paideia_as_diagnostics::VecSink::new();
+                let mut lexer = Lexer::new(file, &source_text);
+                let out = lexer.collect_tokens(&mut lex_sink);
+                for d in lex_sink.into_diagnostics() {
+                    diagnostics.push(d);
+                }
+                out
+            }
+            Err(diag) => {
+                // Unreachable in practice — every input path preserves
+                // UTF-8 — but degrade gracefully rather than panic.
+                diagnostics.push(*diag);
+                Vec::new()
+            }
+        }
+    };
+
+    MacroExpansion {
+        source: expanded,
+        tokens,
+        diagnostics,
     }
 }
 
@@ -753,5 +943,303 @@ mod tests {
         // TODO: When the evaluator can produce non-empty effect rows,
         // update this test to verify that perform of IO inside a macro
         // body triggers M0312.
+    }
+
+    // ─── Slice B (PAS-DEBT-B2-010b, #1541) expand_macro round-trip ────────
+
+    /// Build a `MacroTemplateElem::Literal` at absolute byte offsets in a
+    /// synthetic file. The tests below construct template elems inline
+    /// rather than driving them through the parser so `expand_macro` is
+    /// exercised in isolation of parse_macro's byte-scan; the fixture-
+    /// backed tests below cover the end-to-end pipeline.
+    fn tmpl_lit(start: u32, len: u32) -> MacroTemplateElem {
+        MacroTemplateElem::Literal {
+            span: test_span(start, len),
+        }
+    }
+
+    fn tmpl_frag(start: u32, len: u32) -> MacroTemplateElem {
+        // NodeId is opaque and only carries identity; use placeholder 1
+        // — the expander recovers the name from the site span, not from
+        // the arena. Fragment span covers `$name` (leading `$` plus name).
+        MacroTemplateElem::Fragment {
+            name: paideia_as_ast::NodeId::new(1).unwrap(),
+            span: test_span(start, len),
+        }
+    }
+
+    fn kw_ident_token_count(tokens: &[Token]) -> usize {
+        use paideia_as_lexer::TokenKind;
+        tokens
+            .iter()
+            .filter(|t| {
+                !matches!(t.kind, TokenKind::Eof)
+            })
+            .count()
+    }
+
+    #[test]
+    fn expand_macro_identity_round_trip() {
+        // m2_macro_identity.pdx analogue:
+        //   macro id($x:expr) { $x }
+        // Template body between `=>` braces is `{ $x }`; template elems:
+        //   Literal("{ "), Fragment("$x"), Literal(" }")
+        //
+        // Bindings: $x = "42".
+        let template_source = "{ $x }";
+        let elems = vec![
+            tmpl_lit(0, 2), // "{ "
+            tmpl_frag(2, 2), // "$x"
+            tmpl_lit(4, 2), // " }"
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("x".to_string(), bind("x", "42"));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 6),
+        );
+
+        assert!(
+            out.diagnostics.is_empty(),
+            "identity expansion should be clean: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(out.source, "{ 42 }");
+
+        // Re-lex must produce 3 non-Eof tokens: LBrace, Int, RBrace.
+        assert!(
+            kw_ident_token_count(&out.tokens) >= 3,
+            "expected at least 3 tokens, got {}: {:?}",
+            kw_ident_token_count(&out.tokens),
+            out.tokens
+        );
+    }
+
+    #[test]
+    fn expand_macro_swap_round_trip() {
+        // m2_macro_swap_args.pdx analogue:
+        //   macro swap($a:expr, $b:expr) { { let t = $a; $a = $b; $b = t; } }
+        // Template body: `{ let t = $a; $a = $b; $b = t; }`
+        //
+        // Byte layout of `{ let t = $a; $a = $b; $b = t; }`:
+        //   0-9   "{ let t = "
+        //   10-11 "$a"
+        //   12-13 "; "
+        //   14-15 "$a"
+        //   16-18 " = "
+        //   19-20 "$b"
+        //   21-22 "; "
+        //   23-24 "$b"
+        //   25-27 " = "
+        //   28-30 "t; "
+        //   31-31 "}"
+        let template_source = "{ let t = $a; $a = $b; $b = t; }";
+        let elems = vec![
+            tmpl_lit(0, 10),   // "{ let t = "
+            tmpl_frag(10, 2),  // "$a"
+            tmpl_lit(12, 2),   // "; "
+            tmpl_frag(14, 2),  // "$a"
+            tmpl_lit(16, 3),   // " = "
+            tmpl_frag(19, 2),  // "$b"
+            tmpl_lit(21, 2),   // "; "
+            tmpl_frag(23, 2),  // "$b"
+            tmpl_lit(25, 3),   // " = "
+            tmpl_lit(28, 4),   // "t; }"
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("a".to_string(), bind("a", "p"));
+        bindings.insert("b".to_string(), bind("b", "q"));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, template_source.len() as u32),
+        );
+
+        assert!(
+            out.diagnostics.is_empty(),
+            "swap expansion should be clean: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(
+            out.source, "{ let t = p; p = q; q = t; }",
+            "swap should substitute $a→p, $b→q consistently"
+        );
+    }
+
+    #[test]
+    fn expand_macro_multi_fragment_round_trip() {
+        // m2_macro_multi_fragment.pdx analogue: three fragments of three
+        // different kinds — expr, ident, literal. Template body:
+        //   { let $name = $init; $body }
+        //
+        // Byte layout of `{ let $name = $init; $body }`:
+        //   0-5   "{ let "
+        //   6-10  "$name"
+        //   11-13 " = "
+        //   14-18 "$init"
+        //   19-20 "; "
+        //   21-25 "$body"
+        //   26-27 " }"
+        let template_source = "{ let $name = $init; $body }";
+        let elems = vec![
+            tmpl_lit(0, 6),
+            tmpl_frag(6, 5),
+            tmpl_lit(11, 3),
+            tmpl_frag(14, 5),
+            tmpl_lit(19, 2),
+            tmpl_frag(21, 5),
+            tmpl_lit(26, 2),
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert(
+            "name".to_string(),
+            MatchBinding {
+                name: "name".to_string(),
+                kind: MacroFragmentKind::Ident,
+                captured: "counter".to_string(),
+            },
+        );
+        bindings.insert(
+            "init".to_string(),
+            MatchBinding {
+                name: "init".to_string(),
+                kind: MacroFragmentKind::Literal,
+                captured: "0".to_string(),
+            },
+        );
+        bindings.insert(
+            "body".to_string(),
+            MatchBinding {
+                name: "body".to_string(),
+                kind: MacroFragmentKind::Expr,
+                captured: "counter + 1".to_string(),
+            },
+        );
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, template_source.len() as u32),
+        );
+
+        assert!(
+            out.diagnostics.is_empty(),
+            "multi-fragment expansion should be clean: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(out.source, "{ let counter = 0; counter + 1 }");
+    }
+
+    #[test]
+    fn expand_macro_unbound_metavariable_emits_m0309() {
+        // Template refers to $y but only $x is bound.
+        let template_source = "$x + $y";
+        let elems = vec![
+            tmpl_frag(0, 2), // "$x"
+            tmpl_lit(2, 3),  // " + "
+            tmpl_frag(5, 2), // "$y"
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("x".to_string(), bind("x", "1"));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 7),
+        );
+
+        assert_eq!(out.diagnostics.len(), 1, "one M0309 for the unbound $y");
+        assert_eq!(out.diagnostics[0].code().number(), M_UNBOUND_META);
+        // Emitted source keeps `$y` literal so the re-lexer can complain.
+        assert_eq!(out.source, "1 + $y");
+    }
+
+    #[test]
+    fn expand_macro_unbound_reported_once_per_unique_name() {
+        let template_source = "$y $y $y";
+        let elems = vec![
+            tmpl_frag(0, 2),
+            tmpl_lit(2, 1),
+            tmpl_frag(3, 2),
+            tmpl_lit(5, 1),
+            tmpl_frag(6, 2),
+        ];
+        let bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 8),
+        );
+
+        // Three references to the same unbound name → exactly one M0309.
+        assert_eq!(out.diagnostics.len(), 1);
+        assert_eq!(out.diagnostics[0].code().number(), M_UNBOUND_META);
+    }
+
+    #[test]
+    fn bindings_by_name_first_wins() {
+        // Two entries with the same name — first-write wins so a
+        // consistency-check-shaped duplicate matches macro_rules! semantics.
+        let flat = vec![bind("x", "first"), bind("x", "second")];
+        let map = bindings_by_name(&flat);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("x").unwrap().captured, "first");
+    }
+
+    #[test]
+    fn expand_macro_pattern_elems_parameter_reserved_no_panic() {
+        // Slice B does not consume pattern_elems yet; passing a mismatched
+        // set (fragments that do not appear in the template) must still
+        // produce a clean expansion for the template refs that DO have
+        // bindings.
+        let template_source = "$x";
+        let elems = vec![tmpl_frag(0, 2)];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("x".to_string(), bind("x", "9"));
+
+        // Craft a pattern_elems slice with a fragment that isn't in the
+        // template — this is meaningless in real usage but exercises the
+        // "parameter reserved, ignored today" contract.
+        let pattern_elems = vec![MacroPatternElem::Fragment {
+            name: paideia_as_ast::NodeId::new(1).unwrap(),
+            kind: MacroFragmentKind::Expr,
+            span: test_span(100, 5),
+        }];
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &pattern_elems,
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 2),
+        );
+        assert!(out.diagnostics.is_empty());
+        assert_eq!(out.source, "9");
     }
 }
