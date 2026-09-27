@@ -1,0 +1,3 @@
+# accept — zero parser-codes expected
+# Mirrors the parser unit test at parse_macro.rs ~line 948
+# (single_rule_macro_parses).

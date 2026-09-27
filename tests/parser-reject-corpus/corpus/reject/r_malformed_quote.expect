@@ -1,0 +1,7 @@
+# reject — malformed quote (missing closing brace)
+#
+# Target: P0171. Emission site: crates/paideia-as-parser/src/quote.rs
+# (line ~90). The .pdx body opens `quote { 1 + 2` and never closes it —
+# the parser rejects and emits P0171. Verified by the parser unit test
+# at quote.rs ~line 545.
+P0171

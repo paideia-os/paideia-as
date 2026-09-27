@@ -1,0 +1,9 @@
+# reject — unknown macro fragment kind
+#
+# Target: P0110. Emission site: crates/paideia-as-parser/src/parse_macro.rs
+# (line ~392). The .pdx body declares a macro whose pattern binds
+# `$x:wat` — `wat` is not in `MacroFragmentKind::from_str` (which
+# accepts only expr, ty, ident, literal, pat, stmt, block, tt) so the
+# parser emits P0110 and collapses the binding to Literal. Mirrors the
+# shape of the parser unit test at parse_macro.rs ~line 959.
+P0110

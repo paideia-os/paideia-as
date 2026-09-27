@@ -1,0 +1,1 @@
+macro foo($x:expr) => { simple_form($x) }

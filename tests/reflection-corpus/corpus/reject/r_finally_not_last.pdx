@@ -1,3 +1,0 @@
-module M = structure {
-  let m = ~(1)
-}

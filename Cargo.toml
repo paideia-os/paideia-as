@@ -68,6 +68,7 @@ members = [
     "tests/opt-regression/tailcall",
     "tests/opt-regression/unroll",
     "tests/borrow-corpus",
+    "tests/parser-reject-corpus",
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
     "tests/pq-corpus",
@@ -82,7 +83,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.66"
+version = "0.36.67"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"

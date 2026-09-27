@@ -1,5 +1,81 @@
 # Changelog
 
+## v0.36.67 — 2026-09-27 — Issue #1557: parser-reject corpus harness
+
+New sibling test crate `tests/parser-reject-corpus/`
+(`paideia-parser-reject-corpus`) validating **P-category** parser
+diagnostics on stderr, mirroring the shape of `tests/reflection-corpus/`
+(which validates M-category reflection diagnostics). The two harnesses
+share the same shell-out-to-`paideia-as build --emit placeholder <file>`
+plumbing and `.pdx` + `.expect` sidecar convention; the only
+structural difference is the stderr regex (`/P\d{4}/` vs `/M\d{4}/`).
+
+Rationale: Waves 31 and 38 diagnosed four fixtures in
+`tests/reflection-corpus/corpus/reject/` as misfiled — their `.expect`
+sidecars target P-codes (P0110, P0162, P0170, P0171) that the parser
+already emits end-to-end, but the reflection-corpus comparator only
+captures M-codes, so those fixtures could never pass there. This wave
+relocates the four fixtures, repairs the two whose `.pdx` bodies did
+not actually trigger the claimed P-code, and adds accept fixtures.
+
+- `tests/parser-reject-corpus/Cargo.toml` — new workspace member,
+  no dependencies (test harness only).
+- `tests/parser-reject-corpus/src/lib.rs` — `p_codes_for(path)`
+  comparator: shells out to `paideia-as build --emit placeholder`,
+  scrapes stderr for `/P\d{4}/`, returns a `BTreeSet<String>`. Also
+  exports `parse_expect_file` for sidecar parsing.
+- `tests/parser-reject-corpus/tests/runner.rs` — two integration
+  tests: `accept_corpus_emits_no_parser_codes` (active) and
+  `reject_corpus_emits_expected_p_codes` (`#[ignore]`'d pending CI
+  warm-up story; run with `--include-ignored` locally).
+- `tests/parser-reject-corpus/README.md` — layout, run commands,
+  sidecar convention, per-fixture P-code table.
+- `tests/parser-reject-corpus/corpus/reject/` — 4 fixtures relocated
+  from `tests/reflection-corpus/corpus/reject/` via `git mv`:
+  - `r_antiquote_outside_quote.pdx` — P0170; body unchanged (`~(v)`
+    at let-binding scope, outside any `quote { ... }`).
+  - `r_finally_not_last.pdx` — P0162; body **repaired** (was
+    `let m = ~(1)`, which triggered P0170 not P0162; now
+    `let m = with h handle e { finally => i; x }`).
+  - `r_malformed_quote.pdx` — P0171; body unchanged (unterminated
+    `quote { 1 + 2`).
+  - `r_unknown_fragment_kind.pdx` — P0110; body **repaired** (was
+    placeholder `let m = 1` with no macro decl; now
+    `macro foo($x:wat) => { simple_form($x) }`, mirroring the
+    parser unit test at parse_macro.rs ~line 959).
+  All four `.expect` sidecars rewritten from the verbose
+  "misfiled" narrative form to the clean one-code-per-line
+  convention documented in the README.
+- `tests/parser-reject-corpus/corpus/accept/` — 3 new fixtures:
+  `basic_module.pdx`, `valid_macro_decl.pdx` (mirrors the
+  `single_rule_macro_parses` parser unit test),
+  `valid_quote_with_antiquote.pdx` (proves `~(v)` inside
+  `quote { ... }` emits no P0170/P0171).
+- `Cargo.toml` — added `tests/parser-reject-corpus` to workspace
+  members list.
+
+Reflection-corpus is untouched beyond the four file relocations: its
+runner, accept fixtures, and remaining 4 reject fixtures (which
+target M-codes and stay blocked on the R221.M4 invocation lexer plus
+`cmd_build` expander wiring per PAS-DEBT-B7-002 / #1530) are
+unchanged.
+
+Files changed:
+
+- `Cargo.toml` — workspace member added; workspace.version bump.
+- `CHANGELOG.md` — this entry.
+- `tests/parser-reject-corpus/Cargo.toml` — new.
+- `tests/parser-reject-corpus/README.md` — new.
+- `tests/parser-reject-corpus/src/lib.rs` — new.
+- `tests/parser-reject-corpus/tests/runner.rs` — new.
+- `tests/parser-reject-corpus/corpus/accept/basic_module.{pdx,expect}` — new.
+- `tests/parser-reject-corpus/corpus/accept/valid_macro_decl.{pdx,expect}` — new.
+- `tests/parser-reject-corpus/corpus/accept/valid_quote_with_antiquote.{pdx,expect}` — new.
+- `tests/parser-reject-corpus/corpus/reject/r_antiquote_outside_quote.{pdx,expect}` — relocated (`.expect` rewritten).
+- `tests/parser-reject-corpus/corpus/reject/r_finally_not_last.{pdx,expect}` — relocated, `.pdx` repaired, `.expect` rewritten.
+- `tests/parser-reject-corpus/corpus/reject/r_malformed_quote.{pdx,expect}` — relocated (`.expect` rewritten).
+- `tests/parser-reject-corpus/corpus/reject/r_unknown_fragment_kind.{pdx,expect}` — relocated, `.pdx` repaired, `.expect` rewritten.
+
 ## v0.36.66 — 2026-09-27 — Wave 37: B2-010c Slice C — macro repetition + hygiene
 
 **PAS-DEBT-B2-010c** (issue #1542) — Slice C of the macro grammar

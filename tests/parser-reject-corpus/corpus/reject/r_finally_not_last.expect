@@ -1,0 +1,8 @@
+# reject — `finally` clause not last in handler block
+#
+# Target: P0162. Emission site: crates/paideia-as-parser/src/parse_handler.rs
+# (line ~167). The .pdx body wraps a handler value
+# `with h handle e { finally => i; x }` where `x` follows the `finally`
+# clause — the parser rejects and emits P0162. Mirrors the shape of
+# the parser unit test at parse_handler.rs ~line 465.
+P0162

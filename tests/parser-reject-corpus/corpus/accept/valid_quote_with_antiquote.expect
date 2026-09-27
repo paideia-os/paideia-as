@@ -1,0 +1,3 @@
+# accept — zero parser-codes expected
+# `~(v)` inside `quote { ... }` is well-formed; neither P0170
+# (antiquote outside quote) nor P0171 (malformed quote) fires.

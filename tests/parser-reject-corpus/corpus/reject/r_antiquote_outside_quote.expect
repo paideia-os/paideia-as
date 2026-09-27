@@ -1,0 +1,7 @@
+# reject — antiquote outside quote block
+#
+# Target: P0170. Emission site: crates/paideia-as-parser/src/quote.rs
+# (line ~131). The .pdx body has a bare `~(v)` at let-binding scope,
+# outside any `quote { ... }` context — the parser rejects and emits
+# P0170. Verified by the parser unit test at quote.rs ~line 494.
+P0170

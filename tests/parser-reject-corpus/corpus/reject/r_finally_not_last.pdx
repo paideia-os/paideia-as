@@ -1,0 +1,3 @@
+module FinallyNotLast = structure {
+  let m = with h handle e { finally => i; x }
+}

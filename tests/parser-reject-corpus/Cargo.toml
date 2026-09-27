@@ -1,0 +1,25 @@
+[package]
+name = "paideia-parser-reject-corpus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# This crate is *only* a test harness — it contains no library code or
+# binaries, just the integration tests in `tests/runner.rs` that walk
+# the accept/ and reject/ corpus directories and validate P-codes
+# (parser-relevant: P0110, P0162, P0170, P0171 today; more may follow).
+#
+# Sibling of `tests/reflection-corpus/`, which validates M-codes
+# (typed-elaborator reflection).  The two harnesses share the same
+# shell-out-to-`paideia-as build --emit placeholder <file>` shape and
+# `.pdx` + `.expect` sidecar convention; the only difference is the
+# regex the comparator applies to stderr (`/P\d{4}/` here,
+# `/M\d{4}/` there).
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
