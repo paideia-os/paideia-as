@@ -32,10 +32,35 @@ as authoritative for landed state.
 | 38   | (doc)     | B7-001/002 retest post-macro-Slices — both re-blocked on cmd_build  | #1556, #1557             |
 | 39   | v0.36.67  | #1557 parser-reject corpus harness (unblocks #1530 P-code half)     | none                     |
 | 40   | (os-side) | paideia-os#2509 RETIRE-2 continuation — 373 arith sites (127 files, 702 B saved) | none |
+| 41   | (doc)     | Debt-catalog audit refresh (Waves 25-40 rollup)                     | none                     |
+| 42   | v0.36.68  | #1554 Slice A — record-return parser + Symbol.return_record_layout  | none                     |
+| 43   | v0.36.69  | #1554 Slice B — caller-side sret prelude/release in emit_call       | none                     |
+| 44   | v0.36.70  | #1554 Slice C — callee sret splice + persistent caller frame slot   | none                     |
+| 45   | v0.36.71  | #1554 Slice D — RecordCons emit arm + pair-unpack gate lifted       | (surfaced 3 sub-gaps)    |
+| 46   | v0.36.72  | #1555 Shape E' 3-inst tailcall variant (nvme_admin_events shape)    | none                     |
+| 47   | v0.36.73  | #1553 fixup-pass U1610 retired as unreachable (Option B; closes #1488) | none                  |
+| 48   | v0.36.74  | #1556 @macro_expand cmd_build directive (Option b')                 | none                     |
+| 49   | v0.36.75  | #1524 B4-002 cpuid_leaf retirement deferred (docblock update + 3 gaps enumerated) | #1558, #1559 |
+| 50   | (issue)   | Filed #1558 (Gap A) + #1559 (Gap B/C); closed #1524, #1525, #1552   | #1558, #1559             |
 
-**Session summary**: 15 releases (v0.36.57 → v0.36.67), 15 issues closed:
-- paideia-as: #1489, #1487, #1486, #1548, #1549, #1537, #1533, #1534, #1535, #1544, #1543, #1551, #1541, #1542, #1557
+**Full session summary (Waves 25-50)**: 20 releases (v0.36.57 → v0.36.75), 20 issues closed:
+- paideia-as: #1486, #1487, #1488, #1489, #1524, #1525, #1533, #1534, #1535, #1537, #1541, #1542, #1543, #1544, #1548, #1549, #1551, #1552, #1553, #1554, #1555, #1556, #1557 (23)
 - paideia-os: #2512 (partial), #2509 (partial)
+
+Still-open debt followups filed this session:
+- **#1550** — m3-829 boot snapshot baseline drift.
+- **#1558** — Slice D RecordCons emit arm: extend to App/arith field values.
+- **#1559** — stdlib recipes participate in return_record_layout + per-recipe Slice C splice opt-out.
+
+Compound-blocked (progress deferred to external work):
+- **B7-001 (#1529), B7-002 (#1530)** — corpus tests unblocked by #1556 landing but require companion @macro_expand directives + `ok`-sentinel parser support before un-ignoring.
+- **B7-003 (#1531), B7-004 (#1532)** — different compound blockers (call-resolution, borrow-checker phase-4).
+- **B2 parser deferrals (#1507, #1508, #1509, #1511)** — parser accepts surface; lowering awaits named waves (v0.27-M2, R226, R229).
+
+Notable session catches:
+- **v0.36.62 → v0.36.63** #[non_exhaustive] E0004 mask via bash-pipeline exit code (Wave 33 → Wave 34). Memory rule updated (feedback_pipe_swallows_exit.md 3rd variant).
+- **Wave 40** paideia-os retirement of 373 arith sites at 702 B kernel-image shrinkage — largest single-wave code-clean of this session.
+- **#1554 4-slice landing** (Waves 42-45) — record-return machinery end-to-end at machinery level. Consumer retirements (B4-002/003) blocked on 3 targeted follow-ups.
 
 Still-open debt-followups filed this cycle:
 - **#1550** — m3-829 boot snapshot baseline stale since v0.27.4 (default-path .text drifted +909 bytes on kernel_main, +46 on exceptions).
