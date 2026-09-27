@@ -9,8 +9,24 @@
 //! same structured shape: `MacroRule::template_elems` is a
 //! `Vec<MacroTemplateElem>` (fragment references + literal spans), and
 //! the template arena node is [`crate::NodeKind::MacroTemplate`] (also
-//! no longer a bare `Placeholder`). Repetition + hygiene (Slice C →
-//! follow-up B2-010c, #1542) remain deferred.
+//! no longer a bare `Placeholder`).
+//!
+//! Slice C (PAS-DEBT-B2-010c, #1542, v0.36.66) caps the macro grammar
+//! with repetition groups: `$( ... )*` and `$( ... )+`, optionally
+//! separated (`$( $x:expr ),*`). Both [`MacroPatternElem`] and
+//! [`MacroTemplateElem`] gain a `Repetition` variant, and both enums
+//! are now `#[non_exhaustive]` so any future capping (hygiene tags,
+//! group scopes) can layer on without a SemVer-blocking match break at
+//! cross-crate call sites. Every external `match` on either enum must
+//! carry a wildcard `_` arm.
+//!
+//! Slice C also mints per-invocation `paideia_as_reflection::MacroScopeId`
+//! scope IDs at expansion time; the elaborator threads them through
+//! `expand_macro` for a soft alpha-rename pass over template-literal
+//! identifier tokens. Full name-resolver-aware hygiene (Ullrich 2020
+//! §3) remains a follow-up (Slice D) because it needs a structured
+//! Syntax view over the string-substitution path that today's phase-1
+//! composition does not yet produce.
 
 use crate::NodeId;
 use paideia_as_diagnostics::Span;
@@ -87,12 +103,33 @@ impl MacroFragmentKind {
     }
 }
 
+/// Minimum multiplicity of a `$( ... )` repetition group.
+///
+/// Slice C (PAS-DEBT-B2-010c, #1542) introduces this alongside the
+/// [`MacroPatternElem::Repetition`] variant. Mirrors Rust
+/// `macro_rules!`: `*` → any count (including zero), `+` → at least
+/// one match required.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum RepMin {
+    /// `*` — zero or more matches allowed.
+    Zero,
+    /// `+` — one or more matches required; the matcher emits M0310
+    /// when a `+` group binds zero iterations.
+    One,
+}
+
 /// One element of a macro rule's pattern.
 ///
 /// Slice A structures the pattern as an ordered sequence of literal token
-/// spans and fragment metavariables. Templates remain span-only until
-/// follow-up B2-010b lands substitution.
+/// spans and fragment metavariables. Slice B lifted templates to the
+/// same shape. Slice C (#1542) adds [`Self::Repetition`] for
+/// `$( ... )*` / `$( ... )+` groups with an optional separator.
+///
+/// Marked `#[non_exhaustive]` since Slice C so downstream match sites
+/// carry a wildcard arm and future capping (hygiene tags, nested
+/// group scopes) can layer on without a SemVer-blocking match break.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum MacroPatternElem {
     /// `$name:kind` — a fragment metavariable.
     Fragment {
@@ -111,6 +148,29 @@ pub enum MacroPatternElem {
     /// stream is Slice B's concern (B2-010b).
     Literal {
         /// Byte range covered by the literal token.
+        span: Span,
+    },
+    /// `$( inner )SEP? *` or `$( inner )SEP? +` — a repetition group.
+    ///
+    /// The matcher tries `inner` zero-or-more (`*`) or one-or-more
+    /// (`+`) times, requiring the optional separator between adjacent
+    /// iterations. Each fragment in `inner` binds to a `Vec` of
+    /// captures (one per iteration) via
+    /// [`crate::macros::MacroPatternElem`]-scoped
+    /// [`crate::macros::MacroFragment`] entries at expansion time
+    /// (see `paideia-as-elaborator::macro_match`).
+    Repetition {
+        /// Inner element sequence — fragments and literals matched
+        /// once per iteration.
+        inner: Vec<MacroPatternElem>,
+        /// Optional separator token (byte range in the enclosing
+        /// pattern source, typically a single `,` or `;` char). When
+        /// `Some`, the matcher requires the separator between adjacent
+        /// iterations and rejects it before the first / after the last.
+        separator: Option<Span>,
+        /// Minimum required matches (Zero for `*`, One for `+`).
+        min: RepMin,
+        /// Span of the whole `$( ... )SEP? {*|+}` group in source.
         span: Span,
     },
 }
@@ -149,6 +209,35 @@ pub enum MacroTemplateElem {
     /// pre-tokenising the literal segments is a follow-up nicety.
     Literal {
         /// Byte range covered by the literal segment.
+        span: Span,
+    },
+    /// `$( inner )SEP? *` — a repetition group in template position.
+    ///
+    /// Slice C (PAS-DEBT-B2-010c, #1542). Unlike the pattern side, the
+    /// template's repetition has no explicit `+` / `*` selector at
+    /// this layer: the matcher already determined the actual iteration
+    /// count from the corresponding pattern-side repetition, and the
+    /// expander simply emits one copy of `inner` per iteration (with
+    /// the optional `separator` between adjacent expansions).
+    ///
+    /// Every fragment reference inside `inner` MUST resolve to a
+    /// binding produced by a matching pattern-side
+    /// [`MacroPatternElem::Repetition`], and every fragment reference
+    /// produced by such a pattern-side repetition MUST appear inside a
+    /// template-side `Repetition` group. Violations of either
+    /// direction yield diagnostics at expansion time (M0314 in the
+    /// current elaborator; see the expander docs for the current
+    /// mapping).
+    Repetition {
+        /// Inner template-element sequence — literals + fragment
+        /// references emitted once per iteration.
+        inner: Vec<MacroTemplateElem>,
+        /// Optional separator emitted between adjacent iterations
+        /// (byte range in the enclosing template source, typically a
+        /// single `,` or `;`). Never emitted before the first or
+        /// after the last.
+        separator: Option<Span>,
+        /// Span of the whole `$( ... )SEP? *` group in source.
         span: Span,
     },
 }

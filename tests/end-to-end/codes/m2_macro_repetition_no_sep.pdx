@@ -1,0 +1,13 @@
+// PAS-DEBT-B2-010c Slice C (#1542, v0.36.66) — unseparated repetition.
+//
+// `$( ... )*` with NO separator between iterations. Under Slice C
+// the parser recognises the group and stores `separator = None`;
+// the matcher iterates the inner `$x:tt` fragment against consecutive
+// call-site tokens with no delimiter.
+//
+// End-to-end code-emission coverage waits on the macro-driver work
+// (PAS-DEBT-B7-001, #1529).
+
+module M = structure {
+  macro tokens($($x:tt)*) => { record($($x)*) }
+}

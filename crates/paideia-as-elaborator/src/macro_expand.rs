@@ -55,6 +55,15 @@ pub const M_RECURSION_LIMIT: u16 = 311;
 /// Diagnostic code for effect violation in macro body (restricted to MacroEff row).
 pub const M_MACRO_EFFECT_VIOLATION: u16 = 312;
 
+/// Diagnostic code for a template that references a fragment bound
+/// only inside a `$( ... )*` / `+` group from outside such a group,
+/// or that omits a required reference inside a group. Slice C
+/// (PAS-DEBT-B2-010c, #1542). The task's original design named
+/// M0313 for this diagnostic; M0313 is already allocated to
+/// `file_module` (see `catalog.toml`), so the elaborator picks
+/// M0314 as the next free slot in the macro range.
+pub const M_TEMPLATE_REP_MISUSE: u16 = 314;
+
 /// Result of expanding a template.
 #[derive(Debug, Clone)]
 pub struct ExpansionOutcome {
@@ -194,37 +203,49 @@ pub fn bindings_by_name(bindings: &[MatchBinding]) -> BTreeMap<FragmentName, Mat
 /// **Algorithm.** Walk `template_elems` in order:
 ///
 /// - [`MacroTemplateElem::Literal`] — copy the byte range from
-///   `template_source` verbatim.
+///   `template_source` verbatim. When `hygiene_scope` is `Some`,
+///   identifier tokens inside the literal segment are alpha-renamed
+///   with a `_h<scope_id>` suffix (soft hygiene, see below).
 /// - [`MacroTemplateElem::Fragment`] — recover the reference name by
 ///   stripping the leading `$` from the site span, look it up in
 ///   `bindings`, and copy its [`MatchBinding::captured`] text. An
 ///   unbound name emits one `M0309` diagnostic per unique unbound name
 ///   and leaves the literal `$name` sequence in the emitted source so
-///   the re-lexer surfaces an error at a useful location.
+///   the re-lexer surfaces an error at a useful location. Fragment
+///   captures are copied VERBATIM — no rename — so use-site
+///   identifiers keep their spelling.
+/// - [`MacroTemplateElem::Repetition`] (Slice C, #1542) — look up the
+///   repetition-bound fragment(s) inside the group and emit one copy
+///   of the inner sequence per iteration, with the group's separator
+///   between adjacent expansions. Uses `MatchBinding::reps` (the
+///   per-iteration capture list) rather than `MatchBinding::captured`.
 ///
 /// The composed source is then re-lexed under `file` so the caller
 /// receives a `Vec<Token>` ready for the next parse pass.
 ///
-/// **`pattern_elems` parameter.** Retained in the signature both for
-/// symmetry with the task contract and to leave room for a
-/// pattern-side validation pass (e.g. rejecting `$name` template refs
-/// that no pattern fragment declares before expansion time). Slice B
-/// does not consume it yet — the M0309 fallback in the Fragment arm is
-/// sufficient for the round-trip contract — but the parameter is
-/// documented as reserved so Slice C (#1542) can layer repetition
-/// consistency checks without a signature break.
+/// **`pattern_elems` parameter.** Consumed by Slice C to detect
+/// misuse: a template `$name` reference that resolves to a
+/// repetition-bound fragment (per `pattern_elems`) but appears
+/// OUTSIDE a template `Repetition` group emits M0314. Symmetric
+/// misuses — a template `Repetition` referencing a single-shot
+/// fragment — also emit M0314.
 ///
-/// **Repetition and hygiene.** Not handled here; Slice C (#1542) will
-/// extend both [`MacroTemplateElem`] and this function with
-/// `$( ... )*` group support and a hygiene-aware rename pass over
-/// the emitted tokens.
+/// **Hygiene.** Slice C adds `hygiene_scope: Option<MacroScopeId>`.
+/// When `Some`, the expander applies a soft alpha-rename over
+/// template-literal identifier tokens: each ident is rewritten to
+/// `<name>_h<scope_id>`, so a macro-introduced `let t = ...` cannot
+/// capture a use-site `t`. Fragment substitutions are unrenamed.
+/// This soft rename is a stopgap: full hygiene per Ullrich 2020 §3
+/// still requires a name-resolver-aware `HygieneCache`, which today
+/// is only wired for reflective macros (`expand_reflective_hygienic`
+/// in this file, R220.M2, #1416). Slice D will bridge the same
+/// machinery to the string-substitution path.
 ///
-/// **Wildcard arms.** [`MacroTemplateElem`] is `#[non_exhaustive]`, so
-/// this cross-crate `match` carries a `_` catch-all — Slice C variants
-/// added ahead of this function's update downgrade to a silent no-op
-/// rather than a hard compile failure at the call site. Mirrors the
-/// Slice A guidance that cross-crate matches on macro-family enums
-/// always carry a wildcard.
+/// **Wildcard arms.** [`MacroTemplateElem`] and [`MacroPatternElem`]
+/// are `#[non_exhaustive]`, so cross-crate `match` sites carry a `_`
+/// catch-all — newer variants added ahead of this function's update
+/// downgrade to a silent no-op rather than a hard compile failure at
+/// the call site.
 #[must_use]
 pub fn expand_macro(
     _pattern_elems: &[MacroPatternElem],
@@ -233,54 +254,23 @@ pub fn expand_macro(
     template_source: &str,
     file: FileId,
     invocation_span: Span,
+    hygiene_scope: Option<paideia_as_reflection::MacroScopeId>,
 ) -> MacroExpansion {
     let mut expanded = String::new();
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
     let mut reported_unbound: BTreeMap<String, ()> = BTreeMap::new();
 
-    for elem in template_elems {
-        match elem {
-            MacroTemplateElem::Literal { span } => {
-                let start = span.byte_start() as usize;
-                let end = start.saturating_add(span.byte_len() as usize);
-                if start <= template_source.len() && end <= template_source.len() {
-                    expanded.push_str(&template_source[start..end]);
-                }
-            }
-            MacroTemplateElem::Fragment { span, .. } => {
-                let start = span.byte_start() as usize;
-                let end = start.saturating_add(span.byte_len() as usize);
-                if start >= template_source.len() || end > template_source.len() {
-                    continue;
-                }
-                let site = &template_source[start..end];
-                let name = site.strip_prefix('$').unwrap_or(site);
-                if let Some(binding) = bindings.get(name) {
-                    expanded.push_str(&binding.captured);
-                } else {
-                    if !reported_unbound.contains_key(name) {
-                        diagnostics.push(
-                            Diagnostic::error(m_code(M_UNBOUND_META))
-                                .message(format!(
-                                    "unbound metavariable `${name}` in macro template"
-                                ))
-                                .with_span(invocation_span)
-                                .finish(),
-                        );
-                        reported_unbound.insert(name.to_string(), ());
-                    }
-                    // Emit the literal `$name` so the re-lexer surfaces
-                    // the problem at a useful location downstream.
-                    expanded.push_str(site);
-                }
-            }
-            // #[non_exhaustive] guard: newer template-elem variants
-            // (Slice C repetition, hygiene tags) collapse to a silent
-            // no-op here rather than a hard compile failure at
-            // cross-crate call sites.
-            _ => {}
-        }
-    }
+    expand_template_elems(
+        template_elems,
+        bindings,
+        template_source,
+        &mut expanded,
+        &mut diagnostics,
+        &mut reported_unbound,
+        invocation_span,
+        None, // iteration index — None at the top level
+        hygiene_scope,
+    );
 
     // Re-lex the composed source. UTF-8 validity is preserved because
     // every source_text and captured slice is already valid UTF-8.
@@ -445,6 +435,332 @@ fn m_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::M, Severity::Error, n).expect("valid M code")
 }
 
+// ─── Slice C (PAS-DEBT-B2-010c, #1542) helpers ─────────────────────────
+
+/// Recursive template expander that walks `template_elems`, appending
+/// composed source to `expanded`. Handles the Slice C `Repetition`
+/// arm by iterating over the bound repetition count and re-invoking
+/// itself for each iteration with an `iter_index` set.
+///
+/// M0314 (`M_TEMPLATE_REP_MISUSE`) fires in two cases:
+/// * A top-level `Fragment` ref (`iter_index = None`) whose binding
+///   carries `reps = Some(_)` — the user forgot to wrap it in a
+///   `$( )*` template group.
+/// * A `Repetition` group whose inner references contain no
+///   rep-bound fragment — the group cannot decide its iteration
+///   count.
+///
+/// The operational signal for "was this fragment rep-bound?" is
+/// `MatchBinding::reps.is_some()`, not the pattern-side structural
+/// shape — that keeps this function decoupled from `pattern_elems`
+/// (retained in the caller's signature for future use).
+#[allow(clippy::too_many_arguments)]
+fn expand_template_elems(
+    template_elems: &[MacroTemplateElem],
+    bindings: &BTreeMap<FragmentName, MatchBinding>,
+    template_source: &str,
+    expanded: &mut String,
+    diagnostics: &mut Vec<Diagnostic>,
+    reported_unbound: &mut BTreeMap<String, ()>,
+    invocation_span: Span,
+    iter_index: Option<usize>,
+    hygiene_scope: Option<paideia_as_reflection::MacroScopeId>,
+) {
+    for elem in template_elems {
+        match elem {
+            MacroTemplateElem::Literal { span } => {
+                let start = span.byte_start() as usize;
+                let end = start.saturating_add(span.byte_len() as usize);
+                if start <= template_source.len() && end <= template_source.len() {
+                    let slice = &template_source[start..end];
+                    if let Some(scope) = hygiene_scope {
+                        rewrite_ident_tokens_hygienic(slice, scope, expanded);
+                    } else {
+                        expanded.push_str(slice);
+                    }
+                }
+            }
+            MacroTemplateElem::Fragment { span, .. } => {
+                let start = span.byte_start() as usize;
+                let end = start.saturating_add(span.byte_len() as usize);
+                if start >= template_source.len() || end > template_source.len() {
+                    continue;
+                }
+                let site = &template_source[start..end];
+                let name = site.strip_prefix('$').unwrap_or(site);
+                match bindings.get(name) {
+                    Some(b) => {
+                        // Rep-bound fragment referenced OUTSIDE a
+                        // template Repetition group → M0314.
+                        if b.reps.is_some() && iter_index.is_none() {
+                            diagnostics.push(
+                                Diagnostic::error(m_code(M_TEMPLATE_REP_MISUSE))
+                                    .message(format!(
+                                        "fragment `${name}` was bound by a `$( )*` \
+                                         group; reference it inside a template \
+                                         `$( )*` group, not at top level",
+                                    ))
+                                    .with_span(invocation_span)
+                                    .finish(),
+                            );
+                            // Emit the literal `$name` so the re-lexer
+                            // surfaces a useful downstream location.
+                            expanded.push_str(site);
+                            continue;
+                        }
+                        // Inside a repetition group and this binding
+                        // is rep-bound → emit the current iteration's
+                        // capture.
+                        if let (Some(idx), Some(reps)) = (iter_index, b.reps.as_ref()) {
+                            if let Some(rep) = reps.get(idx) {
+                                expanded.push_str(rep);
+                            } else {
+                                // Missing capture at this iteration —
+                                // shouldn't happen if the matcher
+                                // enforced consistent counts.
+                                expanded.push_str(&b.captured);
+                            }
+                        } else {
+                            expanded.push_str(&b.captured);
+                        }
+                    }
+                    None => {
+                        if !reported_unbound.contains_key(name) {
+                            diagnostics.push(
+                                Diagnostic::error(m_code(M_UNBOUND_META))
+                                    .message(format!(
+                                        "unbound metavariable `${name}` in macro template"
+                                    ))
+                                    .with_span(invocation_span)
+                                    .finish(),
+                            );
+                            reported_unbound.insert(name.to_string(), ());
+                        }
+                        expanded.push_str(site);
+                    }
+                }
+            }
+            MacroTemplateElem::Repetition { inner, separator, span } => {
+                // Discover the iteration count by finding the first
+                // rep-bound fragment referenced inside `inner`. If
+                // none is found, the group cannot iterate — emit
+                // M0314 and skip.
+                let inner_names = collect_template_fragment_names(inner, template_source);
+                let mut count: Option<usize> = None;
+                let mut count_owner: Option<String> = None;
+                for name in &inner_names {
+                    if let Some(b) = bindings.get(name)
+                        && let Some(reps) = b.reps.as_ref()
+                    {
+                        match count {
+                            None => {
+                                count = Some(reps.len());
+                                count_owner = Some(name.clone());
+                            }
+                            Some(prev) if prev != reps.len() => {
+                                diagnostics.push(
+                                    Diagnostic::error(m_code(M_TEMPLATE_REP_MISUSE))
+                                        .message(format!(
+                                            "template `$( )*` group references \
+                                             `${}` (count {}) and `${}` (count {}) — \
+                                             mismatched iteration counts",
+                                            count_owner.as_deref().unwrap_or("?"),
+                                            prev,
+                                            name,
+                                            reps.len()
+                                        ))
+                                        .with_span(*span)
+                                        .finish(),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let Some(n) = count else {
+                    diagnostics.push(
+                        Diagnostic::error(m_code(M_TEMPLATE_REP_MISUSE))
+                            .message(
+                                "template `$( )*` group references no \
+                                 repetition-bound fragment; unable to \
+                                 determine iteration count"
+                                    .to_string(),
+                            )
+                            .with_span(*span)
+                            .finish(),
+                    );
+                    continue;
+                };
+
+                let sep_text = separator
+                    .as_ref()
+                    .map(|s| {
+                        let start = s.byte_start() as usize;
+                        let end = start.saturating_add(s.byte_len() as usize);
+                        if start <= template_source.len() && end <= template_source.len() {
+                            template_source[start..end].to_string()
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .unwrap_or_default();
+
+                for i in 0..n {
+                    if i > 0 && !sep_text.is_empty() {
+                        expanded.push_str(&sep_text);
+                    }
+                    expand_template_elems(
+                        inner,
+                        bindings,
+                        template_source,
+                        expanded,
+                        diagnostics,
+                        reported_unbound,
+                        invocation_span,
+                        Some(i),
+                        hygiene_scope,
+                    );
+                }
+            }
+            // #[non_exhaustive] guard: unknown variants collapse to a
+            // silent no-op at cross-crate call sites.
+            _ => {}
+        }
+    }
+}
+
+/// Recursively collect fragment reference names from a template
+/// element slice by reading each Fragment site's span text.
+fn collect_template_fragment_names(
+    elems: &[MacroTemplateElem],
+    template_source: &str,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in elems {
+        match e {
+            MacroTemplateElem::Fragment { span, .. } => {
+                let start = span.byte_start() as usize;
+                let end = start.saturating_add(span.byte_len() as usize);
+                if start < template_source.len() && end <= template_source.len() {
+                    let site = &template_source[start..end];
+                    let name = site.strip_prefix('$').unwrap_or(site);
+                    out.push(name.to_string());
+                }
+            }
+            MacroTemplateElem::Repetition { inner, .. } => {
+                out.extend(collect_template_fragment_names(inner, template_source));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Soft-hygiene identifier rename over a template-literal segment.
+///
+/// Walks `text` char-by-char, and rewrites each `[A-Za-z_][A-Za-z0-9_]*`
+/// run to `<name>_h<scope>` — appending a `_h<n>` suffix where `<n>`
+/// is the scope's numeric identifier. All non-identifier bytes
+/// (whitespace, punctuation, operators, comments, string literals)
+/// pass through unchanged.
+///
+/// This deliberately catches reserved keywords too (`let`, `if`,
+/// `while`, ...) — a macro body's `let t = ...` becomes
+/// `let_h123 t_h123 = ...` which downstream re-lexing rejects loudly
+/// rather than silently. In practice, macro authors avoid naming
+/// bindings after keywords, so this trade-off is acceptable for the
+/// soft-hygiene stopgap; full hygiene per Ullrich 2020 §3 requires
+/// name-resolver-aware bookkeeping that Slice D (paired with the
+/// R220.M3 resolver wire-up) delivers.
+///
+/// Number literals, string / byte-string literals, and inline
+/// comments are NOT walked into: any `[A-Za-z_]` starting from a
+/// digit is treated as the tail of a number, and `"..."` / `'..'` /
+/// `//...\n` are copied verbatim.
+fn rewrite_ident_tokens_hygienic(
+    text: &str,
+    scope: paideia_as_reflection::MacroScopeId,
+    out: &mut String,
+) {
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    let suffix = format!("_h{}", scope.get());
+    while i < bytes.len() {
+        let b = bytes[i];
+        // String literal
+        if b == b'"' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'"' {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            continue;
+        }
+        // Char literal
+        if b == b'\'' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'\'' {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            continue;
+        }
+        // Line comment
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            continue;
+        }
+        // Number: starts with an ASCII digit
+        if b.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.')
+            {
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            continue;
+        }
+        // Identifier
+        if b.is_ascii_alphabetic() || b == b'_' {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+            {
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            out.push_str(&suffix);
+            continue;
+        }
+        // Non-UTF8-multi-byte fallthrough: copy the single byte.
+        // (All identifier-relevant chars are ASCII; multi-byte UTF-8
+        // in comments/strings is handled by the branches above.)
+        out.push(b as char);
+        i += 1;
+    }
+}
+
 /// R220.M2 (paideia-as#1416): hygiene-aware variant of
 /// [`expand_reflective`] that mints a fresh
 /// [`paideia_as_reflection::MacroScopeId`] per invocation and threads
@@ -540,11 +856,7 @@ mod tests {
     }
 
     fn bind(name: &str, captured: &str) -> MatchBinding {
-        MatchBinding {
-            name: name.to_string(),
-            kind: MacroFragmentKind::Expr,
-            captured: captured.to_string(),
-        }
+        MatchBinding::single(name.to_string(), MacroFragmentKind::Expr, captured.to_string())
     }
 
     #[test]
@@ -1003,6 +1315,7 @@ mod tests {
             template_source,
             file,
             test_span(0, 6),
+            None,
         );
 
         assert!(
@@ -1064,6 +1377,7 @@ mod tests {
             template_source,
             file,
             test_span(0, template_source.len() as u32),
+            None,
         );
 
         assert!(
@@ -1104,27 +1418,27 @@ mod tests {
         let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
         bindings.insert(
             "name".to_string(),
-            MatchBinding {
-                name: "name".to_string(),
-                kind: MacroFragmentKind::Ident,
-                captured: "counter".to_string(),
-            },
+            MatchBinding::single(
+                "name".to_string(),
+                MacroFragmentKind::Ident,
+                "counter".to_string(),
+            ),
         );
         bindings.insert(
             "init".to_string(),
-            MatchBinding {
-                name: "init".to_string(),
-                kind: MacroFragmentKind::Literal,
-                captured: "0".to_string(),
-            },
+            MatchBinding::single(
+                "init".to_string(),
+                MacroFragmentKind::Literal,
+                "0".to_string(),
+            ),
         );
         bindings.insert(
             "body".to_string(),
-            MatchBinding {
-                name: "body".to_string(),
-                kind: MacroFragmentKind::Expr,
-                captured: "counter + 1".to_string(),
-            },
+            MatchBinding::single(
+                "body".to_string(),
+                MacroFragmentKind::Expr,
+                "counter + 1".to_string(),
+            ),
         );
 
         let file = FileId::new(1).unwrap();
@@ -1135,6 +1449,7 @@ mod tests {
             template_source,
             file,
             test_span(0, template_source.len() as u32),
+            None,
         );
 
         assert!(
@@ -1165,6 +1480,7 @@ mod tests {
             template_source,
             file,
             test_span(0, 7),
+            None,
         );
 
         assert_eq!(out.diagnostics.len(), 1, "one M0309 for the unbound $y");
@@ -1193,6 +1509,7 @@ mod tests {
             template_source,
             file,
             test_span(0, 8),
+            None,
         );
 
         // Three references to the same unbound name → exactly one M0309.
@@ -1238,8 +1555,201 @@ mod tests {
             template_source,
             file,
             test_span(0, 2),
+            None,
         );
         assert!(out.diagnostics.is_empty());
         assert_eq!(out.source, "9");
+    }
+
+    // ─── Slice C (PAS-DEBT-B2-010c, #1542) repetition + hygiene tests ─
+
+    /// Build a template repetition elem covering `[start .. start+len]`
+    /// with the inner elems provided; no separator (None) unless the
+    /// test supplies one via sep_span.
+    fn tmpl_rep(
+        inner: Vec<MacroTemplateElem>,
+        separator: Option<Span>,
+        start: u32,
+        len: u32,
+    ) -> MacroTemplateElem {
+        MacroTemplateElem::Repetition {
+            inner,
+            separator,
+            span: test_span(start, len),
+        }
+    }
+
+    /// Build a `MatchBinding::repeated` — a Slice C repetition binding.
+    fn bind_rep(name: &str, reps: Vec<&str>, sep: &str) -> MatchBinding {
+        MatchBinding::repeated(
+            name.to_string(),
+            MacroFragmentKind::Expr,
+            reps.iter().map(|s| s.to_string()).collect(),
+            sep,
+        )
+    }
+
+    #[test]
+    fn expand_macro_repetition_star_zero_iterations_emits_empty() {
+        // Template `[ $($x),* ]` — byte layout:
+        //   0 '['  1 ' '  2 '$'  3 '('  4 '$'  5 'x'  6 ')'  7 ','  8 '*'  9 ' '  10 ']'
+        let template_source = "[ $($x),* ]";
+        let inner = vec![tmpl_frag(4, 2)]; // "$x" at bytes 4..6
+        let sep_span = Some(test_span(7, 1)); // "," at byte 7
+        let elems = vec![
+            tmpl_lit(0, 2),                    // "[ "
+            tmpl_rep(inner, sep_span, 2, 7),   // "$($x),*" at bytes 2..9
+            tmpl_lit(9, 2),                    // " ]"
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("x".to_string(), bind_rep("x", vec![], ","));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 11),
+            None,
+        );
+        assert!(
+            out.diagnostics.is_empty(),
+            "clean zero-iteration expansion: {:?}",
+            out.diagnostics
+        );
+        assert!(out.source.contains("["));
+        assert!(out.source.contains("]"));
+    }
+
+    #[test]
+    fn expand_macro_repetition_star_three_iterations_emits_all() {
+        // Template `[ $($x),* ]` with $x bound to ["1", "2", "3"] → source contains "1,2,3".
+        let template_source = "[ $($x),* ]";
+        let inner = vec![tmpl_frag(4, 2)];
+        let sep_span = Some(test_span(7, 1));
+        let elems = vec![
+            tmpl_lit(0, 2),
+            tmpl_rep(inner, sep_span, 2, 7),
+            tmpl_lit(9, 2),
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("x".to_string(), bind_rep("x", vec!["1", "2", "3"], ","));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 11),
+            None,
+        );
+        assert!(
+            out.diagnostics.is_empty(),
+            "clean three-iteration expansion: {:?}",
+            out.diagnostics
+        );
+        assert!(out.source.contains("1,2,3"), "expected joined ints in {:?}", out.source);
+    }
+
+    #[test]
+    fn expand_macro_rep_bound_ref_outside_group_emits_m0314() {
+        // Template `$x` (top-level fragment ref) but $x is rep-bound.
+        // Should emit one M0314.
+        let template_source = "$x";
+        let elems = vec![tmpl_frag(0, 2)];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("x".to_string(), bind_rep("x", vec!["a", "b"], ","));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 2),
+            None,
+        );
+        assert_eq!(out.diagnostics.len(), 1, "one M0314 expected");
+        assert_eq!(out.diagnostics[0].code().number(), M_TEMPLATE_REP_MISUSE);
+    }
+
+    #[test]
+    fn expand_macro_rep_group_without_rep_fragment_emits_m0314() {
+        // Template has a Repetition group but no fragment reference
+        // inside it that is rep-bound → cannot decide iteration count
+        // → M0314.
+        // Template `$($x),*` — byte layout: 0 '$' 1 '(' 2 '$' 3 'x'
+        //   4 ')' 5 ',' 6 '*'. Length 7.
+        let template_source = "$($x),*";
+        let inner = vec![tmpl_frag(2, 2)];   // "$x" at bytes 2..4
+        let sep_span = Some(test_span(5, 1)); // "," at byte 5
+        let elems = vec![tmpl_rep(inner, sep_span, 0, 7)];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        // Bind $x as SINGLE (not repeated) — the group cannot iterate.
+        bindings.insert("x".to_string(), bind("x", "single"));
+
+        let file = FileId::new(1).unwrap();
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, 7),
+            None,
+        );
+        assert!(
+            out.diagnostics.iter().any(|d| d.code().number() == M_TEMPLATE_REP_MISUSE),
+            "M0314 expected in {:?}",
+            out.diagnostics
+        );
+    }
+
+    #[test]
+    fn expand_macro_hygiene_scope_renames_template_idents() {
+        // Template `let t = $a` with hygiene_scope = Some(1) → identifier
+        // `t` gets an `_h1` suffix; substituted `$a` capture is verbatim.
+        let template_source = "let t = $a";
+        let elems = vec![
+            tmpl_lit(0, 8), // "let t = "
+            tmpl_frag(8, 2), // "$a"
+        ];
+        let mut bindings: BTreeMap<FragmentName, MatchBinding> = BTreeMap::new();
+        bindings.insert("a".to_string(), bind("a", "p"));
+
+        let file = FileId::new(1).unwrap();
+        let scope = paideia_as_reflection::MacroScopeId::from_raw(1)
+            .expect("MacroScopeId(1) is valid");
+        let out = expand_macro(
+            &[],
+            &elems,
+            &bindings,
+            template_source,
+            file,
+            test_span(0, template_source.len() as u32),
+            Some(scope),
+        );
+        assert!(
+            out.diagnostics.is_empty(),
+            "clean hygiene expansion: {:?}",
+            out.diagnostics
+        );
+        // The `t` in the template should be renamed to `t_h1`.
+        assert!(
+            out.source.contains("t_h1"),
+            "expected renamed `t_h1` in {:?}",
+            out.source
+        );
+        // The `$a` fragment substitution should NOT be renamed.
+        assert!(
+            out.source.ends_with("p"),
+            "fragment capture should be verbatim in {:?}",
+            out.source
+        );
     }
 }

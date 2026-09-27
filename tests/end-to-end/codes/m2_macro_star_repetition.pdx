@@ -1,0 +1,15 @@
+// PAS-DEBT-B2-010c Slice C (#1542, v0.36.66) — repetition fixture.
+//
+// `$( ... )*` repetition on both pattern and template sides.
+// Under Slice C, `list(1, 2, 3)` matches the `$( $x:expr ),*`
+// pattern with `$x` bound to the iteration list `[1, 2, 3]`, and
+// the template `[ $($x),* ]` emits `[ 1,2,3 ]`.
+//
+// End-to-end code-emission coverage waits on the macro-driver work
+// (PAS-DEBT-B7-001, #1529) that wires expand_macro into the pass
+// pipeline; this fixture documents the intended parser + expander
+// round trip today.
+
+module M = structure {
+  macro list($($x:expr),*) => { [ $($x),* ] }
+}

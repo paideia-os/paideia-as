@@ -172,6 +172,9 @@ fn interleaved_literal_and_fragment_elements_preserved_in_order() {
         .map(|e| match e {
             MacroPatternElem::Fragment { kind, .. } => Some(*kind),
             MacroPatternElem::Literal { .. } => None,
+            // Slice C: Repetition + any future #[non_exhaustive] variants
+            // don't contribute a top-level fragment kind; treat as None.
+            _ => None,
         })
         .collect();
     let fragment_kinds: Vec<_> = kinds.iter().filter_map(|k| *k).collect();

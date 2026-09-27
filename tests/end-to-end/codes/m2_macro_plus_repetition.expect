@@ -1,0 +1,5 @@
+# Accept: `$( )+` pattern + template repetition round-trip parses
+# clean. The `+` terminator is recognised by the parser and
+# distinguished from `*` at the AST level via `RepMin::One`.
+# End-to-end code emission gated on PAS-DEBT-B7-001.
+ok

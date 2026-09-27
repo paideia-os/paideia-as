@@ -1,0 +1,5 @@
+# Accept: `$( )*` pattern + template repetition round-trip parses
+# clean. End-to-end code emission gated on PAS-DEBT-B7-001 macro-
+# driver wiring; the fixture ships today so the parser + expand_macro
+# round trip has a stable source.
+ok

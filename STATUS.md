@@ -683,7 +683,9 @@ M-codes (modules):
 | M0304 | pack: unpack expects a packed value   | live   |
 | M0305 | file_module: name mismatch            | live   |
 | M0306 | parser: multiple top-level modules    | live (parser) |
+| M0310 | macro: repetition count mismatch      | live (#1542) |
 | M0313 | file_module: no top-level module      | live   |
+| M0314 | macro: template repetition misuse     | live (#1542) |
 
 P-codes (parser):
 

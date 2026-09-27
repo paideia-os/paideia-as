@@ -1,0 +1,14 @@
+// PAS-DEBT-B2-010c Slice C (#1542, v0.36.66) — `+` repetition fixture.
+//
+// `$( ... )+` requires at least one match. `nonempty(a, b)` should
+// bind `$x` to `[a, b]` and expand to `first_is(a, b)`; an empty
+// invocation `nonempty()` would fail cleanly at match time (the
+// matcher returns Failed for `+` with zero iterations, and the
+// caller sees M0308 no-matching-rule).
+//
+// End-to-end code-emission coverage waits on the macro-driver work
+// (PAS-DEBT-B7-001, #1529).
+
+module M = structure {
+  macro nonempty($($x:expr),+) => { first_is($($x),+) }
+}

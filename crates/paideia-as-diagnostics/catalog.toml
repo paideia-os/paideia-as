@@ -227,6 +227,15 @@ description = "Placeholder for reflective macro features (typed elaborator refle
 since = "0.1.0"
 deprecated = true
 
+[diagnostic.M0310]
+severity = "error"
+category = "module"
+title = "Macro repetition count mismatch"
+brief = "fragments inside a `$( )*` group bound to different iteration counts"
+description = "Slice C (#1542): when a macro pattern's `$( ... )*` / `$( ... )+` group declares two or more fragments, each fragment must capture the same number of iterations. Mismatched counts leave the expander with no consistent way to re-emit the group."
+since = "0.36.66"
+deprecated = false
+
 [diagnostic.M0313]
 severity = "error"
 category = "module"
@@ -234,6 +243,15 @@ title = "File contains no top-level module"
 brief = "a .pdx file must contain exactly one top-level structure or functor"
 description = "Per §7.6, each .pdx source file declares exactly one module (structure or functor). Found none."
 since = "0.1.0"
+deprecated = false
+
+[diagnostic.M0314]
+severity = "error"
+category = "module"
+title = "Macro template repetition misuse"
+brief = "template `$name` reference and its pattern-side repetition binding disagree"
+description = "Slice C (#1542): a template `$name` reference resolves to a fragment bound inside a pattern `$( )*` / `$( )+` group but appears OUTSIDE a template `$( )*` group, or a template `$( )*` group references no rep-bound fragment (so the emitter cannot decide its iteration count)."
+since = "0.36.66"
 deprecated = false
 
 [diagnostic.B1700]

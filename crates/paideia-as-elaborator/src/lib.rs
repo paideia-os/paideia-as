@@ -161,12 +161,14 @@ pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use lower::lambda_param_enum_ty::populate_lambda_param_enum_types;
 pub use lower::let_meta_ty::populate_let_meta_ty;
 pub use macro_expand::{
-    ExpansionOutcome, M_MACRO_EFFECT_VIOLATION, M_RECURSION_LIMIT, M_UNBOUND_META,
-    MAX_EXPANSION_DEPTH, check_depth, expand_reflective, expand_reflective_hygienic,
+    ExpansionOutcome, FragmentName, M_MACRO_EFFECT_VIOLATION, M_RECURSION_LIMIT,
+    M_TEMPLATE_REP_MISUSE, M_UNBOUND_META, MAX_EXPANSION_DEPTH, MacroExpansion,
+    bindings_by_name, check_depth, expand_macro, expand_reflective, expand_reflective_hygienic,
     expand_template,
 };
 pub use macro_match::{
-    InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,
+    InvocationMatch, M_NO_MATCH, M_REP_COUNT_MISMATCH, MatchBinding, RuleMatch, StructuredMatch,
+    match_invocation, match_rule, match_structured,
 };
 pub use modules::{
     FieldBinding, S_LINEAR_FIELD_OVERUSED, TypedValue, ValueRef, elaborate_structure,

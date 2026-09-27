@@ -1,5 +1,112 @@
 # Changelog
 
+## v0.36.66 — 2026-09-27 — Wave 37: B2-010c Slice C — macro repetition + hygiene
+
+**PAS-DEBT-B2-010c** (issue #1542) — Slice C of the macro grammar
+work. Caps the macro subsystem with `$( ... )*` / `$( ... )+`
+repetition on both pattern and template sides, and a soft-hygiene
+alpha-rename pass over template-literal identifier tokens keyed on a
+per-invocation `paideia_as_reflection::MacroScopeId`.
+
+Shape shipped by Slice C:
+
+- `MacroPatternElem::Repetition { inner, separator, min, span }`
+  and `MacroTemplateElem::Repetition { inner, separator, span }` —
+  new variants on the two macro-grammar enums. Both enums are now
+  `#[non_exhaustive]` so future capping can layer on without
+  breaking cross-crate match sites.
+- `RepMin::{Zero, One}` — enum in `paideia-as-ast::macros` naming
+  the multiplicity of a repetition group (Zero for `*`, One for `+`).
+- Parser (`parse_macro.rs`) recognises `$(`, recurses into the inner
+  element sequence, and reads the optional single-char separator
+  followed by the required `*` / `+` terminator. Nested repetitions
+  round-trip. Two new helpers (`scan_raw_pattern_elems` /
+  `scan_raw_template_elems`) build a byte-offset intermediate; the
+  arena-materialising phase converts them and emits P0110 on
+  unknown fragment kinds (unchanged from Slice A/B).
+- Matcher (`macro_match.rs`) grows a `MatchBinding::reps:
+  Option<Vec<String>>` field alongside the phase-1 `captured` view;
+  `MatchBinding::single` / `MatchBinding::repeated` are the
+  constructors, and the struct is `#[non_exhaustive]`. A new
+  structured `match_structured(&[MacroPatternElem], pattern_source,
+  call_text, call_span) -> StructuredMatch` walks the AST-shaped
+  pattern, iterating a repetition group until failure and folding
+  the per-iteration captures into a repeated binding. Emits M0310
+  (`M_REP_COUNT_MISMATCH`) on inconsistent iteration counts and
+  fails cleanly on `+` with zero iterations.
+- Expander (`macro_expand.rs`)'s `expand_macro` gains a
+  `hygiene_scope: Option<MacroScopeId>` parameter and a
+  `MacroTemplateElem::Repetition` arm. Rep-bound fragment refs
+  outside a template `$( )*` group, and template groups that
+  reference no rep-bound fragment, emit M0314
+  (`M_TEMPLATE_REP_MISUSE`); M0313 is already allocated
+  (file-module), so Slice C picks M0314 as the next free slot in
+  the macro range and documents the deviation from the task text.
+  With `hygiene_scope = Some(_)`, `rewrite_ident_tokens_hygienic`
+  appends a `_h<scope_id>` suffix to every identifier token
+  emitted from template literals; fragment substitutions are
+  verbatim.
+- Diagnostics catalog: `M0310` (repetition count mismatch) and
+  `M0314` (template repetition misuse) added.
+
+Hygiene scope: this ships a *soft* rename — every ASCII identifier
+in a template literal segment picks up the suffix, keywords
+included. Full name-resolver-aware hygiene per Ullrich 2020 §3
+(with the reflection `HygieneCache` bridge already used by
+`expand_reflective_hygienic` for typed macros) needs a structured
+Syntax view over the string-substitution path, which today is not
+produced by phase-1 composition. That bridge is Slice D's concern
+and is documented explicitly in `macros.rs` and `macro_expand.rs`
+doc comments.
+
+Files changed:
+
+- `crates/paideia-as-ast/src/macros.rs` — added `RepMin`;
+  `Repetition` variants on both enums; marked both enums
+  `#[non_exhaustive]`.
+- `crates/paideia-as-ast/src/lib.rs` — re-exported `RepMin`.
+- `crates/paideia-as-parser/src/parse_macro.rs` — replaced the
+  linear pattern / template scanners with recursive byte-cursor
+  scanners that recognise `$( )*` / `$( )+` groups; added
+  materialise helpers for the arena-alloc phase; four new tests.
+- `crates/paideia-as-parser/tests/macro_fragment_kinds.rs` —
+  wildcard `_` arm on the `MacroPatternElem` exhaustive match
+  (required now that the enum is `#[non_exhaustive]`).
+- `crates/paideia-as-elaborator/src/macro_match.rs` — added
+  `reps` field + constructors; `#[non_exhaustive]` on
+  `MatchBinding`; new `match_structured` + `StructuredMatch`;
+  `M_REP_COUNT_MISMATCH` constant; four Slice C tests.
+- `crates/paideia-as-elaborator/src/macro_expand.rs` — added
+  `hygiene_scope` param on `expand_macro`; new
+  `expand_template_elems` recursive walker; new
+  `collect_template_fragment_names` helper; new
+  `rewrite_ident_tokens_hygienic` renamer;
+  `M_TEMPLATE_REP_MISUSE` constant; updated the 6 existing test
+  call sites with `None`; added 5 Slice C tests.
+- `crates/paideia-as-elaborator/src/lib.rs` — re-exported
+  `expand_macro`, `MacroExpansion`, `FragmentName`,
+  `bindings_by_name`, `M_TEMPLATE_REP_MISUSE`,
+  `M_REP_COUNT_MISMATCH`, `StructuredMatch`, `match_structured`.
+- `crates/paideia-as-diagnostics/catalog.toml` — added M0310 +
+  M0314 entries.
+- `STATUS.md` — added M0310 / M0314 rows to the M-code table.
+- `tests/end-to-end/codes/m2_macro_star_repetition.{pdx,expect}` —
+  new fixture (star repetition with separator).
+- `tests/end-to-end/codes/m2_macro_plus_repetition.{pdx,expect}` —
+  new fixture (`+` repetition).
+- `tests/end-to-end/codes/m2_macro_repetition_no_sep.{pdx,expect}`
+  — new fixture (unseparated `*` repetition).
+
+Kept intact (regression surface):
+
+- Slice A / Slice B tests all pass unchanged; new `_` wildcard
+  arms on cross-crate matches keep future capping cheap.
+- `expand_template` phase-1 path is preserved.
+- The reflective-macro hygiene path
+  (`expand_reflective_hygienic`, R220.M2, #1416) is not touched;
+  Slice C's soft rename is an additive parallel for pattern
+  macros only.
+
 ## v0.36.65 — 2026-09-27 — Wave 36: B2-010b Slice B — macro template expansion (structured)
 
 **PAS-DEBT-B2-010b** (issue #1541) — Slice B of the macro grammar work.

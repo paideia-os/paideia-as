@@ -1,0 +1,4 @@
+# Accept: unseparated `$( )*` repetition parses clean; the AST
+# carries `separator = None` on the resulting `Repetition` variant.
+# End-to-end code emission gated on PAS-DEBT-B7-001.
+ok
