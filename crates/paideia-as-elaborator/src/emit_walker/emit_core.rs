@@ -18,6 +18,7 @@
 //!
 //! Split from `emit_walker.rs` (paideia-as#1411).
 
+use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
 use paideia_as_ir::abi::{
     ms_return_placement_from_layout, sysv_return_placement_from_layout, MsReturnPlacement,
     SysvReturnPlacement,
@@ -33,6 +34,26 @@ use crate::aggregate_return::{
     ms_callee_load_return_reg, ms_callee_sret_store, sysv_callee_load_return_pair,
     sysv_callee_sret_store,
 };
+use crate::emit_store_record::operator_lexeme_of;
+
+/// Helper to construct T0578 diagnostic code — "record-cons field
+/// value shape not lowerable to a callee sret store".
+///
+/// Minted for paideia-as#1558 (Wave 50) as the T05xx slot the
+/// Slice D docblock originally reserved as "T0522"; the earlier
+/// number was already assigned to the non-exhaustive-match
+/// diagnostic. Fired by
+/// `emit_record_cons_field_stores_into_sret_buffer` when a field
+/// value's `IrKind` is neither a directly-supported shape
+/// (Literal / Var / App-operator / App-call / FieldAccess) nor a
+/// shape whose lowering is intentionally deferred (Cast, EnumCons,
+/// nested Match, …). The store is skipped and the corresponding
+/// aggregate slot reads back as whatever the raw stack held —
+/// promoting the previously-silent gap to a build-halting error.
+fn t0578_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 578)
+        .expect("T0578 is within valid T range")
+}
 
 impl EmitWalker {
     /// Insert an `Instruction` into the side-table and advance
@@ -508,17 +529,37 @@ impl EmitWalker {
     ///     (parameter names live there after
     ///     `register_nested_lambda_params`), then
     ///     `mov [RSP + offset], reg`.
-    ///   * Any other kind — a leftover after canonicalisation, or a
-    ///     value shape not yet supported for record-cons bodies
-    ///     (nested App, arithmetic, EnumCons, …) — is silently
-    ///     skipped. The sret store still runs; that field's slot
-    ///     reads back as whatever the raw stack held. A follow-up
-    ///     ticket (T0522) will diagnose the unsupported shapes
-    ///     explicitly once fixture pressure demands it — for the
-    ///     Slice D fixture surface (Cpuid { eax: 1, ebx: 2, ecx: 3,
-    ///     edx: 4 }-style literal-populated records, plus the
-    ///     parameter-forwarding `fn (x, y) -> Pair { a: x, b: y }`)
-    ///     the literal + var arms cover everything.
+    ///   * `IrKind::App` — either a bit-arithmetic operator on flat
+    ///     Var/Literal operands (`&` / `|` / `<<` / `>>`; discriminated
+    ///     via `operator_lexeme_of`) or a function call
+    ///     (discriminated by the absence of an operator lexeme).
+    ///     Bit-arith emits `mov rax, arg0; op rax, arg1`; call routes
+    ///     through `emit_call_expr` which lands the SysV/MS integer
+    ///     return in RAX. Both then `mov [RSP + offset], rax`.
+    ///     paideia-as#1558 Wave 50 mint. Nested arithmetic (App-in-
+    ///     App), operands other than Var/Literal, and record-returning
+    ///     callees inside a field value all fall through to the T0578
+    ///     wildcard rather than emit incorrect bytes — the
+    ///     single-instruction seam here would otherwise clobber RAX
+    ///     across nested sub-emits with no spill discipline.
+    ///   * `IrKind::FieldAccess` → route through
+    ///     `visit_field_access_with_reg(field, dest=RAX)` which
+    ///     handles the FieldAccess(Deref(Var)) shape via the same
+    ///     width-dispatch used elsewhere, then
+    ///     `mov [RSP + offset], rax`. Other FieldAccess receiver
+    ///     shapes (FieldAccess(App), FieldAccess(FieldAccess) — the
+    ///     nested-App-record chain `cpuid_leaf_ad(l,s).ad`) still fall
+    ///     through to T0578 because the enclosing visitor cannot
+    ///     currently spill an intermediate record without a persistent
+    ///     caller slot for it.
+    ///   * Any other kind — a leftover after canonicalisation, an
+    ///     `IrKind::Cast` (the `... as u32` on a shift result) or an
+    ///     unhandled composite (EnumCons, Match, …) — fires T0578
+    ///     (paideia-as#1558) with the exact IrKind that failed to
+    ///     lower. The store is skipped and the aggregate slot reads
+    ///     back as whatever the raw stack held; the diagnostic makes
+    ///     the build halt so no downstream reader consumes the
+    ///     uninitialised bytes.
     fn emit_record_cons_field_stores_into_sret_buffer(
         &mut self,
         lambda_id: IrNodeId,
@@ -601,13 +642,357 @@ impl EmitWalker {
                     let iid = self.alloc_synthetic_id();
                     self.emit_inst(iid, inst);
                 }
-                _ => {
-                    // Unsupported value shape for a record-cons
-                    // field. See docblock for the deferred T0522
-                    // diagnostic; Slice D leaves the slot
-                    // uninitialised rather than emit incorrect bytes.
+                IrKind::App => {
+                    // paideia-as#1558 Wave 50: extend the field-value
+                    // arm to cover call and bit-arith App shapes.
+                    // Discriminate operator vs function call via the
+                    // authoritative `operator_lexeme_of` lookup — the
+                    // same discriminator every other App consumer
+                    // uses (#1196).
+                    if let Some(op_lex) = operator_lexeme_of(arena, child_id) {
+                        if !self
+                            .emit_bit_arith_field_value_into_rsp_slot(
+                                child_id, arena, disp, field_idx, op_lex,
+                            )
+                        {
+                            continue;
+                        }
+                    } else if !self
+                        .emit_call_field_value_into_rsp_slot(
+                            lambda_id, child_id, arena, disp, field_idx,
+                        )
+                    {
+                        continue;
+                    }
+                }
+                IrKind::FieldAccess => {
+                    // paideia-as#1558 Wave 50: emit the field load
+                    // into RAX via the existing width-dispatch
+                    // helper, then store to the sret slot.
+                    self.emit_field_access_field_value_into_rsp_slot(
+                        child_id, arena, disp,
+                    );
+                }
+                other => {
+                    // paideia-as#1558 Wave 50: promote the previously-
+                    // silent gap to a build-halting T0578 diagnostic.
+                    // Report the exact IrKind so the caller can either
+                    // restructure the record-cons field value or file
+                    // a follow-up wave against the specific shape.
+                    self.push_typed_diag(
+                        t0578_code(),
+                        format!(
+                            "record-cons field {} (offset {}) value has \
+                             unsupported IrKind {:?} at node {}; \
+                             callee sret slot left uninitialised",
+                            field_idx,
+                            disp,
+                            other,
+                            child_id.get()
+                        ),
+                    );
                 }
             }
         }
     }
+
+    /// paideia-as#1558 Wave 50: emit a bit-arithmetic App
+    /// (`&` / `|` / `<<` / `>>`) whose two operands are flat
+    /// Var/Literal, then store the RAX result into
+    /// `[RSP + disp]`. Returns `true` on success, `false` if a
+    /// diagnostic was pushed and no bytes were emitted.
+    ///
+    /// The instruction stream mirrors the flat-operator lowering in
+    /// `emit_enum_match::arm_body::emit_arm_body_app`
+    /// (mov rax, arg0; op rax, arg1) but with a
+    /// `mov [rsp+disp], rax` tail instead of leaving the result in
+    /// RAX for a match-arm consumer. Any operand shape other than
+    /// (Var/Literal × Var/Literal) fires T0578; nested arithmetic
+    /// still requires the deeper expression walker that this arm
+    /// intentionally does not spawn to preserve RAX-clobber safety.
+    fn emit_bit_arith_field_value_into_rsp_slot(
+        &mut self,
+        app_id: IrNodeId,
+        arena: &IrArena,
+        disp: i32,
+        field_idx: usize,
+        op_lex: &str,
+    ) -> bool {
+        // Scope-restricted mnemonic map. Non-bitwise operators are
+        // valid App-operator callees elsewhere (arithmetic +/-/*,
+        // comparisons) but are out of scope for #1558 — the wave
+        // targets the bit-arithmetic subset that cpuid-style
+        // decoders compose.
+        let mnemonic = match op_lex {
+            "&" => Mnemonic::And,
+            "|" => Mnemonic::Or,
+            "<<" => Mnemonic::Shl,
+            ">>" => Mnemonic::Shr,
+            _ => {
+                self.push_typed_diag(
+                    t0578_code(),
+                    format!(
+                        "record-cons field {} (offset {}) uses operator \
+                         '{}' at App node {}; only &, |, <<, >> are \
+                         lowered as record-cons field values",
+                        field_idx,
+                        disp,
+                        op_lex,
+                        app_id.get()
+                    ),
+                );
+                return false;
+            }
+        };
+
+        let app_children = arena.children(app_id);
+        if app_children.len() < 3 {
+            self.push_typed_diag(
+                t0578_code(),
+                format!(
+                    "record-cons field {} (offset {}): App node {} \
+                     operator '{}' has fewer than 3 children (callee, \
+                     arg0, arg1)",
+                    field_idx,
+                    disp,
+                    app_id.get(),
+                    op_lex,
+                ),
+            );
+            return false;
+        }
+        let arg0_id = app_children[1];
+        let arg1_id = app_children[2];
+
+        // Resolve each operand as an emit-time value source. Only
+        // flat Var/Literal is in scope; recursion into another App
+        // would clobber RAX with no spill.
+        let arg0_src = match self.classify_flat_operand(arg0_id, arena) {
+            Some(src) => src,
+            None => {
+                self.push_typed_diag(
+                    t0578_code(),
+                    format!(
+                        "record-cons field {} (offset {}): App node {} \
+                         operator '{}' arg0 (node {}) is not a flat \
+                         Var or Literal — nested expression lowering \
+                         is out of scope for this wave",
+                        field_idx,
+                        disp,
+                        app_id.get(),
+                        op_lex,
+                        arg0_id.get(),
+                    ),
+                );
+                return false;
+            }
+        };
+        let arg1_src = match self.classify_flat_operand(arg1_id, arena) {
+            Some(src) => src,
+            None => {
+                self.push_typed_diag(
+                    t0578_code(),
+                    format!(
+                        "record-cons field {} (offset {}): App node {} \
+                         operator '{}' arg1 (node {}) is not a flat \
+                         Var or Literal — nested expression lowering \
+                         is out of scope for this wave",
+                        field_idx,
+                        disp,
+                        app_id.get(),
+                        op_lex,
+                        arg1_id.get(),
+                    ),
+                );
+                return false;
+            }
+        };
+
+        // Emit: mov rax, arg0
+        let mut mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov_ops.push(Operand::Reg(abi::RAX));
+        match arg0_src {
+            FlatOperand::Reg(r) => mov_ops.push(Operand::Reg(r)),
+            FlatOperand::Imm(v) => mov_ops.push(Operand::Imm64(v)),
+        }
+        let mov_id = self.alloc_synthetic_id();
+        self.emit_inst(
+            mov_id,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: mov_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            },
+        );
+
+        // Emit: <op> rax, arg1
+        let mut op_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        op_ops.push(Operand::Reg(abi::RAX));
+        match arg1_src {
+            FlatOperand::Reg(r) => op_ops.push(Operand::Reg(r)),
+            FlatOperand::Imm(v) => op_ops.push(Operand::Imm64(v)),
+        }
+        let op_id = self.alloc_synthetic_id();
+        self.emit_inst(
+            op_id,
+            Instruction {
+                mnemonic,
+                operands: op_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            },
+        );
+
+        // Tail: mov [rsp + disp], rax
+        self.emit_sret_slot_store_from_rax(disp);
+        true
+    }
+
+    /// paideia-as#1558 Wave 50: emit a function-call App whose
+    /// SysV/MS integer return lands in RAX, then store to
+    /// `[RSP + disp]`. Returns `true` on success, `false` if a
+    /// diagnostic was pushed and no bytes were emitted.
+    ///
+    /// Routes through `emit_call_expr` (identical to the
+    /// expression-position call path in `visit_lambda`) so the
+    /// caller-side arg marshalling, scratch-save discipline and any
+    /// stdlib-recipe splice all run under the current lambda's
+    /// context. Only scalar-returning callees are correctly handled
+    /// here — a record-returning callee would drive its own
+    /// caller-side sret prelude and land the record in a distinct
+    /// frame slot, not in RAX; that composition (Gap A in the Wave
+    /// 46 blocker enumeration) remains a follow-up.
+    fn emit_call_field_value_into_rsp_slot(
+        &mut self,
+        lambda_id: IrNodeId,
+        app_id: IrNodeId,
+        arena: &IrArena,
+        disp: i32,
+        field_idx: usize,
+    ) -> bool {
+        let Some(meta) = arena.call_sites().get(app_id).cloned() else {
+            self.push_typed_diag(
+                t0578_code(),
+                format!(
+                    "record-cons field {} (offset {}): App node {} has \
+                     no call_sites entry — cannot resolve callee for \
+                     inline call emission",
+                    field_idx,
+                    disp,
+                    app_id.get(),
+                ),
+            );
+            return false;
+        };
+
+        // App children are [callee, arg0, arg1, ...]; only args go
+        // to emit_call_expr (which reads the callee name from the
+        // second parameter, not from children[0]).
+        let app_children = arena.children(app_id);
+        let arg_ids: Vec<IrNodeId> = app_children.iter().skip(1).copied().collect();
+
+        // emit_call_expr validates the callee (T0553 on undefined)
+        // and lands the return in RAX per both SysV and MS integer-
+        // return conventions.
+        self.emit_call_expr(lambda_id, meta.callee_name, &arg_ids, arena);
+
+        // Tail: mov [rsp + disp], rax
+        self.emit_sret_slot_store_from_rax(disp);
+        true
+    }
+
+    /// paideia-as#1558 Wave 50: emit a FieldAccess whose value goes
+    /// into RAX via the existing width-dispatch helper, then store
+    /// to `[RSP + disp]`.
+    ///
+    /// `visit_field_access_with_reg` handles the
+    /// FieldAccess(Deref(Var)) shape — the common case where a
+    /// callee reads a field from a pointer-to-record parameter and
+    /// forwards it into its own returned record. Other receiver
+    /// shapes (App, nested FieldAccess) push the T0516 / U1643
+    /// family from within that helper; the sret store still runs
+    /// but reads whatever RAX happens to hold, which is why the
+    /// docblock steers callers with those shapes toward the T0578
+    /// fallback via the enclosing wildcard arm.
+    fn emit_field_access_field_value_into_rsp_slot(
+        &mut self,
+        field_access_id: IrNodeId,
+        arena: &IrArena,
+        disp: i32,
+    ) {
+        self.visit_field_access_with_reg(field_access_id, abi::RAX, arena);
+        self.emit_sret_slot_store_from_rax(disp);
+    }
+
+    /// paideia-as#1558 Wave 50: tail-store for every non-Literal
+    /// non-Var field-value arm.
+    ///
+    /// Emits the canonical `mov [rsp + disp], rax` that copies the
+    /// just-computed RAX value into the callee-local sret source
+    /// buffer at the field's offset. Sharing this tail between the
+    /// App-operator, App-call and FieldAccess arms keeps the
+    /// operand-shape and encoding hint in one place.
+    fn emit_sret_slot_store_from_rax(&mut self, disp: i32) {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::MemSib {
+            base: abi::RSP,
+            index: None,
+            scale: Scale::X1,
+            disp,
+        });
+        ops.push(Operand::Reg(abi::RAX));
+        let store_id = self.alloc_synthetic_id();
+        self.emit_inst(
+            store_id,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            },
+        );
+    }
+
+    /// paideia-as#1558 Wave 50: resolve a flat App operand to
+    /// either its home register (Var bound in `local_bindings`) or
+    /// its literal value (Literal in `literal_values`), returning
+    /// `None` for every other shape so the caller can fire T0578.
+    ///
+    /// Rejects Var-with-unbound-name and Var-bound-to-a-non-Reg
+    /// home so the arithmetic arm never silently reads an
+    /// unrelated register — the same discipline
+    /// `emit_arm_body_app` observes for its own flat cases.
+    fn classify_flat_operand(
+        &self,
+        node_id: IrNodeId,
+        arena: &IrArena,
+    ) -> Option<FlatOperand> {
+        let node = arena.get(node_id)?;
+        match node.kind {
+            IrKind::Literal => arena.literal_values().get(node_id).map(FlatOperand::Imm),
+            IrKind::Var => {
+                let name = arena.binding_names().get(node_id)?;
+                self.state.local_bindings.get(name).map(FlatOperand::Reg)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// paideia-as#1558 Wave 50: internal source-shape sum for a flat
+/// App operand — either a value already residing in a register or
+/// a compile-time-known immediate. Used by
+/// `emit_bit_arith_field_value_into_rsp_slot` to keep the operand-
+/// resolution step separate from the emit sequence.
+#[derive(Copy, Clone, Debug)]
+enum FlatOperand {
+    Reg(paideia_as_ir::instruction::RegId),
+    Imm(i64),
 }

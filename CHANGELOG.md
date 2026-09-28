@@ -1,5 +1,132 @@
 # Changelog
 
+## v0.36.76 — 2026-09-27 — Issue #1558 Wave 50: RecordCons field-value arm extension (PAS-DEBT-B4-002-alt)
+
+paideia-as#1558 Wave 50 extends
+`emit_record_cons_field_stores_into_sret_buffer`
+(`crates/paideia-as-elaborator/src/emit_walker/emit_core.rs`) so a
+record-returning callee whose body has field values richer than a
+bare `Literal` or `Var` still populates the callee-local sret
+source buffer correctly, instead of silently skipping the field
+and leaving whatever the raw stack held. This is Gap A from the
+Wave 46 blocker enumeration
+(`.plans/scratch/CHANGELOG-1524-b4002-cpuid-retirement-attempt.md`)
+and the local half of the two-track cpuid_leaf-retirement plan
+(the "PAS-DEBT-B4-002-alt" branch, addressing App / arithmetic
+field values without touching stdlib-recipe layout participation).
+
+  * **New field-value arms** in the Slice D helper:
+    - `IrKind::App` with a bit-arithmetic operator (`&` / `|` /
+      `<<` / `>>`; discriminated via the shared
+      `operator_lexeme_of` lookup) emits
+      `mov rax, arg0; op rax, arg1; mov [rsp+offset], rax`. Only
+      flat `Var` / `Literal` operands are in scope — nested App
+      (App-inside-App) hits T0578, since the single-instruction
+      seam clobbers RAX with no spill discipline.
+    - `IrKind::App` as a function call routes through the existing
+      `emit_call_expr` (the same expression-position path
+      `visit_lambda` uses), landing the SysV/MS integer return in
+      RAX; the arm then splices `mov [rsp+offset], rax`. Suitable
+      only for scalar-returning callees for now — a record-
+      returning callee lowers its own caller-side sret prelude and
+      lands the record in a distinct frame slot rather than in
+      RAX (Gap A residue).
+    - `IrKind::FieldAccess` routes through
+      `visit_field_access_with_reg(dest=RAX)` so the existing
+      width-dispatch helper drives the load, then splices the
+      sret-slot store. Handles the `FieldAccess(Deref(Var))`
+      shape; other receiver shapes (`FieldAccess(App)`,
+      `FieldAccess(FieldAccess)` — the nested `cpuid_leaf_ad(l,s).ad`
+      chain) still fire T0578 pending a caller-slot spill for the
+      intermediate record.
+
+  * **T0578 diagnostic minted** in
+    `crates/paideia-as-diagnostics/catalog.toml`. Fired by the
+    same helper on any field value whose `IrKind` is outside the
+    recognised set, or on a supported kind whose sub-shape is not
+    yet lowered (bit-arith on nested App, App-call with no
+    call_sites metadata, non-flat operator operands). Every fire
+    names the offending IrKind + field index + offset so a
+    downstream fix knows exactly which shape to teach the arm
+    about. Promotes the previously-silent gap from "slot reads
+    back as uninitialised stack" to a build-halting error. The
+    Slice D docblock's original "T0522" placeholder is retired —
+    that code was already assigned to the non-exhaustive-match
+    diagnostic; T0578 is the next available slot.
+
+  * **Slice D docblock rewritten** on
+    `emit_record_cons_field_stores_into_sret_buffer` to enumerate
+    the Wave 50 arm set and the T0578 fallback, replacing the
+    original "any other kind is silently skipped" note. The
+    Literal / Var arms remain byte-identical for byte-shape
+    regression parity with the pre-Wave-50 fixture surface.
+
+  * **4 new tests** in
+    `crates/paideia-as-elaborator/src/emit_walker_tests/sret_slice_d.rs`:
+    - `record_cons_body_populates_from_bit_and_of_literals` —
+      pins the `mov rax, imm; and rax, imm; mov [rsp+0], rax`
+      sequence for a `(0xdead & 0xff)` field followed by a bare
+      Literal store, proving the App-operator arm advances the
+      emission cursor cleanly and the Literal-arm regression
+      holds.
+    - `record_cons_body_populates_from_bit_shr_of_var_and_literal`
+      — pins the Var-operand path (SysV param 0 → RDI) through
+      the same arm plus a Var-field-value regression via
+      `local_bindings` shared lookup.
+    - `record_cons_body_populates_from_field_access_deref_var` —
+      pins the FieldAccess arm's width-dispatch load + sret store
+      pair, using a source RecordLayout registered on the walker
+      and `mark_field_access_handled` to keep the flat walker
+      from double-emitting.
+    - `record_cons_body_unsupported_field_value_shape_fires_t0578`
+      — asserts T0578 fires with the offending IrKind (`Cast`)
+      named in its message AND that a neighbouring Literal field
+      still emits its store, so a single unsupported field does
+      not abort the whole loop.
+
+  * **cpuid_leaf composition status**: PARTIAL. The bit-arithmetic
+    and FieldAccess arms cover a `.pdx` wrapper like
+    `Pair { a: x & 0xff, b: p.f }` where each field value is a
+    single flat operation on locals. The exact cpuid_leaf shape
+    (`(cpuid_leaf_ad(leaf, sub) & 0xffffffff) as u32`) still hits
+    T0578 on two counts: the outer `... as u32` is an
+    `IrKind::Cast` (Wave 50 out-of-scope), and the arithmetic
+    argument is itself an App (`cpuid_leaf_ad(...)` — a nested
+    App inside a bit-arith App, which the flat-operand classifier
+    refuses). A follow-up that lifts either (a) intermediate
+    `let`-binding to hoist the App result into a bare Var, or (b)
+    the Cast-and-nested-App-lowering into the arm set,
+    unblocks the retirement.
+
+  * **Constraints observed**:
+    - Slice D interface signature (`emit_record_cons_field_stores_into_sret_buffer`
+      arguments) unchanged.
+    - Literal / Var arms emit byte-identical instruction streams
+      to pre-Wave-50 output (existing Slice D tests untouched).
+    - SysV/MS ABI split preserved — new arms use the same
+      `RSP`-relative disp shape the sret helpers on both sides
+      read from.
+    - Non-exhaustive `IrKind` wildcard preserved through the
+      `other =>` arm.
+    - Encoder pitfalls dodged: no `test rN,rN`, no `and r11,
+      imm64`, no reserved-label collisions.
+
+  * **Files touched**:
+    - `Cargo.toml` — workspace.version 0.36.75 → 0.36.76.
+    - `CHANGELOG.md` — this entry.
+    - `crates/paideia-as-elaborator/src/emit_walker/emit_core.rs`
+      — App / FieldAccess arms, T0578 helper, 4 private helper
+      functions (`emit_bit_arith_field_value_into_rsp_slot`,
+      `emit_call_field_value_into_rsp_slot`,
+      `emit_field_access_field_value_into_rsp_slot`,
+      `emit_sret_slot_store_from_rax`, `classify_flat_operand`)
+      + `FlatOperand` sum type, docblock rewrite.
+    - `crates/paideia-as-elaborator/src/emit_walker_tests/sret_slice_d.rs`
+      — 4 new tests + `FieldAccessInfo` / `RecordTypeId` imports.
+    - `crates/paideia-as-diagnostics/catalog.toml` — T0578 entry.
+    - `.plans/scratch/CHANGELOG-1558-recordcons-arith-values.md`
+      — scratch changelog.
+
 ## v0.36.75 — 2026-09-27 — Issue #1524 Wave 46: cpuid_leaf retirement re-attempt (PAS-DEBT-B4-002)
 
 paideia-as#1524 Wave 46 re-attempts `cpuid_leaf_ad`/`cpuid_leaf_bc`

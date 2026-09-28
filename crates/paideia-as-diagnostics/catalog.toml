@@ -1658,6 +1658,40 @@ be determined is a hard build error, never a guess.
 since = "0.21.0"
 deprecated = false
 
+[diagnostic.T0578]
+severity = "error"
+category = "type"
+title = "Record-cons field value shape not lowerable to a callee sret store"
+brief = "record-cons field value has an IrKind the callee-sret splice cannot yet materialise into `[rsp + field.offset]`"
+description = """
+`emit_record_cons_field_stores_into_sret_buffer` walks the field values of an
+`IrKind::RecordCons` Lambda body in step with the callee's
+`return_record_layout.fields` and emits one store per field into the
+callee-local sret source buffer. It recognises a fixed shape set: `Literal`
+(immediate store), `Var` (register store via `local_bindings`), `App` with a
+bit-arithmetic operator lexeme (`&` / `|` / `<<` / `>>`) whose two operands
+are themselves flat `Var` / `Literal`, `App` as a function call (result lands
+in RAX and is stored), and `FieldAccess(Deref(Var))` (width-dispatched load
+into RAX then stored). Anything else — an `IrKind::Cast` (`… as u32` on a
+shift result), a deeply nested arithmetic expression (App inside App with no
+flat Var/Literal operands), a `FieldAccess` whose receiver is not
+`Deref(Var)` (the `cpuid_leaf_ad(l, s).ad` chain, for example), an
+`EnumCons`, an unhandled `Match` — fires this diagnostic and skips the
+store; the aggregate slot then reads back as whatever the raw stack held.
+The diagnostic makes the build halt so no downstream reader consumes those
+uninitialised bytes.
+
+Fixes: restructure the record-cons body so each field value is one of the
+recognised flat shapes — bind intermediate results to local `let` names so
+they reach the field position as bare `Var`, or lift arithmetic into a
+preceding scalar-returning helper. Alternatively, extend the arm to handle
+the specific shape (see paideia-as#1558 for the follow-up ticket structure —
+each new arm needs an RAX-clobber discipline in step with the App-operator /
+App-call arms Wave 50 established).
+"""
+since = "0.36.76"
+deprecated = false
+
 [diagnostic.P0282]
 severity = "error"
 category = "parser"

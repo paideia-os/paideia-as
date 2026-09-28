@@ -19,7 +19,7 @@
 use super::super::*;
 use paideia_as_diagnostics::{FileId, Span};
 use paideia_as_ir::let_meta::CallingConvention;
-use paideia_as_ir::record_layout::{FieldLayout, RecordLayout};
+use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{CallMeta, CallerSretSlot, Symbol, SymbolKind};
 
 fn span() -> Span {
@@ -488,4 +488,454 @@ fn intpair_no_frame_caller_falls_back_to_slice_b_byte_identity() {
             "@no_frame fallback must NOT emit an sret LEA"
         );
     }
+}
+
+// ── paideia-as#1558 Wave 50: extended field-value shapes ─────────────
+//
+// Slice D (v0.36.71) covered only `IrKind::Literal` and `IrKind::Var`
+// field values; Wave 50 extends the same helper to lower
+// `IrKind::App` (bit-arithmetic subset and function calls),
+// `IrKind::FieldAccess`, and to raise T0578 for every other shape
+// instead of silently skipping. Tests below pin the new arms
+// against the same 16 B IntPair layout the pre-existing Piece 1
+// tests use, so the sret-store tail (`mov rax, [rsp+*]`) after the
+// field-value emission continues to read the exact bytes the arms
+// just wrote.
+
+/// Bit-AND of two Literal operands lowers to
+/// `mov rax, arg0; and rax, arg1; mov [rsp+0], rax`. The second
+/// field is a raw Literal so the assertions also pin that the
+/// bit-arith arm advances the emission cursor by exactly three
+/// instructions before the Literal-arm tail store fires.
+#[test]
+fn record_cons_body_populates_from_bit_and_of_literals() {
+    let mut arena = IrArena::new();
+
+    // Field 0: (0xdead & 0xff) — App("&", 0xdead, 0xff).
+    let type_name = arena.alloc(IrKind::Var, span());
+    let and_callee = arena.alloc(IrKind::Var, span());
+    let a0 = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(a0, 0xdead);
+    let a1 = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(a1, 0xff);
+    let and_app = arena.alloc_with_children(
+        IrKind::App,
+        span(),
+        [and_callee, a0, a1],
+    );
+    arena.call_sites_mut().insert(
+        and_app,
+        CallMeta {
+            callee_name: "&".to_string(),
+            arg_count: 2,
+            is_intrinsic: true,
+        },
+    );
+
+    // Field 1: Literal(42) — leaves the pre-existing Literal arm
+    // asserting the byte identity of the trailing store.
+    let v1 = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(v1, 42);
+
+    let record_cons = arena.alloc_with_children(
+        IrKind::RecordCons,
+        span(),
+        [type_name, and_app, v1],
+    );
+    let callee_lambda = arena.alloc_with_children(IrKind::Lambda, span(), [record_cons]);
+
+    let mut sym = Symbol::new("callee".to_string(), SymbolKind::Function, callee_lambda);
+    sym.return_record_layout = Some(int_pair_16b_layout());
+    arena.symbols_mut().insert(sym);
+
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    let insts = insts_for(&walker, callee_lambda);
+    let sret_sub_idx = insts
+        .iter()
+        .position(|i| {
+            i.mnemonic == Mnemonic::Sub
+                && matches!(i.operands.first(), Some(Operand::Reg(r)) if *r == abi::RSP)
+                && matches!(i.operands.get(1), Some(Operand::Imm64(16)))
+        })
+        .expect("`sub rsp, 16` must precede the field stores");
+
+    // +1: mov rax, 0xdead
+    let m = &insts[sret_sub_idx + 1];
+    assert_eq!(m.mnemonic, Mnemonic::Mov);
+    match (&m.operands[0], &m.operands[1]) {
+        (Operand::Reg(r), Operand::Imm64(v)) => {
+            assert_eq!(*r, abi::RAX, "arg0 must load into RAX");
+            assert_eq!(*v, 0xdead, "arg0 value");
+        }
+        other => panic!("expected mov rax, 0xdead: {:?}", other),
+    }
+
+    // +2: and rax, 0xff
+    let a = &insts[sret_sub_idx + 2];
+    assert_eq!(a.mnemonic, Mnemonic::And, "bit-arith op must be `and`");
+    match (&a.operands[0], &a.operands[1]) {
+        (Operand::Reg(r), Operand::Imm64(v)) => {
+            assert_eq!(*r, abi::RAX);
+            assert_eq!(*v, 0xff, "arg1 value");
+        }
+        other => panic!("expected and rax, 0xff: {:?}", other),
+    }
+
+    // +3: mov [rsp+0], rax — field 0 store from RAX.
+    let s0 = &insts[sret_sub_idx + 3];
+    assert_eq!(s0.mnemonic, Mnemonic::Mov);
+    match (&s0.operands[0], &s0.operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Reg(r)) => {
+            assert_eq!(*base, abi::RSP);
+            assert_eq!(*disp, 0);
+            assert_eq!(*r, abi::RAX, "bit-arith field must store from RAX");
+        }
+        other => panic!("expected mov [rsp+0], rax: {:?}", other),
+    }
+
+    // +4: mov [rsp+8], 42 — Literal-arm regression: byte-identical
+    // to the pre-Wave-50 shape.
+    let s1 = &insts[sret_sub_idx + 4];
+    assert_eq!(s1.mnemonic, Mnemonic::Mov);
+    match (&s1.operands[0], &s1.operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Imm64(v)) => {
+            assert_eq!(*base, abi::RSP);
+            assert_eq!(*disp, 8);
+            assert_eq!(*v, 42, "Literal-field byte-identity must hold");
+        }
+        other => panic!("expected mov [rsp+8], 42: {:?}", other),
+    }
+}
+
+/// Right-shift of a parameter Var by a Literal amount lowers to
+/// `mov rax, <param-reg>; shr rax, imm; mov [rsp+0], rax`. Sets up
+/// the callee lambda's first parameter via `lambda_params` +
+/// `binding_names` so `visit_lambda`'s
+/// `register_nested_lambda_params` binds `x` to SysV param 0
+/// (RDI). The second field re-uses the same Var to prove the flat
+/// operand classifier reads the shared `local_bindings` slot.
+#[test]
+fn record_cons_body_populates_from_bit_shr_of_var_and_literal() {
+    let mut arena = IrArena::new();
+
+    // Parameter Var(`x`) for the callee lambda.
+    let param_x = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(param_x, "x".to_string());
+
+    // Field-value operand Vars alias the same "x" name so their
+    // Var-arm and App-operator arm both read RDI (SysV param 0).
+    let type_name = arena.alloc(IrKind::Var, span());
+    let shr_callee = arena.alloc(IrKind::Var, span());
+    let arg_x = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(arg_x, "x".to_string());
+    let arg_imm = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg_imm, 4);
+    let shr_app = arena.alloc_with_children(
+        IrKind::App,
+        span(),
+        [shr_callee, arg_x, arg_imm],
+    );
+    arena.call_sites_mut().insert(
+        shr_app,
+        CallMeta {
+            callee_name: ">>".to_string(),
+            arg_count: 2,
+            is_intrinsic: true,
+        },
+    );
+
+    // Second field: bare Var(`x`) — Slice D's Var arm remains
+    // byte-identical.
+    let field_b_var = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(field_b_var, "x".to_string());
+
+    let record_cons = arena.alloc_with_children(
+        IrKind::RecordCons,
+        span(),
+        [type_name, shr_app, field_b_var],
+    );
+    let callee_lambda = arena.alloc_with_children(IrKind::Lambda, span(), [record_cons]);
+
+    // Wire the param so `register_nested_lambda_params` installs
+    // "x" → RDI in the walker's local_bindings.
+    arena
+        .lambda_params_mut()
+        .insert(callee_lambda, vec![param_x]);
+
+    let mut sym = Symbol::new("callee".to_string(), SymbolKind::Function, callee_lambda);
+    sym.return_record_layout = Some(int_pair_16b_layout());
+    arena.symbols_mut().insert(sym);
+
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    let insts = insts_for(&walker, callee_lambda);
+    let sret_sub_idx = insts
+        .iter()
+        .position(|i| {
+            i.mnemonic == Mnemonic::Sub
+                && matches!(i.operands.first(), Some(Operand::Reg(r)) if *r == abi::RSP)
+                && matches!(i.operands.get(1), Some(Operand::Imm64(16)))
+        })
+        .expect("`sub rsp, 16` must precede the field stores");
+
+    // +1: mov rax, rdi
+    let m = &insts[sret_sub_idx + 1];
+    assert_eq!(m.mnemonic, Mnemonic::Mov);
+    match (&m.operands[0], &m.operands[1]) {
+        (Operand::Reg(dst), Operand::Reg(src)) => {
+            assert_eq!(*dst, abi::RAX);
+            assert_eq!(
+                *src, abi::RDI,
+                "SysV param 0 must resolve through local_bindings to RDI"
+            );
+        }
+        other => panic!("expected mov rax, rdi: {:?}", other),
+    }
+
+    // +2: shr rax, 4
+    let s = &insts[sret_sub_idx + 2];
+    assert_eq!(s.mnemonic, Mnemonic::Shr);
+    match (&s.operands[0], &s.operands[1]) {
+        (Operand::Reg(r), Operand::Imm64(v)) => {
+            assert_eq!(*r, abi::RAX);
+            assert_eq!(*v, 4);
+        }
+        other => panic!("expected shr rax, 4: {:?}", other),
+    }
+
+    // +3: mov [rsp+0], rax
+    let s0 = &insts[sret_sub_idx + 3];
+    assert_eq!(s0.mnemonic, Mnemonic::Mov);
+    match (&s0.operands[0], &s0.operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Reg(r)) => {
+            assert_eq!(*base, abi::RSP);
+            assert_eq!(*disp, 0);
+            assert_eq!(*r, abi::RAX);
+        }
+        other => panic!("expected mov [rsp+0], rax: {:?}", other),
+    }
+
+    // +4: mov [rsp+8], rdi — Slice D Var arm regression, Var("x")
+    // resolves to RDI (same as the App-operator arg0 above).
+    let s1 = &insts[sret_sub_idx + 4];
+    assert_eq!(s1.mnemonic, Mnemonic::Mov);
+    match (&s1.operands[0], &s1.operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Reg(r)) => {
+            assert_eq!(*base, abi::RSP);
+            assert_eq!(*disp, 8);
+            assert_eq!(
+                *r, abi::RDI,
+                "Var-arm regression: Var(x) still stores from RDI"
+            );
+        }
+        other => panic!("expected mov [rsp+8], rdi: {:?}", other),
+    }
+}
+
+/// FieldAccess(Deref(Var("p"))) lowers to
+/// `mov rax, [<p-reg> + field.offset]; mov [rsp+0], rax` — the
+/// existing width-dispatch helper drives the load, the new arm
+/// splices the sret-slot tail. Sets up:
+///   * `p` bound to RSI via `lambda_params` (SysV param 0 for a
+///     single-param lambda is RDI, but we use two params so `p`
+///     lands in RSI without colliding with the sret helper).
+///   * A source RecordLayout registered on the walker so
+///     `visit_field_access_with_reg` can read the field's offset
+///     and size.
+///   * `mark_field_access_handled` pre-armed so the flat walker
+///     does not fire a second emission of the FieldAccess when it
+///     later meets the node in id-preorder.
+#[test]
+fn record_cons_body_populates_from_field_access_deref_var() {
+    let mut arena = IrArena::new();
+
+    // Source-record layout: two u64 fields at 0/8. `.b` (index 1)
+    // is what the FieldAccess reads.
+    let source_layout = RecordLayout::new(
+        16,
+        8,
+        vec![
+            FieldLayout { offset: 0, size: 8, signed: false, is_float: false },
+            FieldLayout { offset: 8, size: 8, signed: false, is_float: false },
+        ],
+    );
+    let source_type_id = RecordTypeId(7);
+
+    // Callee params: two u64s so `p` lands in RSI (SysV idx 1) —
+    // keeps RDI free for the sret dest pointer whose caller
+    // wiring is orthogonal to this test.
+    let param_unused = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(param_unused, "_".to_string());
+    let param_p = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(param_p, "p".to_string());
+
+    // FieldAccess(Deref(Var("p"))) — read `.b` (index 1).
+    let type_name = arena.alloc(IrKind::Var, span());
+    let ptr_var = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(ptr_var, "p".to_string());
+    let deref = arena.alloc_with_children(IrKind::Deref, span(), [ptr_var]);
+    let fa = arena.alloc_with_children(IrKind::FieldAccess, span(), [deref]);
+    arena.field_access_info_mut().insert(
+        fa,
+        FieldAccessInfo {
+            type_id: source_type_id,
+            field_index: 1,
+        },
+    );
+
+    // Second field: Literal(0) — placeholder so the record has
+    // two fields matching the 16 B pair layout.
+    let v1 = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(v1, 0);
+
+    let record_cons = arena.alloc_with_children(
+        IrKind::RecordCons,
+        span(),
+        [type_name, fa, v1],
+    );
+    let callee_lambda = arena.alloc_with_children(IrKind::Lambda, span(), [record_cons]);
+
+    arena
+        .lambda_params_mut()
+        .insert(callee_lambda, vec![param_unused, param_p]);
+
+    let mut sym = Symbol::new("callee".to_string(), SymbolKind::Function, callee_lambda);
+    sym.return_record_layout = Some(int_pair_16b_layout());
+    arena.symbols_mut().insert(sym);
+
+    let mut walker = EmitWalker::new();
+    walker.state_mut().insert_record_layout(source_type_id, source_layout);
+    // Prevent the flat walker's own FieldAccess pass from
+    // double-emitting the load into the callee lambda's stream.
+    walker.state_mut().mark_field_access_handled(fa.get());
+    walker.walk(&mut arena);
+
+    let insts = insts_for(&walker, callee_lambda);
+    let sret_sub_idx = insts
+        .iter()
+        .position(|i| {
+            i.mnemonic == Mnemonic::Sub
+                && matches!(i.operands.first(), Some(Operand::Reg(r)) if *r == abi::RSP)
+                && matches!(i.operands.get(1), Some(Operand::Imm64(16)))
+        })
+        .expect("`sub rsp, 16` must precede the field stores");
+
+    // +1: mov(sized W64) rax, [rsi + 8] — u64 field load through
+    // the width-dispatch helper. Mnemonic is MovSized{W64} for
+    // 8-byte unsigned fields.
+    let load = &insts[sret_sub_idx + 1];
+    assert!(
+        matches!(load.mnemonic, Mnemonic::MovSized { .. } | Mnemonic::Mov),
+        "FieldAccess load must be a Mov / MovSized variant: {:?}",
+        load.mnemonic
+    );
+    match (&load.operands[0], &load.operands[1]) {
+        (Operand::Reg(dst), Operand::MemSib { base, disp, .. }) => {
+            assert_eq!(*dst, abi::RAX, "FieldAccess must load into RAX");
+            assert_eq!(*base, abi::RSI, "Deref(Var(p)) receiver must resolve to RSI");
+            assert_eq!(*disp, 8, "field `b` sits at offset 8 in source layout");
+        }
+        other => panic!("expected mov rax, [rsi+8]: {:?}", other),
+    }
+
+    // +2: mov [rsp+0], rax
+    let store = &insts[sret_sub_idx + 2];
+    assert_eq!(store.mnemonic, Mnemonic::Mov);
+    match (&store.operands[0], &store.operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Reg(r)) => {
+            assert_eq!(*base, abi::RSP);
+            assert_eq!(*disp, 0);
+            assert_eq!(*r, abi::RAX);
+        }
+        other => panic!("expected mov [rsp+0], rax: {:?}", other),
+    }
+}
+
+/// A field value whose IrKind is neither Literal / Var / App /
+/// FieldAccess (Cast — the `... as u32` node that cpuid_leaf
+/// composition needs but Wave 50 does not yet lower) fires T0578
+/// and skips the store. The neighbouring Literal field still
+/// emits, proving the diagnostic does not abort the whole loop.
+#[test]
+fn record_cons_body_unsupported_field_value_shape_fires_t0578() {
+    let mut arena = IrArena::new();
+
+    // Field 0: a bare Cast node with no populated CastSideTable
+    // entry — deliberately unhandled by the Wave 50 arm set.
+    let type_name = arena.alloc(IrKind::Var, span());
+    let cast_operand = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(cast_operand, 0xffff);
+    let cast_field = arena.alloc_with_children(IrKind::Cast, span(), [cast_operand]);
+
+    // Field 1: Literal(9) — must still emit even after the T0578
+    // for field 0.
+    let v1 = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(v1, 9);
+
+    let record_cons = arena.alloc_with_children(
+        IrKind::RecordCons,
+        span(),
+        [type_name, cast_field, v1],
+    );
+    let callee_lambda = arena.alloc_with_children(IrKind::Lambda, span(), [record_cons]);
+
+    let mut sym = Symbol::new("callee".to_string(), SymbolKind::Function, callee_lambda);
+    sym.return_record_layout = Some(int_pair_16b_layout());
+    arena.symbols_mut().insert(sym);
+
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    // T0578 must fire with the offending IrKind (Cast) named in
+    // its message so a downstream fix knows which shape to teach
+    // the arm about.
+    let diags = walker.take_typed_diagnostics();
+    let has_t0578 = diags.iter().any(|d| d.code().number() == 578);
+    assert!(
+        has_t0578,
+        "unsupported field-value shape must fire T0578; got: {:#?}",
+        diags.iter().map(|d| d.code().to_string()).collect::<Vec<_>>()
+    );
+    let has_cast_message = diags
+        .iter()
+        .any(|d| d.code().number() == 578 && d.message().contains("Cast"));
+    assert!(
+        has_cast_message,
+        "T0578 message must name the offending IrKind (`Cast`); got: {:#?}",
+        diags
+            .iter()
+            .map(|d| format!("{}: {}", d.code(), d.message()))
+            .collect::<Vec<_>>()
+    );
+
+    // The Literal-arm sibling still fires: verify the store for
+    // field 1 (offset 8, value 9) landed under the sret sub.
+    let insts = insts_for(&walker, callee_lambda);
+    let sret_sub_idx = insts
+        .iter()
+        .position(|i| {
+            i.mnemonic == Mnemonic::Sub
+                && matches!(i.operands.first(), Some(Operand::Reg(r)) if *r == abi::RSP)
+                && matches!(i.operands.get(1), Some(Operand::Imm64(16)))
+        })
+        .expect("`sub rsp, 16` must precede the field stores");
+    let after_sub = &insts[sret_sub_idx + 1..];
+    let has_field1_store = after_sub.iter().any(|i| {
+        i.mnemonic == Mnemonic::Mov
+            && matches!(
+                (i.operands.first(), i.operands.get(1)),
+                (
+                    Some(Operand::MemSib { base, disp, .. }),
+                    Some(Operand::Imm64(9)),
+                ) if *base == abi::RSP && *disp == 8
+            )
+    });
+    assert!(
+        has_field1_store,
+        "unsupported field 0 must not abort the loop — Literal field 1 store must still fire: {:#?}",
+        after_sub.iter().map(|i| i.mnemonic).collect::<Vec<_>>()
+    );
 }
