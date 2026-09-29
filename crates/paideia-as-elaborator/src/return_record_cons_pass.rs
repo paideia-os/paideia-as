@@ -44,6 +44,44 @@
 //! path (transient `sub/lea/add`) fires unchanged for such callers —
 //! preserving byte-identical behaviour for the historical corpus,
 //! including the Slice B fixture tests.
+//!
+//! # Slice E — recipe-callee participation (paideia-as#1554)
+//!
+//! PAS-DEBT-B4-002 Slice E extends the `callee_info` map to also
+//! carry every entry from
+//! `stdlib_lowering::enumerate_record_return_recipes()`, keyed by
+//! the trait-qualified name `"<trait_name>::<method_name>"` — the
+//! exact spelling that `walker_pipeline.rs`'s call-site scan stamps
+//! into `CallMeta.callee_name` for a source-level call written
+//! `CpuidOps::cpuid_leaf(...)` (see `is_valid_qualified_identifier`
+//! in `cmd_build/identifier.rs`). Recipes have no user-code Let, so
+//! `return_record_layout_table` never sees them; injecting them into
+//! the same map at pass entry makes recipe-callee App sites
+//! participate in caller-frame slot packing on the same footing as
+//! user-Let callees.
+//!
+//! Consequence: an App that calls `CpuidOps::cpuid_leaf` now gets a
+//! persistent 16 B slot in `caller_sret_slot_table`. `emit_call.rs`
+//! reads the slot at the sret prelude and emits a single
+//! `lea rdi, [rbp - slot_disp]` instead of the Slice B transient
+//! `sub rsp, 16; lea rdi, [rsp+0]`. The SysVRegs recipe splice
+//! branch — which returns without executing `add rsp, padded_slot`
+//! — no longer leaves RSP 16 B low across the splice, because the
+//! transient bump never fires. Recipe ABI is always SysV today
+//! (the recipe registry produces only SysV callees), so the
+//! classifier arm is hard-wired to `CallingConvention::Sysv`.
+//!
+//! Recipes with `arg_convention: ArgConvention::Literal` return
+//! before reaching the sret setup in `emit_call.rs`; allocating a
+//! slot for them here is harmless (the slot is never read) and
+//! keeps the pass's registry-consumption loop uniform.
+//!
+//! **User-Let callee behaviour is byte-identical.** The
+//! recipe-injection loop runs AFTER the user-Let loop, so a
+//! HashMap conflict resolves recipe-wins — but the raw parser
+//! rejects `::` inside plain identifiers (only qualified paths
+//! carry the separator), so a genuine collision cannot arise from
+//! well-formed pdx.
 
 use paideia_as_ir::abi::{
     ms_return_placement_from_layout, sysv_return_placement_from_layout, MsReturnPlacement,
@@ -51,6 +89,8 @@ use paideia_as_ir::abi::{
 };
 use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::{CallerSretSlot, IrArena, IrKind, IrNodeId};
+
+use crate::stdlib_lowering::enumerate_record_return_recipes;
 
 /// Populate `IrArena::caller_sret_slot_table` and
 /// `IrArena::caller_sret_frame_bump_table`.
@@ -126,6 +166,38 @@ pub fn populate_return_record_cons_slots(ir: &mut IrArena) {
             continue;
         }
         callee_info.insert(name, CalleeInfo { shape: inner, padded_size });
+    }
+
+    // PAS-DEBT-B4-002 Slice E (paideia-as#1554): fold every
+    // record-returning stdlib recipe into the same map, keyed by the
+    // trait-qualified spelling `"<trait_name>::<method_name>"` that
+    // `walker_pipeline.rs`'s call-site scan stamps into
+    // `CallMeta.callee_name` for a source-level `Trait::method(...)`
+    // call. Without this, recipe callees never receive a persistent
+    // caller sret slot and `emit_call.rs`'s SysVRegs recipe splice
+    // branch (which returns without executing `add rsp, padded_slot`)
+    // leaves RSP 16 B low across every record-returning recipe call.
+    //
+    // ABI is hard-wired to SysV — every entry in
+    // `enumerate_record_return_recipes()` currently uses the SysV
+    // caller convention (recipes take args via RDI/RSI/RDX/... after
+    // the sret shift). If a future MS-ABI recipe joins the registry,
+    // this arm needs to widen; the classifier helpers below already
+    // handle either convention.
+    for entry in enumerate_record_return_recipes() {
+        let key = format!("{}::{}", entry.trait_name, entry.method_name);
+        let padded_size = padded_slot_bytes(entry.layout.size);
+        // Recipes today all use SysV. When Ms recipes appear, this
+        // hard-wire should read the recipe's own ABI tag (currently
+        // `LoweringRecipe` does not carry one — SysV is implicit).
+        let inner = classify_sysv(sysv_return_placement_from_layout(&entry.layout));
+        if matches!(inner, PlacementShapeInner::Absent) {
+            continue;
+        }
+        // insert(): recipe wins on any (impossible in well-formed
+        // pdx) collision with a user-Let name — the parser rejects
+        // `::` inside plain identifiers, so no genuine clash arises.
+        callee_info.insert(key, CalleeInfo { shape: inner, padded_size });
     }
 
     if callee_info.is_empty() {
@@ -519,5 +591,179 @@ mod tests {
             .get(caller_lambda)
             .expect("bump present for caller with slots");
         assert_eq!(*bump, 64);
+    }
+
+    // ── Slice E: recipe-callee participation (paideia-as#1554) ─────
+
+    /// PAS-DEBT-B4-002 Slice E (paideia-as#1554): an App calling
+    /// `CpuidOps::cpuid_leaf` — a stdlib recipe with a record-return
+    /// layout registered in `enumerate_record_return_recipes()` — now
+    /// receives a persistent caller-frame slot without any user-Let
+    /// entry in `return_record_layout_table`. Pre-Slice E, this call
+    /// site fell through to `emit_call.rs`'s Slice B transient path
+    /// (`sub rsp, 16; lea rdi, [rsp+0]`), which the SysVRegs recipe
+    /// splice branch left unreleased (no `add rsp, 16`), leaving the
+    /// caller's RSP 16 B low across the splice.
+    ///
+    /// Slot size: CpuidRegs is 16 B natural-aligned → `padded_slot_bytes`
+    /// rounds to 16-multiple = 16; single slot lives at `[RBP - 16]`.
+    #[test]
+    fn recipe_callee_cpuid_leaf_allocates_persistent_slot() {
+        let mut ir = IrArena::new();
+
+        // No stamp_callee here: `CpuidOps::cpuid_leaf` has no
+        // user-code Let. The pass must synthesise the callee_info
+        // entry directly from `enumerate_record_return_recipes()`.
+        let callee_var = ir.alloc(IrKind::Var, span());
+        let app = ir.alloc_with_children(IrKind::App, span(), [callee_var]);
+        ir.call_sites_mut().insert(
+            app,
+            CallMeta {
+                // walker_pipeline.rs stamps the trait-qualified
+                // spelling verbatim from the source (see
+                // `is_valid_qualified_identifier`).
+                callee_name: "CpuidOps::cpuid_leaf".to_string(),
+                arg_count: 2,
+                is_intrinsic: false,
+            },
+        );
+        let caller_lambda = ir.alloc_with_children(IrKind::Lambda, span(), [app]);
+
+        populate_return_record_cons_slots(&mut ir);
+
+        let slot = ir
+            .caller_sret_slot_table()
+            .get(app)
+            .expect("recipe callee must allocate a persistent caller sret slot in Slice E");
+        assert_eq!(slot.padded_size, 16, "CpuidRegs is 16 B, already 16-aligned");
+        assert_eq!(slot.rbp_disp, -16, "single slot lives at [RBP - 16]");
+
+        let bump = ir
+            .caller_sret_frame_bump_table()
+            .get(caller_lambda)
+            .expect("recipe callee must bump the caller frame in Slice E");
+        assert_eq!(*bump, 16);
+    }
+
+    /// PAS-DEBT-B4-002 Slice E: two calls to the same recipe callee
+    /// in the same caller pack into two non-overlapping slots (each
+    /// 16 B), summing to a 32 B caller-frame bump. Mirrors the
+    /// user-Let `two_memory_calls_pack_non_overlapping_slots`
+    /// invariant on the recipe-callee axis.
+    #[test]
+    fn recipe_callee_two_calls_pack_non_overlapping_slots() {
+        let mut ir = IrArena::new();
+
+        let callee_var_1 = ir.alloc(IrKind::Var, span());
+        let app_1 = ir.alloc_with_children(IrKind::App, span(), [callee_var_1]);
+        ir.call_sites_mut().insert(
+            app_1,
+            CallMeta {
+                callee_name: "CpuidOps::cpuid_leaf".to_string(),
+                arg_count: 2,
+                is_intrinsic: false,
+            },
+        );
+        let callee_var_2 = ir.alloc(IrKind::Var, span());
+        let app_2 = ir.alloc_with_children(IrKind::App, span(), [callee_var_2]);
+        ir.call_sites_mut().insert(
+            app_2,
+            CallMeta {
+                callee_name: "CpuidOps::cpuid_leaf".to_string(),
+                arg_count: 2,
+                is_intrinsic: false,
+            },
+        );
+        let caller_lambda =
+            ir.alloc_with_children(IrKind::Lambda, span(), [app_1, app_2]);
+
+        populate_return_record_cons_slots(&mut ir);
+
+        let s1 = ir.caller_sret_slot_table().get(app_1).unwrap();
+        let s2 = ir.caller_sret_slot_table().get(app_2).unwrap();
+        assert_eq!(s1.padded_size, 16);
+        assert_eq!(s2.padded_size, 16);
+        let disps = [s1.rbp_disp, s2.rbp_disp];
+        assert!(disps.contains(&-16));
+        assert!(disps.contains(&-32));
+        assert_ne!(s1.rbp_disp, s2.rbp_disp, "slots must not overlap");
+
+        let bump = ir
+            .caller_sret_frame_bump_table()
+            .get(caller_lambda)
+            .expect("caller frame bump present for two recipe calls");
+        assert_eq!(*bump, 32);
+    }
+
+    /// PAS-DEBT-B4-002 Slice E: mixing a user-Let callee and a
+    /// recipe callee inside the same caller Lambda produces
+    /// independent slots for each App, both packed downward from
+    /// RBP. The user-Let entry must retain byte-identical shape
+    /// with the pre-Slice-E `memory_callee_single_call_allocates_
+    /// one_slot` fixture — Slice E's registry-fold must not perturb
+    /// the historical user-Let path.
+    #[test]
+    fn mixed_user_let_and_recipe_callees_both_get_slots() {
+        let mut ir = IrArena::new();
+
+        // User-Let callee: 24 B Memory-classified record → 32 B slot.
+        let user_let = ir.alloc(IrKind::Let, span());
+        stamp_callee(&mut ir, user_let, "user_callee", memory_24b_layout());
+
+        let user_callee_var = ir.alloc(IrKind::Var, span());
+        let user_app =
+            ir.alloc_with_children(IrKind::App, span(), [user_callee_var]);
+        ir.call_sites_mut().insert(
+            user_app,
+            CallMeta {
+                callee_name: "user_callee".to_string(),
+                arg_count: 0,
+                is_intrinsic: false,
+            },
+        );
+
+        // Recipe callee: CpuidRegs 16 B → 16 B slot.
+        let recipe_callee_var = ir.alloc(IrKind::Var, span());
+        let recipe_app =
+            ir.alloc_with_children(IrKind::App, span(), [recipe_callee_var]);
+        ir.call_sites_mut().insert(
+            recipe_app,
+            CallMeta {
+                callee_name: "CpuidOps::cpuid_leaf".to_string(),
+                arg_count: 2,
+                is_intrinsic: false,
+            },
+        );
+
+        let caller_lambda = ir.alloc_with_children(
+            IrKind::Lambda,
+            span(),
+            [user_app, recipe_app],
+        );
+
+        populate_return_record_cons_slots(&mut ir);
+
+        let user_slot = ir
+            .caller_sret_slot_table()
+            .get(user_app)
+            .expect("user-Let callee must still allocate a slot");
+        let recipe_slot = ir
+            .caller_sret_slot_table()
+            .get(recipe_app)
+            .expect("recipe callee must allocate a slot in Slice E");
+
+        // Two distinct sizes, two distinct RBP disps. Total bump = 48.
+        assert_eq!(user_slot.padded_size, 32);
+        assert_eq!(recipe_slot.padded_size, 16);
+        assert_ne!(
+            user_slot.rbp_disp, recipe_slot.rbp_disp,
+            "user-Let and recipe slots must not overlap"
+        );
+
+        let bump = ir
+            .caller_sret_frame_bump_table()
+            .get(caller_lambda)
+            .expect("mixed-callee caller must have a frame bump");
+        assert_eq!(*bump, 48, "32 + 16 = 48, no additional 16-multiple round-up needed");
     }
 }

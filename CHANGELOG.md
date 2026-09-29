@@ -1,5 +1,81 @@
 # Changelog
 
+## v0.36.79 — 2026-09-28 — Issue #1554 Slice E: recipe callees in return_record_cons_pass
+
+paideia-as#1554 Slice E closes the Wave 54 (v0.36.78) known gap:
+`populate_return_record_cons_slots` now folds every
+record-returning stdlib recipe from
+`enumerate_record_return_recipes()` into its `callee_info` map,
+keyed by the trait-qualified spelling `"<trait_name>::<method_name>"`
+that `walker_pipeline.rs`'s call-site scan stamps into
+`CallMeta.callee_name` for source-level `Trait::method(...)` calls.
+Recipe-callee App sites therefore now receive a persistent
+caller-frame slot on the same footing as user-Let callees.
+
+  * **`callee_info` recipe-injection loop** (`crates/paideia-as-
+    elaborator/src/return_record_cons_pass.rs`): a second loop
+    after the existing `layout_entries` walk iterates
+    `enumerate_record_return_recipes()` and inserts a `CalleeInfo`
+    for each entry. ABI is hard-wired to SysV (the entire recipe
+    registry uses SysV today); the existing `classify_sysv` /
+    `padded_slot_bytes` helpers are reused unchanged. Recipes with
+    `PlacementShapeInner::Absent` (none today, defensive) are
+    skipped. The recipe loop runs AFTER the user-Let loop so an
+    (impossible in well-formed pdx) name clash resolves
+    recipe-wins.
+
+  * **Consequence for `CpuidOps::cpuid_leaf` callers**: an App
+    calling the recipe now looks up a slot via
+    `arena.caller_sret_slot_table().get(app_id)` in `emit_call.rs`
+    and emits a single `lea rdi, [rbp - slot_disp]` (persistent
+    slot) instead of the Slice B transient `sub rsp, 16; lea rdi,
+    [rsp+0]`. The SysVRegs recipe splice branch's missing
+    `add rsp, padded_slot` release (see Wave 54's "Known remaining
+    gap" note in `stdlib_lowering/cpuidops.rs`) is now irrelevant:
+    the transient bump never fires, so there is nothing to release.
+    Caller-side RSP invariance across a record-returning recipe
+    call is restored.
+
+  * **User-Let callee behaviour is byte-identical.** No pre-Slice-E
+    fixture changes shape: the user-Let population loop runs
+    unchanged and the recipe loop only writes new keys (or
+    overwrites recipe-shaped keys that user code cannot legally
+    produce — `::` is rejected by the identifier lexer for plain
+    Let bindings). The `memory_callee_single_call_allocates_one_
+    slot`, `intpair_callee_allocates_persistent_slot_in_slice_d`,
+    `scalar_returning_callee_produces_no_entries`, and
+    `two_memory_calls_pack_non_overlapping_slots` tests all
+    continue to pin the historical shape.
+
+  * **Three new tests** (same file): `recipe_callee_cpuid_leaf_
+    allocates_persistent_slot` (single recipe App → 16 B slot at
+    `[RBP - 16]`, bump = 16); `recipe_callee_two_calls_pack_non_
+    overlapping_slots` (two recipe Apps → two distinct slots,
+    bump = 32); `mixed_user_let_and_recipe_callees_both_get_slots`
+    (mixed caller → both slot kinds packed downward, user-Let
+    at `-32`, recipe at `-48`, bump = 48).
+
+  * **Docblock updates**: file-level "Slice E — recipe-callee
+    participation" section added summarising the pattern and its
+    call-site path via `is_valid_qualified_identifier`. No emit-
+    side changes — the arena side-table `caller_sret_slot_table`
+    is already the authoritative source for `emit_call.rs`'s
+    persistent-vs-transient dispatch (Slice C landed that path;
+    Slice E just widens who populates the table).
+
+  * **Closes** the Wave-54 known-gap for issue #1524. Slice E
+    unblocks a clean close of that issue: the recipe machinery is
+    in place, the layout registry is populated, and the caller
+    now allocates the persistent buffer that the recipe's sret
+    stores target.
+
+  * **Constraints honoured**: no changes to
+    `enumerate_record_return_recipes()` itself, the recipe
+    registry, or any pre-existing user-Let path. Classifier arms
+    keep their `_ =>` wildcards for the `#[non_exhaustive]`
+    `SysvReturnPlacement` / `MsReturnPlacement` enums (debt-
+    catalog reminder).
+
 ## v0.36.78 — 2026-09-28 — Issue #1524 Wave 54: PAS-DEBT-B4-002 Path A landed — record-returning CpuidOps::cpuid_leaf recipe
 
 paideia-as#1524 Wave 54 consumes the Wave 52 (#1558, v0.36.76 —
