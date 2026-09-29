@@ -73,6 +73,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "percpu_add" => {
@@ -135,6 +137,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "read_u64" => {
@@ -171,6 +175,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "write_u64" => {
@@ -208,6 +214,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "cmpxchg64" => {
@@ -271,6 +279,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,

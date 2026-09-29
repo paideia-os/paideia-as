@@ -125,7 +125,16 @@ pub(super) fn resolve_symbol_names_and_let_meta(
                     sym.ir_node,
                     sym.abi,
                 )
-                .with_return_record_layout(sym.return_record_layout.clone());
+                .with_return_record_layout(sym.return_record_layout.clone())
+                // PAS-DEBT-B4-002-followup Gap B (paideia-as#1559):
+                // carry the Slice-C splice-suppression flag across the
+                // rename, mirroring the `return_record_layout` carry
+                // above. Without this, a recipe-synthetic Symbol
+                // renamed by resolve_names would silently lose its
+                // opt-out and emit_ret would re-splice over its own
+                // packing on the vanishingly-rare Lambda-emission
+                // path.
+                .with_skip_sret_splice(sym.skip_sret_splice);
                 // `new_with_abi` auto-globals _start / long_mode_entry;
                 // any explicit `pub` visibility is stamped afterwards so
                 // it wins over the default. Preserves the previous

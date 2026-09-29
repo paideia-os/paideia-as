@@ -546,3 +546,135 @@ fn slice_b_fallback_when_no_caller_slot() {
         other => panic!("unexpected Slice B LEA operands: {:?}", other),
     }
 }
+
+// ── paideia-as#1559 Gap B: skip_sret_splice gate ──────────────────────
+
+/// A callee whose Symbol carries a record-return layout AND
+/// `skip_sret_splice = true` must NOT emit the callee-side sret
+/// splice — no `sub rsp, padded_size`, no per-eightbyte load/store,
+/// no `mov rax, rdi`. The Lambda's body is expected to have already
+/// placed the return value into the ABI-appropriate registers or
+/// sret buffer.
+///
+/// Pins the Wave 51 gate: when the flag is set the historical Slice C
+/// splice is suppressed. Complements the two sibling assertions
+/// above (splice fires when the flag is default-false on Memory /
+/// IntPair placements).
+#[test]
+fn sysv_memory_callee_with_skip_sret_splice_omits_slice_c_splice() {
+    let mut arena = IrArena::new();
+
+    let body = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(body, 0);
+    let callee_lambda = arena.alloc_with_children(IrKind::Lambda, span(), [body]);
+
+    // Stamp the layout AND the skip flag.
+    let mut sym = Symbol::new("callee".to_string(), SymbolKind::Function, callee_lambda);
+    sym.return_record_layout = Some(memory_24b_layout());
+    sym.skip_sret_splice = true;
+    arena.symbols_mut().insert(sym);
+
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    let insts = insts_for(&walker, callee_lambda);
+
+    // No `sub rsp, 32` (the sret source-buffer allocation the splice
+    // would have emitted for a 24 B Memory-placed layout, padded to
+    // 32 B for SysV mod-16). Any other `sub rsp, …` in this test
+    // fixture is out of scope — the body is a bare Literal, so the
+    // only rsp-touching sub would be the sret allocation.
+    for inst in &insts {
+        if inst.mnemonic == Mnemonic::Sub {
+            match inst.operands.first() {
+                Some(Operand::Reg(r)) if *r == abi::RSP => {
+                    panic!(
+                        "skip_sret_splice=true must suppress Slice C's sret \
+                         sub rsp allocation, got: {:?}",
+                        inst
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Also assert the fingerprint `mov rax, rdi` of the sret store
+    // tail is absent — the body is `Literal 0` which would emit
+    // `mov rax, 0`, distinguishable from `mov rax, rdi`.
+    for inst in &insts {
+        if inst.mnemonic == Mnemonic::Mov && inst.operands.len() == 2 {
+            if let (Operand::Reg(r0), Operand::Reg(r1)) =
+                (&inst.operands[0], &inst.operands[1])
+            {
+                assert!(
+                    !(*r0 == abi::RAX && *r1 == abi::RDI),
+                    "skip_sret_splice=true must suppress the `mov rax, rdi` \
+                     that tails Slice C's Memory-placement splice"
+                );
+            }
+        }
+    }
+}
+
+/// The Wave-51 gate is *per-Symbol*: a distinct callee with
+/// `skip_sret_splice = false` still receives the splice, even in the
+/// same walker session. Guards against the gate being globally hoisted
+/// (a state-bag misplacement that would silently disable the splice
+/// for every callee once any one asks for it).
+#[test]
+fn skip_sret_splice_is_per_callee_not_global() {
+    let mut arena = IrArena::new();
+
+    // Callee A: skip_sret_splice = true (splice suppressed).
+    let body_a = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(body_a, 0);
+    let callee_a = arena.alloc_with_children(IrKind::Lambda, span(), [body_a]);
+    let mut sym_a = Symbol::new("callee_a".to_string(), SymbolKind::Function, callee_a);
+    sym_a.return_record_layout = Some(memory_24b_layout());
+    sym_a.skip_sret_splice = true;
+    arena.symbols_mut().insert(sym_a);
+
+    // Callee B: skip_sret_splice = false (splice fires).
+    let body_b = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(body_b, 0);
+    let callee_b = arena.alloc_with_children(IrKind::Lambda, span(), [body_b]);
+    let mut sym_b = Symbol::new("callee_b".to_string(), SymbolKind::Function, callee_b);
+    sym_b.return_record_layout = Some(memory_24b_layout());
+    // skip_sret_splice defaults to false — leave it.
+    arena.symbols_mut().insert(sym_b);
+
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    let insts_a = insts_for(&walker, callee_a);
+    let insts_b = insts_for(&walker, callee_b);
+
+    // Callee A must NOT contain an rsp-directed sub with imm 32.
+    for inst in &insts_a {
+        if inst.mnemonic == Mnemonic::Sub
+            && matches!(inst.operands.first(), Some(Operand::Reg(r)) if *r == abi::RSP)
+            && matches!(inst.operands.get(1), Some(Operand::Imm64(32)))
+        {
+            panic!(
+                "callee_a with skip_sret_splice=true must not carry the sret sub rsp,32"
+            );
+        }
+    }
+
+    // Callee B must contain exactly one `sub rsp, 32` (the sret
+    // source-buffer allocation).
+    let b_sub_count = insts_b
+        .iter()
+        .filter(|i| {
+            i.mnemonic == Mnemonic::Sub
+                && matches!(i.operands.first(), Some(Operand::Reg(r)) if *r == abi::RSP)
+                && matches!(i.operands.get(1), Some(Operand::Imm64(32)))
+        })
+        .count();
+    assert_eq!(
+        b_sub_count, 1,
+        "callee_b with skip_sret_splice=false must still receive the sret splice \
+         even when a sibling callee opted out"
+    );
+}

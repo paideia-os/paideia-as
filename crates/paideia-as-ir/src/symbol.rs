@@ -66,6 +66,42 @@ pub struct Symbol {
     /// elaborator could not compute (unsupported field type, unresolved
     /// name, etc.). See PAS-DEBT-B4-002 Slice A (#1554).
     pub return_record_layout: Option<RecordLayout>,
+    /// PAS-DEBT-B4-002-followup Gap B (paideia-as#1559): opt-out flag
+    /// gating the callee-side Slice-C splice in
+    /// `emit_walker::emit_core::emit_ret`.
+    ///
+    /// When `true`, `emit_callee_sret_splice` early-returns before
+    /// emitting its scaffold-buffer allocation and `sysv_callee_*`
+    /// helper stream — the enclosing Lambda's own body is expected to
+    /// have already placed the return value into the ABI-appropriate
+    /// register(s) or sret buffer (e.g. a hand-written `unsafe {
+    /// block: { ... } }` raw-asm body, or a synthetic Symbol standing
+    /// in for a stdlib recipe whose caller-inlined instructions do
+    /// the packing directly). Skipping the splice is what preserves
+    /// those hand-written stores; the historical (Wave 45) behaviour
+    /// would append a duplicate copy sequence over uninitialised
+    /// source bytes, clobbering the intentional stores.
+    ///
+    /// `false` (the default on every constructor) preserves existing
+    /// behaviour for every user-code record-returning callee whose
+    /// body is a `RecordCons` expression the Slice-D populator can
+    /// fold — the historical corpus.
+    ///
+    /// Populated by:
+    ///   * `return_record_layout_pass::populate_return_record_layouts`
+    ///     when it injects a synthetic Symbol for a record-returning
+    ///     stdlib recipe (`enumerate_record_return_recipes`) — the
+    ///     flag mirrors the recipe's own `skip_sret_splice` field.
+    ///   * (Future) an attribute-driven pass reading a
+    ///     `#[skip_sret_splice]` marker on a Let, for hand-written
+    ///     raw-asm Lambda bodies. Deferred to a follow-up; today the
+    ///     mechanism exists only for the recipe-injector path.
+    ///
+    /// Like `return_record_layout`, this field is metadata and is
+    /// excluded from `Hash`/`Eq`/`PartialEq` so an insert-then-
+    /// populate flow does not produce two distinct table entries for
+    /// the same binding.
+    pub skip_sret_splice: bool,
 }
 
 // Hand-written PartialEq / Eq / Hash — exclude `return_record_layout` so
@@ -118,6 +154,7 @@ impl Symbol {
             visibility,
             abi: None,
             return_record_layout: None,
+            skip_sret_splice: false,
         }
     }
 
@@ -136,6 +173,7 @@ impl Symbol {
             visibility,
             abi: None,
             return_record_layout: None,
+            skip_sret_splice: false,
         }
     }
 
@@ -159,6 +197,7 @@ impl Symbol {
             visibility,
             abi,
             return_record_layout: None,
+            skip_sret_splice: false,
         }
     }
 
@@ -174,6 +213,24 @@ impl Symbol {
     #[must_use]
     pub fn with_return_record_layout(mut self, layout: Option<RecordLayout>) -> Self {
         self.return_record_layout = layout;
+        self
+    }
+
+    /// Attach the Slice-C splice-suppression flag, consuming and
+    /// returning `self`.
+    ///
+    /// Builder for the PAS-DEBT-B4-002-followup Gap B (#1559) opt-out.
+    /// Pass `true` to make `emit_walker::emit_core::emit_ret` skip its
+    /// `emit_callee_sret_splice` call for the enclosing Lambda —
+    /// necessary when the body has already placed the return value
+    /// into the ABI-appropriate register(s) or sret buffer (a hand-
+    /// written raw-asm body, or a stdlib-recipe synthetic Symbol whose
+    /// caller-inlined instructions do the packing directly). Pass
+    /// `false` (the default on every constructor) to preserve the
+    /// historical splice-on-record-return behaviour.
+    #[must_use]
+    pub fn with_skip_sret_splice(mut self, skip: bool) -> Self {
+        self.skip_sret_splice = skip;
         self
     }
 }
@@ -551,5 +608,99 @@ mod tests {
         let mut h2 = DefaultHasher::new();
         with_layout.hash(&mut h2);
         assert_eq!(h1.finish(), h2.finish());
+    }
+
+    // ---- PAS-DEBT-B4-002-followup Gap B (#1559): skip_sret_splice ----
+
+    /// Every constructor defaults `skip_sret_splice` to `false` — the
+    /// historical behaviour is to fire the splice for any Lambda whose
+    /// Symbol carries a `return_record_layout`. Slice-C gate flips
+    /// only on an explicit `true`.
+    #[test]
+    fn skip_sret_splice_defaults_to_false() {
+        use crate::let_meta::CallingConvention;
+        let node_id = test_ir_node_id();
+
+        let s1 = Symbol::new("s1".to_string(), SymbolKind::Function, node_id);
+        assert!(!s1.skip_sret_splice);
+
+        let s2 = Symbol::new_with_visibility(
+            "s2".to_string(),
+            SymbolKind::Function,
+            node_id,
+            Visibility::Global,
+        );
+        assert!(!s2.skip_sret_splice);
+
+        let s3 = Symbol::new_with_abi(
+            "s3".to_string(),
+            SymbolKind::Function,
+            node_id,
+            Some(CallingConvention::Sysv),
+        );
+        assert!(!s3.skip_sret_splice);
+    }
+
+    /// The `with_skip_sret_splice` builder attaches the flag without
+    /// disturbing other fields; a subsequent call with the opposite
+    /// value overwrites it.
+    #[test]
+    fn with_skip_sret_splice_attaches_and_clears() {
+        let node_id = test_ir_node_id();
+
+        let sym = Symbol::new("cpuid_leaf".to_string(), SymbolKind::Function, node_id)
+            .with_skip_sret_splice(true);
+        assert!(sym.skip_sret_splice);
+
+        let cleared = sym.with_skip_sret_splice(false);
+        assert!(!cleared.skip_sret_splice);
+    }
+
+    /// Like `return_record_layout`, `skip_sret_splice` is not part of
+    /// the symbol's identity — an insert-then-populate flow must not
+    /// produce two distinct table entries for the same binding.
+    #[test]
+    fn skip_sret_splice_not_part_of_identity() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let node_id = test_ir_node_id();
+        let bare = Symbol::new("cpuid".to_string(), SymbolKind::Function, node_id);
+        let flagged = Symbol::new("cpuid".to_string(), SymbolKind::Function, node_id)
+            .with_skip_sret_splice(true);
+
+        assert_eq!(bare, flagged);
+
+        let mut h1 = DefaultHasher::new();
+        bare.hash(&mut h1);
+        let mut h2 = DefaultHasher::new();
+        flagged.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+    }
+
+    /// The two Slice-C metadata fields (`return_record_layout` and
+    /// `skip_sret_splice`) compose cleanly through the builder chain:
+    /// the latter attaches without clearing the former, and vice
+    /// versa.
+    #[test]
+    fn builder_chain_layout_then_skip_preserves_both() {
+        use crate::record_layout::{FieldLayout, RecordLayout};
+
+        let node_id = test_ir_node_id();
+        let layout = RecordLayout::new(
+            8,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
+            ],
+        );
+
+        let sym = Symbol::new("recipe_cpuid".to_string(), SymbolKind::Function, node_id)
+            .with_return_record_layout(Some(layout.clone()))
+            .with_skip_sret_splice(true);
+
+        assert_eq!(sym.return_record_layout, Some(layout));
+        assert!(sym.skip_sret_splice);
     }
 }

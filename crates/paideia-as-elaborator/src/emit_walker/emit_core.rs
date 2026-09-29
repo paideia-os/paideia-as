@@ -394,6 +394,25 @@ impl EmitWalker {
         let Some(layout) = sym.return_record_layout.as_ref() else {
             return;
         };
+        // PAS-DEBT-B4-002-followup Gap B (paideia-as#1559): per-Symbol
+        // opt-out. When `skip_sret_splice` is `true`, the enclosing
+        // Lambda's body has already placed the return value into the
+        // ABI-appropriate register(s) or sret buffer — a hand-written
+        // `unsafe { block: { ... } }` raw-asm body, or a recipe-
+        // synthetic Symbol whose caller-inlined instructions did the
+        // packing directly. Firing the splice here would append a
+        // duplicate `sub rsp, padded` + copy-from-uninitialised-source
+        // + `mov rax, rdi` sequence over the intentional stores,
+        // silently clobbering them (the exact Wave-46 blocker).
+        //
+        // Preserves the historical behaviour byte-identically when
+        // `skip_sret_splice` is `false` (the default on every Symbol
+        // constructor); no user-code record-returning callee whose
+        // body is a `RecordCons` the Slice-D populator can fold ever
+        // sets this flag, so the historical corpus is unaffected.
+        if sym.skip_sret_splice {
+            return;
+        }
         let abi_cc = sym.abi.unwrap_or(CallingConvention::Sysv);
 
         // Compute the source-buffer padding once — mirrors

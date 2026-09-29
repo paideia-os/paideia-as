@@ -44,9 +44,10 @@
 use paideia_as_ast::{AstArena, ItemData, NodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::SourceMap;
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout};
-use paideia_as_ir::{IrArena, IrNodeId};
+use paideia_as_ir::{IrArena, IrNodeId, Symbol, SymbolKind};
 use std::collections::HashMap;
 
+use crate::stdlib_lowering::enumerate_record_return_recipes;
 use crate::struct_registry::{StructRegistry, decode_field_type};
 
 /// Populate `IrArena::return_record_layout_table` from item-level Let
@@ -96,6 +97,64 @@ pub fn populate_return_record_layouts(
 
         let Some(let_ir_id) = ast_to_ir.get(&ast_id) else { continue };
         ir.return_record_layout_table_mut().insert(*let_ir_id, layout);
+    }
+
+    // PAS-DEBT-B4-002-followup Gap C (paideia-as#1559): recipe-side
+    // participation. `stdlib_lowering` recipes are keyed by
+    // `(trait_name, method_name)` and inlined at emit_call time — the
+    // call target's name (`"<Trait>::<method>"`) does not resolve to
+    // any user-code Let, so the walker never populates a Symbol for
+    // it in `arena.symbols_mut()`. Slice B's site probe in
+    // `emit_call.rs` reads `Symbol::return_record_layout` off the
+    // callee's Symbol; without a Symbol, the probe silently sees
+    // scalar-return shape and the caller-side sret dance never fires
+    // for a record-returning recipe.
+    //
+    // Fix: enumerate every recipe with a declared record return
+    // (`enumerate_record_return_recipes` in `stdlib_lowering::mod.rs`)
+    // and inject a synthetic Symbol for each, keyed by
+    // `"<trait_name>::<method_name>"` — the exact spelling
+    // `resolve_stdlib_trait_method` produces on the caller side.
+    //
+    // # Synthetic Symbol shape
+    //
+    //   * `kind = SymbolKind::Function` — every recipe is call-shaped.
+    //   * `ir_node` = a placeholder id (invalid, `IrNodeId::new(u32::MAX).unwrap()`
+    //     via the pinned sentinel). No Lambda body exists behind a
+    //     recipe, so no lookup_by_ir_node ever consults this field
+    //     legitimately. Keyed lookups from `lookup_by_name` are the
+    //     only intended consumer.
+    //   * `visibility = Local` — recipe symbols are never linker-
+    //     visible; the recipe is inlined at every callsite.
+    //   * `abi = None` — SysV default; recipes today all use SysV
+    //     arg-marshalling.
+    //   * `return_record_layout = Some(entry.layout)` — the reason
+    //     this Symbol exists at all.
+    //   * `skip_sret_splice = entry.skip_sret_splice` — mirrors the
+    //     recipe's own opt-out flag onto the synthetic Symbol so
+    //     `emit_ret::emit_callee_sret_splice` sees a consistent
+    //     answer if any future path ever inlines a recipe as a
+    //     Lambda body.
+    //
+    // # Idempotency
+    //
+    // `SymbolTable::insert` replaces in place on name collision. If a
+    // user-code Let happens to shadow a recipe's name (unusual but
+    // possible: `pub let CpuidOps__cpuid_leaf : ... = fn (...) → ...`),
+    // the item-level walk above ran FIRST — the synthetic Symbol
+    // injection here overwrites it. This preserves the Slice-B
+    // contract (recipe callees get recipe layout) at the cost of
+    // ignoring a user shadow, which is the right default: user code
+    // that names a recipe verbatim is almost certainly a mistake, and
+    // the trait/method call syntax `Trait::method(...)` resolves to
+    // the recipe path first regardless.
+    let recipe_sentinel_id = IrNodeId::new(u32::MAX).expect("u32::MAX is a valid IrNodeId");
+    for entry in enumerate_record_return_recipes() {
+        let symbol_name = format!("{}::{}", entry.trait_name, entry.method_name);
+        let sym = Symbol::new(symbol_name, SymbolKind::Function, recipe_sentinel_id)
+            .with_return_record_layout(Some(entry.layout))
+            .with_skip_sret_splice(entry.skip_sret_splice);
+        ir.symbols_mut().insert(sym);
     }
 }
 
@@ -518,4 +577,75 @@ mod tests {
             "non-Lambda RHS must not populate the return-record side-table"
         );
     }
+
+    // ---- paideia-as#1559 Gap C: recipe-side Symbol injection ----
+
+    /// The recipe injector runs unconditionally at the tail of
+    /// `populate_return_record_layouts`. With the recipe registry
+    /// empty (`enumerate_record_return_recipes` returns `Vec::new()`
+    /// today), no synthetic Symbols land in `arena.symbols_mut()`.
+    /// Preserves byte-identical historical behaviour for every
+    /// existing stdlib call.
+    #[test]
+    fn recipe_injector_no_op_when_registry_empty() {
+        let source_map = make_source_map("");
+        let ast = AstArena::new();
+        let mut ir = IrArena::new();
+        let registry = StructRegistry::empty();
+        let map: HashMap<NodeId, IrNodeId> = HashMap::new();
+
+        let before = ir.symbols().len();
+        populate_return_record_layouts(&ast, &mut ir, &map, &source_map, &registry);
+        let after = ir.symbols().len();
+        assert_eq!(
+            before, after,
+            "empty recipe registry must not inject any synthetic Symbol"
+        );
+    }
+
+    /// End-to-end injector shape: if a hypothetical recipe were
+    /// registered, the injector would stamp a Symbol whose name is
+    /// `"<Trait>::<method>"` with `return_record_layout` = the entry's
+    /// layout and `skip_sret_splice` = the entry's flag. Simulate the
+    /// registry step by injecting a Symbol directly and pinning the
+    /// shape emit_call.rs's Slice-B probe reads (`lookup_by_name` on
+    /// the `Trait::method` spelling).
+    #[test]
+    fn recipe_synthetic_symbol_shape_matches_slice_b_probe() {
+        use paideia_as_ir::record_layout::{FieldLayout, RecordLayout};
+        use paideia_as_ir::{Symbol, SymbolKind};
+
+        let layout = RecordLayout::with_field_names(
+            16,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 12, size: 4, signed: false, is_float: false },
+            ],
+            vec!["eax".to_string(), "ebx".to_string(), "ecx".to_string(), "edx".to_string()],
+        );
+
+        let mut ir = IrArena::new();
+        let sentinel = IrNodeId::new(u32::MAX).expect("u32::MAX is a valid IrNodeId");
+        let sym = Symbol::new(
+            "CpuidOps::cpuid_leaf".to_string(),
+            SymbolKind::Function,
+            sentinel,
+        )
+        .with_return_record_layout(Some(layout.clone()))
+        .with_skip_sret_splice(true);
+        ir.symbols_mut().insert(sym);
+
+        // Slice B's probe key: `lookup_by_name("Trait::method")`.
+        let found = ir
+            .symbols()
+            .lookup_by_name("CpuidOps::cpuid_leaf")
+            .expect("recipe-synthetic symbol should be findable by qualified name");
+        assert_eq!(found.return_record_layout.as_ref(), Some(&layout));
+        assert!(found.skip_sret_splice);
+        assert_eq!(found.kind, SymbolKind::Function);
+    }
+
 }

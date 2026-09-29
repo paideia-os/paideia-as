@@ -183,5 +183,7 @@ pub(super) fn extern_recipe(sym: &str) -> LoweringRecipe {
         arg_convention: ArgConvention::SysVRegs,
         labels: vec![],
         extern_target: Some(sym.to_string()),
+        return_record_layout: None,
+        skip_sret_splice: false,
     }
 }

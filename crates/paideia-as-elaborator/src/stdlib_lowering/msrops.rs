@@ -86,6 +86,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         // wrmsr(idx: u32, val: u64) -> ()
@@ -158,6 +160,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,

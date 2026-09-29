@@ -149,6 +149,8 @@ emission_order: 0,
         arg_convention: ArgConvention::Literal,
         labels: vec![],
         extern_target: None,
+        return_record_layout: None,
+        skip_sret_splice: false,
     };
 
     // For Literal recipes, emit_call splices immediately without arg-marshalling

@@ -51,6 +51,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "get_u16_le" => {
@@ -77,6 +79,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "get_u16_be" => {
@@ -120,6 +124,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "get_u32_le" => {
@@ -146,6 +152,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "get_u32_be" => {
@@ -186,6 +194,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "get_u64_le" => {
@@ -212,6 +222,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "get_u64_be" => {
@@ -252,6 +264,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u8" => {
@@ -293,6 +307,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u16_le" => {
@@ -334,6 +350,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u16_be" => {
@@ -389,6 +407,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u32_le" => {
@@ -430,6 +450,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u32_be" => {
@@ -482,6 +504,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u64_le" => {
@@ -523,6 +547,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         "put_u64_be" => {
@@ -575,6 +601,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,

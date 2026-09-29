@@ -92,12 +92,16 @@ pub(super) fn try_lower(
             arg_convention: ArgConvention::SysVRegs,
             labels: vec![],
             extern_target: Some(SYM_MLDSA65_SIGN.to_string()),
+            return_record_layout: None,
+            skip_sret_splice: false,
         })),
         "verify" => Some(Ok(LoweringRecipe {
             instructions: vec![],
             arg_convention: ArgConvention::SysVRegs,
             labels: vec![],
             extern_target: Some(SYM_MLDSA65_VERIFY.to_string()),
+            return_record_layout: None,
+            skip_sret_splice: false,
         })),
         _ => None,
     }

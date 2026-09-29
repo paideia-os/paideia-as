@@ -51,6 +51,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         // v0.21-009-followup (#1297): TlbOps::invpcid_single / invpcid_all_nonglobal.
@@ -163,6 +165,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         // invpcid_all_nonglobal(pcid: u16) -> ()   [INVPCID type=1]
@@ -283,6 +287,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         // flush_cache_writeback() -> () — nullary WBINVD.
@@ -299,6 +305,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,

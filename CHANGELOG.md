@@ -1,5 +1,114 @@
 # Changelog
 
+## v0.36.77 — 2026-09-28 — Issue #1559 Wave 51: stdlib-recipe return_record_layout participation + per-Symbol Slice C splice opt-out (PAS-DEBT-B4-002-followup Gaps B + C)
+
+paideia-as#1559 Wave 51 lands the two plumbing pieces the Wave 46
+blocker enumeration
+(`.plans/scratch/CHANGELOG-1524-b4002-cpuid-retirement-attempt.md`)
+identified as the joint blocker on any record-returning stdlib
+recipe (Gap B = per-Symbol Slice-C splice opt-out; Gap C = recipe
+participation in `Symbol::return_record_layout`). No historical
+recipe changes byte-shape — the two new fields default to
+`None` / `false` and the registry
+(`enumerate_record_return_recipes`) starts empty. A follow-up wave
+appends the first entry (record-returning `cpuid_leaf`) and
+retires PAS-DEBT-B4-002 alongside.
+
+  * **New `Symbol::skip_sret_splice` field** (`crates/paideia-as-ir/
+    src/symbol.rs`) — an opt-out gating
+    `emit_ret::emit_callee_sret_splice`. `false` on every existing
+    constructor preserves the historical splice-on-record-return
+    behaviour for every user-code record-returning callee (the
+    `RecordCons`-body corpus Slice D folds). Excluded from
+    `Hash`/`Eq`/`PartialEq` so an insert-then-populate flow stays
+    idempotent, mirroring the `return_record_layout` field. New
+    `Symbol::with_skip_sret_splice(bool)` builder plus symmetric
+    unit tests (default-false, attaches-and-clears, not-part-of-
+    identity, builder-chain composition with
+    `with_return_record_layout`).
+
+  * **New `LoweringRecipe::return_record_layout` /
+    `LoweringRecipe::skip_sret_splice` fields**
+    (`crates/paideia-as-elaborator/src/stdlib_lowering/mod.rs`) —
+    recipe-side declaration surface for Gap C. Every existing
+    recipe constructor (54 sites across barrierops, bitfieldops,
+    bitmapops, bulkmemops, bytesops, checksumops, cpuidops,
+    cryptoops, mldsaops, mmioops, msrops, pauseops, percpuops,
+    refcountops, testloopops, tlbops) defaults both fields to their
+    identity value (`None` / `false`), preserving byte-exact output
+    for the historical stdlib corpus. Unit tests pin the invariant
+    on a representative sample (rdmsr, cpuid_leaf_ad, spin_hint).
+
+  * **`enumerate_record_return_recipes()` registry**
+    (`crates/paideia-as-elaborator/src/stdlib_lowering/mod.rs`) — a
+    top-level function returning `Vec<RecipeRecordReturn>` (the
+    per-entry `(trait_name, method_name, layout,
+    skip_sret_splice)`). Empty today; a future recipe that returns a
+    record appends an entry, and no other plumbing changes.
+
+  * **Extended `populate_return_record_layouts`**
+    (`crates/paideia-as-elaborator/src/return_record_layout_pass.rs`)
+    — after walking item-level Lets, iterates the recipe registry
+    and injects a synthetic `Symbol` for each entry into
+    `arena.symbols_mut()`, keyed
+    `"<trait_name>::<method_name>"` (the exact spelling
+    `emit_call.rs::resolve_stdlib_trait_method` produces on the
+    caller side). Slice B's site probe — which reads
+    `Symbol::return_record_layout` off `lookup_by_name(&target_name)`
+    — then sees a recipe callee's record shape the same way it sees
+    a user-code Lambda's. Sentinel `ir_node = u32::MAX` keeps
+    `lookup_by_ir_node` scans safe (no real Lambda reaches
+    2^32 - 1). Unit tests pin (a) no-op when the registry is empty
+    and (b) the synthetic Symbol shape matches what
+    `lookup_by_name` returns for the injected key.
+
+  * **Slice-C gate in `emit_ret::emit_callee_sret_splice`**
+    (`crates/paideia-as-elaborator/src/emit_walker/emit_core.rs`) —
+    added a single `if sym.skip_sret_splice { return; }` check
+    right after the `return_record_layout` early-return. When
+    `false` (default), the splice fires as before — every existing
+    Slice C / D fixture stays byte-identical. When `true`, the
+    enclosing Lambda's body owns the return-value packing (a hand-
+    written `unsafe { block: { ... } }` raw-asm body, or a
+    recipe-synthetic Symbol whose caller-inlined instructions did
+    the packing directly). Two new emit-walker tests exercise the
+    gate: (a) a Memory-placed callee with the flag emits no
+    `sub rsp, 32` / `mov rax, rdi`, (b) the gate is per-Symbol —
+    two callees walked in the same session diverge based on their
+    own flag setting.
+
+  * **Cross-carry in `resolve_names`** (`crates/paideia-as/src/
+    cmd_build/resolve_names.rs`) — the rename pass now carries the
+    Slice-C splice-suppression flag across, mirroring the
+    `return_record_layout` carry landed in Slice A. Without this a
+    recipe-synthetic Symbol renamed by `resolve_names` would
+    silently lose its opt-out on any Lambda-emission path.
+
+  * **B4-002 (cpuid_leaf) retirement — now unblocked pending a
+    single implementation wave.** The two plumbing gaps this issue
+    landed close the machinery half of the Wave 46 blocker
+    enumeration. A follow-up wave that (i) drops a
+    `RecipeRecordReturn` entry for
+    `CpuidOps::cpuid_leaf(l:u32, s:u32) -> CpuidRegs` into the
+    registry, (ii) authors the SysVRegs recipe whose instructions
+    write the CPUID output directly into `[RDI + 0/4/8/12]` (the
+    caller-side sret pointer, per Slice B's arg-shift), and (iii)
+    stamps `skip_sret_splice = true` on the recipe metadata,
+    retires PAS-DEBT-B4-002. No further elaborator surgery is
+    required — Slice B's caller-side probe picks up the layout via
+    the synthetic Symbol, and Slice C's gate suppresses the
+    duplicate callee-side splice.
+
+  * Tests: 10 new (4 in `paideia-as-ir/src/symbol.rs`, 2 in
+    `paideia-as-elaborator/src/stdlib_lowering/mod.rs`, 2 in
+    `paideia-as-elaborator/src/return_record_layout_pass.rs`, 2 in
+    `paideia-as-elaborator/src/emit_walker_tests/sret_slice_c.rs`).
+
+Cross-refs:
+`.plans/scratch/CHANGELOG-1559-stdlib-recipe-return-layout.md`,
+`.plans/scratch/CHANGELOG-1524-b4002-cpuid-retirement-attempt.md`
+(Wave 46 Gap B/C enumeration; both now landed).
+
 ## v0.36.76 — 2026-09-27 — Issue #1558 Wave 50: RecordCons field-value arm extension (PAS-DEBT-B4-002-alt)
 
 paideia-as#1558 Wave 50 extends

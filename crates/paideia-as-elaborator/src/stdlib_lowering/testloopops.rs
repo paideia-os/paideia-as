@@ -74,6 +74,8 @@ pub(super) fn try_lower(
                 // loop_top label aliases instruction at index 1 (the Dec)
                 labels: vec![("loop_top", 1)],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,

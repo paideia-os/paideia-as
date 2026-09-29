@@ -130,6 +130,8 @@ pub(super) fn try_lower(
                     ("fold", 16),
                 ],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,

@@ -168,6 +168,42 @@ pub struct LoweringRecipe {
     /// Recipes not routing to an extern call MUST leave this `None`; the
     /// existing SysVRegs early-return path handles them.
     pub extern_target: Option<String>,
+    /// PAS-DEBT-B4-002-followup Gap C (paideia-as#1559): declared return
+    /// record layout for a recipe whose trait method returns a record
+    /// (e.g. `fn cpuid_leaf(l:u32, s:u32) -> CpuidRegs`).
+    ///
+    /// `Some(layout)` populates the caller-side Slice-B site probe by
+    /// way of `populate_return_record_layouts`, which injects a
+    /// synthetic `Symbol` entry keyed `"<Trait>::<method>"` with this
+    /// layout stamped on `Symbol::return_record_layout` — the same
+    /// field the probe already reads for real Lambda callees. `None`
+    /// (the default) preserves the historical scalar-return / non-
+    /// record recipe path byte-identically.
+    ///
+    /// Field-side default: recipes constructed before this wave land
+    /// with `None`, so Slice B sees no record shape for them and
+    /// emit_call proceeds through the scalar arg-marshalling path.
+    /// Only a recipe explicitly opting into record-return marshalling
+    /// (via `Some(layout)`) participates in the caller-side sret
+    /// dance.
+    pub return_record_layout: Option<paideia_as_ir::record_layout::RecordLayout>,
+    /// PAS-DEBT-B4-002-followup Gap B (paideia-as#1559): opt out of
+    /// the callee-side Slice-C splice fired by `emit_ret::
+    /// emit_callee_sret_splice`.
+    ///
+    /// `true` mirrors onto the synthetic Symbol's `skip_sret_splice`
+    /// flag; on the vanishingly-rare code path where a recipe-shaped
+    /// callee is ever emitted as a real Lambda (e.g. an inlined
+    /// stdlib wrapper that later reaches `emit_ret`), the splice is
+    /// suppressed so the recipe's own return-value packing stands
+    /// unclobbered. Recipes never call `emit_ret` themselves — the
+    /// caller inlines their instructions — so this flag is primarily
+    /// a semantic hint carried through into the synthetic-Symbol
+    /// stamp for symmetry with attribute-driven Lambda-body opt-outs
+    /// (future `#[skip_sret_splice]` on a Let).
+    ///
+    /// `false` (the default) preserves existing recipe behaviour.
+    pub skip_sret_splice: bool,
 }
 
 /// Look up the lowering recipe for `(trait_name, method_name)`.
@@ -252,6 +288,60 @@ pub fn lower_stdlib_method(
         "MlDsa65C" => cryptoops::try_lower_mldsa65_c(method_name, mode, arg_ids, arena),
         _ => None,
     }
+}
+
+/// One entry in the enumeration of record-returning stdlib recipes.
+///
+/// PAS-DEBT-B4-002-followup Gap C (paideia-as#1559): the tuple carried
+/// by `enumerate_record_return_recipes`. `trait_name`/`method_name`
+/// spell the caller-side lookup key exactly as
+/// `resolve_stdlib_trait_method` decomposes a call target
+/// (`"Trait::method"`); `layout` is the `Symbol::return_record_layout`
+/// value to stamp on the synthetic Symbol; `skip_sret_splice` mirrors
+/// the recipe's own opt-out flag onto the Symbol so `emit_ret`'s
+/// splice gate reads consistently — see the field docblock on
+/// `LoweringRecipe`.
+#[derive(Debug, Clone)]
+pub struct RecipeRecordReturn {
+    /// Trait name, e.g. `"CpuidOps"`.
+    pub trait_name: &'static str,
+    /// Method name, e.g. `"cpuid_leaf"`.
+    pub method_name: &'static str,
+    /// Field-exact layout of the returned record.
+    pub layout: paideia_as_ir::record_layout::RecordLayout,
+    /// Whether the synthetic Symbol should carry `skip_sret_splice = true`.
+    pub skip_sret_splice: bool,
+}
+
+/// Enumerate every stdlib lowering recipe that declares a record
+/// return type.
+///
+/// PAS-DEBT-B4-002-followup Gap C (paideia-as#1559). Consumed by
+/// `populate_return_record_layouts` (in
+/// `paideia-as-elaborator::return_record_layout_pass`) which injects a
+/// synthetic `Symbol` into `arena.symbols_mut()` for each returned
+/// entry, keyed `"<trait_name>::<method_name>"`, so the caller-side
+/// Slice-B site probe in `emit_call.rs` — which reads only
+/// `Symbol::return_record_layout` — sees a recipe callee's record
+/// shape the same way it sees a user-code Lambda's.
+///
+/// # Current contents
+///
+/// Empty. No stdlib recipe today returns a record; the two live
+/// `CpuidOps` primitives (`cpuid_leaf_ad`, `cpuid_leaf_bc`) return
+/// `u64` and remain untouched. When a wave lands the record-returning
+/// `cpuid_leaf(l:u32, s:u32) -> CpuidRegs` recipe (or any other
+/// record-returning intrinsic), it appends a `RecipeRecordReturn`
+/// entry here — the elaborator plumbing then transparently exposes
+/// the layout to Slice B without further changes.
+///
+/// Kept as a top-level function (not a `const` or `LazyCell`) so a
+/// future entry can build its `RecordLayout` via the shared helpers
+/// in `return_record_layout_pass` or `struct_registry` without
+/// duplicating the natural-alignment code.
+#[must_use]
+pub fn enumerate_record_return_recipes() -> Vec<RecipeRecordReturn> {
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -584,6 +674,8 @@ mod tests {
             arg_convention: ArgConvention::SysVRegs,
             labels: vec![],
             extern_target: None,
+            return_record_layout: None,
+            skip_sret_splice: false,
         };
 
         // Verify structure
@@ -1555,5 +1647,51 @@ mod tests {
             ipv4.extern_target.is_none(),
             "ChecksumOps::ipv4_checksum must remain a self-contained recipe"
         );
+    }
+
+    // ---------- paideia-as#1559: LoweringRecipe defaults + registry ----------
+
+    /// Every existing recipe defaults `return_record_layout` to `None` and
+    /// `skip_sret_splice` to `false`. Wave 51 (this issue) adds those fields
+    /// but demands byte-identical output for every recipe on the historical
+    /// corpus. A representative sample from each interesting shape pins that
+    /// invariant.
+    #[test]
+    fn preexisting_recipes_default_new_record_return_fields_to_none_and_false() {
+        let arena = IrArena::new();
+
+        let rdmsr = lower_stdlib_method("MsrOps", "rdmsr", InstrMode::Mode64, &[], &arena)
+            .expect("rdmsr recipe exists")
+            .expect("rdmsr lowering ok");
+        assert!(rdmsr.return_record_layout.is_none());
+        assert!(!rdmsr.skip_sret_splice);
+
+        let cpuid = lower_stdlib_method(
+            "CpuidOps",
+            "cpuid_leaf_ad",
+            InstrMode::Mode64,
+            &[],
+            &arena,
+        )
+        .expect("cpuid_leaf_ad recipe exists")
+        .expect("cpuid_leaf_ad lowering ok");
+        assert!(cpuid.return_record_layout.is_none());
+        assert!(!cpuid.skip_sret_splice);
+
+        let pause = lower_stdlib_method("PauseOps", "spin_hint", InstrMode::Mode64, &[], &arena)
+            .expect("spin_hint recipe exists")
+            .expect("spin_hint lowering ok");
+        assert!(pause.return_record_layout.is_none());
+        assert!(!pause.skip_sret_splice);
+    }
+
+    /// The recipe registry starts empty. No stdlib recipe today declares a
+    /// record return; a future wave adding `cpuid_leaf(l:u32, s:u32) ->
+    /// CpuidRegs` appends the first entry here. Guards against accidental
+    /// registration of a recipe that was not intended to participate in
+    /// Slice B's caller-side probe.
+    #[test]
+    fn enumerate_record_return_recipes_starts_empty() {
+        assert!(enumerate_record_return_recipes().is_empty());
     }
 }

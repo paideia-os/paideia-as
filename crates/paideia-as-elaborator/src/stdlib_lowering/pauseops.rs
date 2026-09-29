@@ -39,6 +39,8 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
                 extern_target: None,
+                return_record_layout: None,
+                skip_sret_splice: false,
             }))
         }
         _ => None,
