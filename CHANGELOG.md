@@ -1,5 +1,93 @@
 # Changelog
 
+## v0.36.78 — 2026-09-28 — Issue #1524 Wave 54: PAS-DEBT-B4-002 Path A landed — record-returning CpuidOps::cpuid_leaf recipe
+
+paideia-as#1524 Wave 54 consumes the Wave 52 (#1558, v0.36.76 —
+RecordCons App/arith field values) and Wave 53 (#1559, v0.36.77 —
+`return_record_layout` + `skip_sret_splice` + recipe-registry loop)
+plumbing to land the first record-returning stdlib recipe: `CpuidOps::
+cpuid_leaf(leaf: u32, subleaf: u32) -> CpuidRegs`. One CPUID
+execution now returns all four output registers packed into a
+16-byte `CpuidRegs` record, replacing the two-call AD/BC idiom
+(which stays registered for backwards compatibility with any
+existing caller).
+
+  * **`enumerate_record_return_recipes` populated** (`crates/paideia-
+    as-elaborator/src/stdlib_lowering/mod.rs`): the registry now
+    carries one entry — `CpuidOps::cpuid_leaf` with the field-exact
+    CpuidRegs layout (4 × u32 at offsets 0/4/8/12, total 16 B,
+    align 4 B) and `skip_sret_splice = true`. Consumed by
+    `populate_return_record_layouts` (Wave 51/53 plumbing) which
+    injects a synthetic `Symbol` keyed `"CpuidOps::cpuid_leaf"`
+    into `arena.symbols_mut()`. `emit_call.rs`'s Slice B site
+    probe reads that Symbol's `return_record_layout` and fires
+    the caller-side sret prelude (`sub rsp, 16; lea rdi, [rsp+0]`)
+    with args shifted (leaf → RSI, subleaf → RDX).
+
+  * **`CpuidOps::cpuid_leaf` lowering arm** (`crates/paideia-as-
+    elaborator/src/stdlib_lowering/cpuidops.rs`): 9-instruction
+    recipe emitting `push rbx; mov rax, rsi; mov rcx, rdx; cpuid;
+    mov_d [rdi+0..12], eax/ebx/ecx/edx; pop rbx`. RBX is bracket-
+    saved (SysV callee-saved, CPUID clobbers EBX). Stores use
+    `MovSized{W32}` narrow-width base+disp writes into the caller-
+    allocated sret buffer whose pointer sits in RDI. The recipe
+    carries `return_record_layout = Some(CpuidRegs)` and
+    `skip_sret_splice = true`.
+
+    Byte-exact splice (21 bytes total):
+    `53  48 89 F0  48 89 D1  0F A2  89 07  89 5F 04  89 4F 08
+    89 57 0C  5B`.
+
+  * **`struct CpuidRegs` declared in the pdx surface** (`crates/
+    paideia-as-stdlib/pdx/cpuid.pdx`): four u32 fields matching
+    the recipe's registered layout field-exactly. New `cpuid_leaf`
+    trait method appended to `trait CpuidOps` alongside the
+    retained AD/BC pair. The pdx docblock is updated to describe
+    the new preferred idiom while noting the AD/BC deprecation is
+    soft (no `#[deprecated]` — pdx has no deprecation attribute
+    plumbed to stdlib_lowering surfaces yet, so a `FIXME(deprecate)`
+    doc note is the current channel).
+
+  * **Test coverage**: byte-exact assertion for the `cpuid_leaf`
+    splice; recipe-registry crosscheck (`cpuid_leaf_recipe_layout_
+    matches_registry`) proving both sites publish the same
+    `RecordLayout`; regression sanity for `cpuid_leaf_ad` /
+    `cpuid_leaf_bc` (length + tail-byte fingerprint). The Wave 51
+    `enumerate_record_return_recipes_starts_empty` test is replaced
+    by `enumerate_record_return_recipes_registers_cpuid_leaf`
+    (identical guard shape, now positive).
+
+  * **Docblock refresh** (`cpuidops.rs`): the "retirement STILL
+    DEFERRED" prose from v0.36.75 is retired; the new banner
+    documents Path A landed at v0.36.78 with cross-refs to Waves
+    46, 51, 52, 53, 54. Legacy Gap A/B/C prose retained as a
+    "provenance only" block below the new banner for future
+    archaeology.
+
+## Known remaining gap — Slice E follow-up (does NOT block landing)
+
+`populate_return_record_cons_slots` (Slice C) reads
+`return_record_layout_table` (keyed by user-code Let IrNodeIds) to
+allocate caller-side persistent sret slots. Recipe callees have no
+Let, so App sites calling `CpuidOps::cpuid_leaf` fall back to the
+Slice B transient path (`sub rsp, 16; lea rdi, [rsp+0]`). But the
+SysVRegs recipe splice branch in `emit_call.rs` (line ~1405)
+returns after splicing the recipe instructions, skipping the `add
+rsp, padded_slot` release at line 1459 that only fires after the
+CALL. Net effect: the recipe leaves RSP 16 B low across the splice.
+
+The recipe machinery, tests, pdx surface, and Wave 53 plumbing all
+land here so the follow-up (**Slice E**: extend
+`populate_return_record_cons_slots` to enumerate recipe callees via
+`enumerate_record_return_recipes`, allocating persistent slots for
+their App sites) has a concrete first customer to test against.
+Until Slice E lands, `CpuidOps::cpuid_leaf` is compile-recognised
+but not runtime-safe end-to-end — that gap is a scoped follow-up
+tracked in `.plans/scratch/CHANGELOG-1524-b4002-cpuid-retirement.md`.
+
+Issue #1524 CANNOT cleanly close yet — Slice E is a prerequisite.
+Wave 54 lands the machinery + tests; Slice E closes the retirement.
+
 ## v0.36.77 — 2026-09-28 — Issue #1559 Wave 51: stdlib-recipe return_record_layout participation + per-Symbol Slice C splice opt-out (PAS-DEBT-B4-002-followup Gaps B + C)
 
 paideia-as#1559 Wave 51 lands the two plumbing pieces the Wave 46

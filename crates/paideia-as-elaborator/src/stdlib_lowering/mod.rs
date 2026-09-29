@@ -327,13 +327,34 @@ pub struct RecipeRecordReturn {
 ///
 /// # Current contents
 ///
-/// Empty. No stdlib recipe today returns a record; the two live
-/// `CpuidOps` primitives (`cpuid_leaf_ad`, `cpuid_leaf_bc`) return
-/// `u64` and remain untouched. When a wave lands the record-returning
-/// `cpuid_leaf(l:u32, s:u32) -> CpuidRegs` recipe (or any other
-/// record-returning intrinsic), it appends a `RecipeRecordReturn`
-/// entry here — the elaborator plumbing then transparently exposes
-/// the layout to Slice B without further changes.
+/// One entry — `CpuidOps::cpuid_leaf(l:u32, s:u32) -> CpuidRegs`
+/// (paideia-as#1524 Wave 54, v0.36.78). The two scalar-return live
+/// `CpuidOps` primitives (`cpuid_leaf_ad`, `cpuid_leaf_bc`) remain
+/// registered as SysVRegs recipes but are absent from this list
+/// (their return is `u64`, not a record) — they stay backwards-
+/// compatible for any existing pdx caller.
+///
+/// The `CpuidRegs` layout below is field-exact with the pdx-side
+/// declaration in `crates/paideia-as-stdlib/pdx/cpuid.pdx`:
+/// four `u32` fields at offsets 0/4/8/12, total size 16 B,
+/// alignment 4 B. The layout is stamped inline (not built via
+/// `layout_from_record_fields` etc.) because this pass runs on a
+/// closed universe of one entry today, and hard-coding the shape
+/// keeps this file's dependency footprint minimal — the natural-
+/// alignment code lives in `return_record_layout_pass` and the
+/// only ways to have injected drift would have been to duplicate
+/// that logic here or to depend on the pdx parser at test time.
+/// Should the registry grow, the shared helpers stay available.
+///
+/// `skip_sret_splice = true` mirrors onto the synthetic Symbol
+/// injected by `populate_return_record_layouts` — every callee-
+/// side `emit_ret::emit_callee_sret_splice` bails immediately
+/// (Gap B path). Recipes are always inlined at the call site, so
+/// `emit_ret` normally never runs for them; the flag is a defence-
+/// in-depth signal so that if a future path ever synthesises a
+/// real Lambda body around a recipe (a stdlib wrapper that
+/// compiles to a callable), the splice does not fire and clobber
+/// the recipe's own stores.
 ///
 /// Kept as a top-level function (not a `const` or `LazyCell`) so a
 /// future entry can build its `RecordLayout` via the shared helpers
@@ -341,7 +362,28 @@ pub struct RecipeRecordReturn {
 /// duplicating the natural-alignment code.
 #[must_use]
 pub fn enumerate_record_return_recipes() -> Vec<RecipeRecordReturn> {
-    Vec::new()
+    use paideia_as_ir::record_layout::{FieldLayout, RecordLayout};
+    vec![RecipeRecordReturn {
+        trait_name: "CpuidOps",
+        method_name: "cpuid_leaf",
+        layout: RecordLayout::with_field_names(
+            16,
+            4,
+            vec![
+                FieldLayout { offset: 0, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 4, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 8, size: 4, signed: false, is_float: false },
+                FieldLayout { offset: 12, size: 4, signed: false, is_float: false },
+            ],
+            vec![
+                "eax".to_string(),
+                "ebx".to_string(),
+                "ecx".to_string(),
+                "edx".to_string(),
+            ],
+        ),
+        skip_sret_splice: true,
+    }]
 }
 
 #[cfg(test)]
@@ -1685,13 +1727,79 @@ mod tests {
         assert!(!pause.skip_sret_splice);
     }
 
-    /// The recipe registry starts empty. No stdlib recipe today declares a
-    /// record return; a future wave adding `cpuid_leaf(l:u32, s:u32) ->
-    /// CpuidRegs` appends the first entry here. Guards against accidental
-    /// registration of a recipe that was not intended to participate in
-    /// Slice B's caller-side probe.
+    /// paideia-as#1524 Wave 54 (v0.36.78): the recipe registry now
+    /// carries exactly one entry — `CpuidOps::cpuid_leaf` — with the
+    /// field-exact `CpuidRegs` layout (4 × u32 at offsets 0/4/8/12,
+    /// size 16, align 4) and `skip_sret_splice = true`. Any drift in
+    /// the layout would silently reshape the caller-side sret slot
+    /// probe in `emit_call.rs` and mis-address field reads;
+    /// unregistering the entry would silently regress
+    /// `CpuidOps::cpuid_leaf` back to a scalar-return recipe
+    /// (aggregate_shape → Absent, no sret prelude). This test pins
+    /// both invariants.
     #[test]
-    fn enumerate_record_return_recipes_starts_empty() {
-        assert!(enumerate_record_return_recipes().is_empty());
+    fn enumerate_record_return_recipes_registers_cpuid_leaf() {
+        let entries = enumerate_record_return_recipes();
+        assert_eq!(entries.len(), 1, "expected exactly one recipe entry");
+
+        let cpuid = &entries[0];
+        assert_eq!(cpuid.trait_name, "CpuidOps");
+        assert_eq!(cpuid.method_name, "cpuid_leaf");
+        assert!(cpuid.skip_sret_splice);
+
+        // Layout: 4 × u32, natural-alignment C-ABI packing.
+        assert_eq!(cpuid.layout.size, 16);
+        assert_eq!(cpuid.layout.align, 4);
+        assert_eq!(cpuid.layout.fields.len(), 4);
+        for (idx, expected_offset) in [(0u64, 0u64), (1, 4), (2, 8), (3, 12)] {
+            let field = &cpuid.layout.fields[idx as usize];
+            assert_eq!(field.offset, expected_offset);
+            assert_eq!(field.size, 4);
+            assert!(!field.signed);
+            assert!(!field.is_float);
+        }
+        assert_eq!(
+            cpuid.layout.field_names,
+            vec![
+                "eax".to_string(),
+                "ebx".to_string(),
+                "ecx".to_string(),
+                "edx".to_string(),
+            ]
+        );
+    }
+
+    /// paideia-as#1524 Wave 54 (v0.36.78): the `CpuidOps::cpuid_leaf`
+    /// lowering recipe returns a `LoweringRecipe` whose
+    /// `return_record_layout` is populated with the CpuidRegs layout
+    /// AND `skip_sret_splice` is `true`. Byte-exact instruction
+    /// sequence is pinned in `cpuidops.rs`'s test module — this test
+    /// only pins the recipe-level metadata that Wave 53's plumbing
+    /// depends on.
+    #[test]
+    fn cpuid_leaf_recipe_carries_record_return_metadata() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method(
+            "CpuidOps",
+            "cpuid_leaf",
+            InstrMode::Mode64,
+            &[],
+            &arena,
+        )
+        .expect("cpuid_leaf recipe should exist")
+        .expect("cpuid_leaf lowering should succeed");
+
+        let layout = recipe
+            .return_record_layout
+            .as_ref()
+            .expect("cpuid_leaf must carry a return_record_layout");
+        assert_eq!(layout.size, 16);
+        assert_eq!(layout.align, 4);
+        assert_eq!(layout.fields.len(), 4);
+
+        assert!(recipe.skip_sret_splice);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.extern_target.is_none());
+        assert!(recipe.labels.is_empty());
     }
 }

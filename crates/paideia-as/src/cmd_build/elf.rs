@@ -282,6 +282,27 @@ pub(super) fn build_elf_object(
     sorted_offsets.dedup();
 
     for symbol in arena.symbols().iter() {
+        // PAS-DEBT-B4-002-followup / paideia-as#1524 Wave 54:
+        // recipe-synthetic symbols injected by
+        // `populate_return_record_layouts` (Wave 51/53 plumbing,
+        // Gap C) carry `ir_node = IrNodeId::new(u32::MAX).unwrap()`
+        // — the pinned sentinel documented in
+        // `return_record_layout_pass.rs::populate_return_record_layouts`.
+        // They exist solely so `emit_call.rs`'s caller-side Slice-B
+        // site probe (`lookup_by_name("Trait::method")`) resolves to
+        // the recipe's `return_record_layout`; no ELF-emitted symbol
+        // corresponds to them (recipes are inlined at every callsite,
+        // there is no real function body). Filtering here prevents:
+        //   * a `function_symbol_no_offset` diagnostic on every build
+        //     that touches the pass;
+        //   * a spurious 0-offset / 0-size Function entry in the
+        //     symbol table (which breaks exact-count tests and any
+        //     downstream tool that reads the symbol table).
+        // The invariant is documented at
+        // `return_record_layout_pass.rs` above the injection loop.
+        if symbol.ir_node.get() == u32::MAX {
+            continue;
+        }
         match symbol.kind {
             paideia_as_ir::SymbolKind::Function => {
                 // Phase 7 m1-001: Emit symbols for all function bindings, regardless of whether

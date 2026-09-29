@@ -581,13 +581,25 @@ mod tests {
     // ---- paideia-as#1559 Gap C: recipe-side Symbol injection ----
 
     /// The recipe injector runs unconditionally at the tail of
-    /// `populate_return_record_layouts`. With the recipe registry
-    /// empty (`enumerate_record_return_recipes` returns `Vec::new()`
-    /// today), no synthetic Symbols land in `arena.symbols_mut()`.
-    /// Preserves byte-identical historical behaviour for every
-    /// existing stdlib call.
+    /// `populate_return_record_layouts`. As of paideia-as#1524 Wave 54
+    /// (v0.36.78), the registry carries exactly one entry —
+    /// `CpuidOps::cpuid_leaf` — so the injector stamps one synthetic
+    /// Symbol per pass invocation, keyed
+    /// `"CpuidOps::cpuid_leaf"`, with the field-exact CpuidRegs
+    /// layout (16 B / align 4 / 4 × u32) and `skip_sret_splice =
+    /// true`. Any other synthetic Symbols would indicate a wave that
+    /// added a recipe entry without updating this assertion — the
+    /// mismatch here is the guard that catches it.
+    ///
+    /// Wave 51's original `recipe_injector_no_op_when_registry_empty`
+    /// invariant lives on in spirit: the Wave-54 CpuidOps entry is
+    /// the ONLY thing the empty-context invocation should produce,
+    /// so `after - before == 1` still forms a tight pin on the
+    /// registry's contents visible to this pass.
     #[test]
-    fn recipe_injector_no_op_when_registry_empty() {
+    fn recipe_injector_registers_cpuid_leaf_synthetic_symbol() {
+        use crate::stdlib_lowering::enumerate_record_return_recipes;
+
         let source_map = make_source_map("");
         let ast = AstArena::new();
         let mut ir = IrArena::new();
@@ -597,10 +609,24 @@ mod tests {
         let before = ir.symbols().len();
         populate_return_record_layouts(&ast, &mut ir, &map, &source_map, &registry);
         let after = ir.symbols().len();
+        let recipe_count = enumerate_record_return_recipes().len();
         assert_eq!(
-            before, after,
-            "empty recipe registry must not inject any synthetic Symbol"
+            after - before,
+            recipe_count,
+            "injector must stamp exactly one Symbol per registry entry"
         );
+        let sym = ir
+            .symbols()
+            .lookup_by_name("CpuidOps::cpuid_leaf")
+            .expect("Wave-54 registry entry must materialise a synthetic Symbol");
+        let layout = sym
+            .return_record_layout
+            .as_ref()
+            .expect("synthetic Symbol must carry the recipe's layout");
+        assert_eq!(layout.size, 16);
+        assert_eq!(layout.align, 4);
+        assert_eq!(layout.fields.len(), 4);
+        assert!(sym.skip_sret_splice);
     }
 
     /// End-to-end injector shape: if a hypothetical recipe were

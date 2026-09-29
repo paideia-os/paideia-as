@@ -28,16 +28,16 @@
 // content of any general-purpose or floating-point register other than
 // EAX/EBX/ECX/EDX and any of the flags").
 //
-// # Split-return rationale
+// # Split-return rationale (historical) + record-return companion
 //
-// A single 4×u32 record return would require a record-return marshalling
-// recipe that the elaborator does not yet support — see paideia-as#1298
-// for the scope note. Landing the two scalar-return primitives today
-// unblocks the leaf-decoders sketched below and keeps #1298 free to
-// introduce a `cpuid_leaf(leaf, subleaf) -> CpuidRegs` wrapper on top
-// when the record-return convention is designed. Consumers written
-// against the AD/BC pair keep working after that migration; they just
-// stop paying the second CPUID execution.
+// The AD/BC pair below stays because it is a stable ABI that pre-Wave-54
+// callers depend on. Wave 54 (paideia-as#1524, v0.36.78) adds a
+// companion `cpuid_leaf(leaf, subleaf) -> CpuidRegs` that returns all
+// four registers in one call via the sret ABI landed by #1554 Slices
+// A-D (v0.36.68..v0.36.71) + #1558 (v0.36.76) + #1559 (v0.36.77).
+// New consumers should prefer `cpuid_leaf`; the AD/BC pair pays for
+// a second CPUID execution when a caller wants all four registers,
+// which the record-return variant avoids.
 //
 // # Privilege + effect + capability discipline
 //
@@ -107,7 +107,28 @@
 // callsites can either compose the AD/BC intrinsics directly or roll
 // the extraction into a hand-written pdx helper.
 
+// # CpuidRegs — the record-return companion to the AD/BC pair
+//
+// paideia-as#1524 Wave 54 (v0.36.78). Field-exact with the lowering
+// recipe's `return_record_layout` entry
+// (crates/paideia-as-elaborator/src/stdlib_lowering/mod.rs::
+// enumerate_record_return_recipes): four u32 fields at natural
+// offsets 0/4/8/12, total 16 B, alignment 4 B. Field names MUST
+// match the recipe's `field_names` vec exactly — any drift here
+// silently reshapes struct_registry lookups on the caller side
+// and mis-addresses `.eax` / `.ebx` / `.ecx` / `.edx` reads.
+struct CpuidRegs {
+  eax: u32,
+  ebx: u32,
+  ecx: u32,
+  edx: u32,
+}
+
 trait CpuidOps {
   fn cpuid_leaf_ad(leaf: u32, subleaf: u32) -> u64 !{sysreg} @{paideia.sysreg};
   fn cpuid_leaf_bc(leaf: u32, subleaf: u32) -> u64 !{sysreg} @{paideia.sysreg};
+  // paideia-as#1524 Wave 54 (v0.36.78): record-returning companion.
+  // Prefer this over the AD/BC pair for new callers — one CPUID
+  // execution, all four registers in a caller-side CpuidRegs value.
+  fn cpuid_leaf(leaf: u32, subleaf: u32) -> CpuidRegs !{sysreg} @{paideia.sysreg};
 }
