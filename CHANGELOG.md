@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.36.81 — 2026-09-29 — Issue #1560 (Wave 57): @endian(be) signed-narrow (i16/i32) recipe; retire T0567 for the signed-narrow case
+
+paideia-as#1560 extends the Wave-56 (#1508 / v0.36.80) `@endian(be)`
+byte-swap lowering to signed narrow scalars (i16, i32). Wave 56
+landed the swap for u8/u16/u32/u64/i64 and refused i16/i32 with
+T0567 to prevent silent miscompile — `bswap r32` after a
+`movsxd r64, [mem]` leaves stale sign-extension in the upper 32
+bits and mis-reports the value's sign. Wave 57 lands the correct
+three-instruction recipe on both sides and retires the
+signed-narrow diagnostic.
+
+  * **`emit_field_access.rs::emit_endian_load_swap_if_needed`**:
+    after `emit_bswap_low_bits` reverses the low `field_size`
+    bytes, the load path now appends a reg-reg `movsx`/`movsxd`
+    for `field_signed && size in {2, 4}` — re-derives sign from
+    the swapped low half and discards the stale upper bits left
+    by the initial `movsx r64, word[mem]` (i16) or
+    `movsxd r64, [mem]` (i32). i8 stays a no-op (endianness
+    meaningless for a single byte); u8/u16/u32 and u64/i64 keep
+    the pre-Wave-57 single-step recipe.
+
+  * **`emit_field_access.rs::emit_movsx_widen_after_swap`** (new
+    private helper): emits `movsx r64, r16` (size 2, opcode 0x0F)
+    or `movsxd r64, r32` (size 4, opcode 0x63) — reg-reg form.
+    Encoding_hint mirrors `emit_field_access_movsx_reg`'s
+    convention so the encoder's existing dispatch through
+    `encode_movsx → movsx_reg64` handles both.
+
+  * **`emit_field_access.rs::emit_endian_store_swap_if_needed`**:
+    the Wave-56 signed-narrow T0567 refusal is removed. The store
+    side falls through to the same `mov r11, value_reg;
+    swap-low r11; MovSized{width} [mem], r11` shape as u16/u32
+    stores — no re-widen is needed because MovSized narrows the
+    write to exactly `field_size` bytes and drops the stale
+    upper bits left by `rol r16` / `bswap r32` on R11.
+
+  * **`emit_field_access.rs::emit_bswap_low_bits`**: the
+    signed-narrow refusal branch is removed. `field_signed` is
+    now unconsulted inside the helper (renamed to `_field_signed`
+    for clarity) — the byte-reversal itself is identical between
+    signed and unsigned for a given width. T0567 remains as a
+    defensive arm for truly unsupported widths (anything other
+    than 1/2/4/8).
+
+  * **`emit_walker_tests/endian_byteswap.rs`**: four new
+    byte-exact tests pin the recipe —
+    `i16_be_load_swap_and_sign_extend`,
+    `i32_be_load_swap_and_sign_extend`,
+    `i16_be_store_truncate_swap_narrow`,
+    `i32_be_store_truncate_swap_narrow`. Each asserts the
+    mnemonic sequence, every register operand, the ROL
+    immediate (8), and — for movsx/movsxd — the encoding_hint's
+    opcode and operand_size. All existing Wave-56 tests
+    (u8/u16/u32/u64/i64 load and store; `@endian(le)` no-op;
+    unannotated regression) remain byte-identical.
+
 ## v0.36.80 — 2026-09-28 — Issue #1508 (PAS-DEBT-B2-015): elaborator-side @endian(be|le) byte-swap insertion
 
 paideia-as#1508 closes the deferred elaborator half of

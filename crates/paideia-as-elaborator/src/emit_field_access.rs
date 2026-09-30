@@ -48,15 +48,20 @@ fn t0565_code() -> DiagnosticCode {
         .expect("T0565 is within valid T range")
 }
 
-/// paideia-as#1508 (PAS-DEBT-B2-015): sign-extended narrow scalar
-/// (i8/i16/i32) annotated with `@endian(be)` needs a byte-swap on the
-/// pre-sign-extension value AND a re-sign-extend of the swapped low
-/// bytes. The Wave-55 landing scopes the byte-swap emission to
-/// unsigned widths (u8/u16/u32/u64) plus i64 (whose native two's-
-/// complement representation doesn't require post-swap re-extension).
-/// i8/i16/i32 with `@endian(be)` remain unemitted here with T0567 so
-/// silent miscompile is impossible; a follow-up wave adds the
-/// three-instruction `mov-low; bswap; movsx-widen` recipe.
+/// paideia-as#1508 / paideia-as#1560 (PAS-DEBT-B2-015): sign-extended
+/// narrow scalar (i8/i16/i32) annotated with `@endian(be)` needs a
+/// byte-swap on the pre-sign-extension value AND a re-sign-extend of
+/// the swapped low bytes. Wave 56 (v0.36.80) scoped the byte-swap
+/// emission to unsigned widths (u8/u16/u32/u64) plus i64 (whose native
+/// two's-complement representation doesn't require post-swap re-
+/// extension) and diagnosed signed narrow (i16/i32) with T0567 to
+/// prevent silent miscompile. Wave 57 (v0.36.81, paideia-as#1560)
+/// lands the three-instruction `mov-low; bswap; movsx-widen` recipe
+/// for the load side and a matching `mov r11, v; bswap-low r11;
+/// narrow-store` recipe for the store side, retiring T0567 for the
+/// signed-narrow case. The diagnostic remains as a defensive arm on
+/// truly unsupported widths (sizes other than 1/2/4/8) in
+/// `emit_bswap_low_bits`.
 fn t0567_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::T, Severity::Error, 567)
         .expect("T0567 is within valid T range")
@@ -1110,17 +1115,23 @@ impl EmitWalker {
     /// safe in-place: `reg` is the load's destination and any prior
     /// contents are gone.
     ///
-    /// **Signed narrow-width scoping.** i8 (size 1) and i16/i32
-    /// (sizes 2/4) that were loaded via `movsx`/`movsxd` carry
-    /// sign-extended upper bits. A `bswap` on the low width would
-    /// leave stale sign-extension in the high bits, silently
-    /// miscompiling the value. This wave only emits byte-swap for
-    /// the loads whose upper bits are zero (u8/u16/u32 via mov/movzx)
-    /// or whose native two's-complement representation permits a
-    /// full-width `bswap` (u64/i64). Signed narrow widths with
-    /// `@endian(be)` emit T0567 and skip the byte-swap so a follow-up
-    /// wave can land the three-instruction `mov-low; bswap;
-    /// movsx-widen` recipe without any silent miscompile hazard.
+    /// **Signed narrow-width recipe (Wave 57, paideia-as#1560).**
+    /// i16/i32 loads dispatched through `emit_widening_load` land in
+    /// `reg` via `movsx r64, word[mem]` / `movsxd r64, [mem]`. The
+    /// upper bits carry sign-extension of the raw big-endian byte
+    /// sequence — i.e., the wrong sign for the intended value.
+    /// The endian helper repairs this by:
+    ///   1. Byte-reversing the low width in place (`rol r16, 8` for
+    ///      i16; `bswap r32` for i32). The upper bits are now stale
+    ///      but the low bits carry the correctly-ordered value.
+    ///   2. Re-widening from the low `field_size` bytes with a
+    ///      second `movsx`/`movsxd`, which discards the stale upper
+    ///      bits and re-derives sign from the swapped low half.
+    /// i8 is a one-byte no-op (endianness meaningless); u8/u16/u32
+    /// and u64/i64 use the pre-Wave-56 single-step recipe (the
+    /// upper bits are already zero for the unsigned narrow forms
+    /// and byte-order is representation-neutral for the 8-byte
+    /// forms).
     pub(crate) fn emit_endian_load_swap_if_needed(
         &mut self,
         type_id: RecordTypeId,
@@ -1141,7 +1152,17 @@ impl EmitWalker {
                 // Native little-endian on x86_64: no emission.
             }
             Endianness::Be => {
-                self.emit_bswap_low_bits(field_size, field_signed, reg);
+                let swapped = self.emit_bswap_low_bits(field_size, field_signed, reg);
+                // Signed narrow (i16/i32): the initial movsx/movsxd
+                // baked stale sign-extension into the upper bits.
+                // Re-widen from the (now correctly-swapped) low
+                // `field_size` bytes so upper bits track the true
+                // sign of the intended value. i8 (field_size == 1)
+                // skips this — no swap happened and the initial
+                // movsx already covers the whole value.
+                if swapped && field_signed && matches!(field_size, 2 | 4) {
+                    self.emit_movsx_widen_after_swap(field_size, reg);
+                }
             }
         }
     }
@@ -1162,14 +1183,16 @@ impl EmitWalker {
     /// the store mnemonic downstream is width-aware
     /// (`MovSized{width}`) and writes exactly `field_size` bytes.
     ///
-    /// Signed narrow-width fields (i8/i16/i32) with `@endian(be)`
-    /// emit T0567 and return `value_reg` unchanged — the store then
-    /// writes the un-swapped bytes, so any subsequent LOAD from
-    /// the same field will read the un-swapped value and, because
-    /// its load path is likewise diagnostic-gated in this wave, the
-    /// round-trip refuses to compile rather than miscompile. i64 is
-    /// bit-pattern-identical to u64 at this level, so `bswap r64`
-    /// is safe.
+    /// Signed narrow widths (i16/i32) with `@endian(be)` (Wave 57,
+    /// paideia-as#1560): no post-swap sign-extend is required on the
+    /// store side because the downstream `MovSized{width}` narrows
+    /// the write to exactly `field_size` bytes — the stale upper
+    /// bits left by `rol r16` (or the zero-extended upper 32 left by
+    /// `bswap r32`) are dropped by the store's operand-size prefix.
+    /// The same three-instruction shape `mov r11, v; swap-low r11;
+    /// MovSized [mem], r11` therefore serves both signed and
+    /// unsigned narrow. i64 remains bit-pattern-identical to u64 at
+    /// this level. i8 is a one-byte no-op.
     pub(crate) fn emit_endian_store_swap_if_needed(
         &mut self,
         type_id: RecordTypeId,
@@ -1188,34 +1211,19 @@ impl EmitWalker {
                 // size == 1 (u8 or i8) — byte-swap on a single byte
                 // is the identity for either signedness; leave
                 // value_reg untouched (equivalent to the unannotated
-                // path). Handled BEFORE the signed-narrow diagnostic
-                // so `@endian(be) i8` isn't flagged as deferred when
-                // it is in fact a no-op.
+                // path).
                 if field_size == 1 {
                     return value_reg;
                 }
-                // Signed narrow widths (i16/i32) with `@endian(be)`
-                // need a post-swap `movsx`/`movsxd` re-widen that this
-                // wave doesn't emit. Refuse with T0567 BEFORE the
-                // scratch copy so no dead `mov r11, value_reg` lands.
-                // i64 is bit-pattern-identical to u64 at this level
-                // and is handled by the fall-through.
-                if field_signed && matches!(field_size, 2 | 4) {
-                    self.push_typed_diag(
-                        t0567_code(),
-                        format!(
-                            "@endian(be) on a signed narrow scalar (size={}) requires a \
-                             post-swap sign-extend recipe not yet implemented; \
-                             use the unsigned form and cast at the use site",
-                            field_size
-                        ),
-                    );
-                    return value_reg;
-                }
-                // Widths 2/4/8: emit `mov r11, value_reg` (64-bit
-                // copy — the store's own MovSized narrows on write)
-                // and then the width-appropriate byte-reversal on
-                // R11.
+                // Widths 2/4/8 (signed and unsigned): emit
+                // `mov r11, value_reg` (64-bit copy — the store's
+                // own MovSized narrows on write) and then the
+                // width-appropriate byte-reversal on R11. The store
+                // downstream writes exactly `field_size` bytes, so
+                // any stale upper bits in R11 after the swap are
+                // dropped — no re-sign-extend is needed here (unlike
+                // the load side, where the widened dest_reg must
+                // carry correct sign in every bit).
                 let mov_id = self.alloc_synthetic_id();
                 let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 mov_operands.push(Operand::Reg(abi::R11));
@@ -1242,46 +1250,40 @@ impl EmitWalker {
         }
     }
 
-    /// paideia-as#1508: emit the width-appropriate byte-reversal
-    /// instruction on `reg`. Returns `true` when an instruction was
-    /// emitted (and the caller may rely on `reg` holding the swapped
-    /// value), `false` when the width is a no-op (single byte) or
-    /// deferred (signed narrow) — in the deferred case a T0567
-    /// diagnostic is emitted so silent miscompile is impossible.
+    /// paideia-as#1508 / paideia-as#1560: emit the width-appropriate
+    /// byte-reversal instruction on `reg`. Returns `true` when an
+    /// instruction was emitted (and the caller may rely on `reg`
+    /// holding the swapped low bytes), `false` when the width is a
+    /// no-op (single byte) or the width is unsupported (T0567 is
+    /// emitted defensively in that case).
+    ///
+    /// `field_signed` is accepted for load-side callers that need to
+    /// dispatch on it (they append a `movsx` re-widen when
+    /// `field_signed && size in {2, 4}` — see
+    /// `emit_endian_load_swap_if_needed`) but is NOT consulted here
+    /// — the byte-reversal itself is identical between signed and
+    /// unsigned for a given width. Wave 57 (#1560) removed the
+    /// signed-narrow refusal that Wave 56 (#1508) landed as a
+    /// silent-miscompile guard, since both load and store paths now
+    /// carry the full recipe.
     ///
     /// Width recipes:
     ///   * 1 byte  — no-op (endianness is meaningless for a single
     ///     byte); returns `false`.
     ///   * 2 bytes — `rol r16, 8` (66h prefix; touches only the low
-    ///     16 bits, upper bits unchanged — safe because the load
-    ///     path used `movzx` and left the high 48 bits zero, and
-    ///     the store path narrows to 2 bytes on write).
+    ///     16 bits, upper bits unchanged). Callers whose value must
+    ///     carry correct sign in the upper bits (load side, signed
+    ///     narrow) must follow with `movsx r64, r16`.
     ///   * 4 bytes — `bswap r32` (0F C8+rd; zero-extends to r64).
+    ///     Load-side signed narrow (i32) must follow with
+    ///     `movsxd r64, r32` — bswap32's zero-extension is wrong for
+    ///     negative values.
     ///   * 8 bytes — `bswap r64` (REX.W 0F C8+rd).
-    ///   * i8/i16/i32 (signed narrow) — T0567 diagnostic, `false`
-    ///     (see `emit_endian_load_swap_if_needed` for scoping
-    ///     rationale).
     ///   * other sizes — T0567 diagnostic (defensive), `false`.
-    fn emit_bswap_low_bits(&mut self, field_size: u8, field_signed: bool, reg: RegId) -> bool {
+    fn emit_bswap_low_bits(&mut self, field_size: u8, _field_signed: bool, reg: RegId) -> bool {
         // size == 1: byte-swap on a single byte is the identity for
         // either signedness. Emit nothing (u8/i8 both fall here).
         if field_size == 1 {
-            return false;
-        }
-        // Signed narrow widths (i16/i32) require a post-swap
-        // `movsx`/`movsxd` re-widen that this wave doesn't
-        // implement. Diagnose and skip so the load/store path is
-        // safe (no partial-swap silent miscompile).
-        if field_signed && matches!(field_size, 2 | 4) {
-            self.push_typed_diag(
-                t0567_code(),
-                format!(
-                    "@endian(be) on a signed narrow scalar (size={}) requires a \
-                     post-swap sign-extend recipe not yet implemented; \
-                     use the unsigned form and cast at the use site",
-                    field_size
-                ),
-            );
             return false;
         }
         match field_size {
@@ -1348,5 +1350,45 @@ impl EmitWalker {
                 false
             }
         }
+    }
+
+    /// paideia-as#1560 (Wave 57): emit the post-swap re-sign-extend
+    /// for load-side signed narrow (i16/i32). After
+    /// `emit_bswap_low_bits` reversed the low `field_size` bytes in
+    /// `reg`, this helper re-derives the sign from the swapped low
+    /// half into all 64 bits of `reg` via a reg-reg `movsx`/`movsxd`:
+    ///
+    ///   * size 2 — `movsx r64, r16`  (REX.W 0F BF /r)
+    ///   * size 4 — `movsxd r64, r32` (REX.W 63 /r)
+    ///
+    /// The encoding_hint mirrors `emit_field_access_movsx_reg`'s
+    /// convention: `opcode = 0x0F` for widths 1/2 (two-byte 0F BE/BF
+    /// escape), `0x63` for width 4 (single-byte MOVSXD). Called
+    /// only from `emit_endian_load_swap_if_needed`; the store side
+    /// does not need this leg because the downstream `MovSized`
+    /// narrows the write and any stale upper bits are dropped.
+    fn emit_movsx_widen_after_swap(&mut self, field_size: u8, reg: RegId) {
+        // Opcode mirrors `emit_field_access_movsx_reg`'s convention
+        // and `encode_movsx`'s dispatch: 0x0F for the two-byte 0F BE/BF
+        // escape (sizes 1 and 2 — sign-extended widening from r8/r16),
+        // 0x63 for the single-byte MOVSXD (size 4 — from r32).
+        let opcode: u16 = match field_size {
+            2 => 0x0F,
+            4 => 0x63,
+            _ => return, // Callers gate on {2, 4} — defensive no-op.
+        };
+        let widen_id = self.alloc_synthetic_id();
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(reg));
+        operands.push(Operand::Reg(reg));
+        let widen = Instruction {
+            mnemonic: Mnemonic::Movsx,
+            operands,
+            encoding_hint: Some(EncodingHint { opcode, operand_size: field_size }),
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        self.emit_inst(widen_id, widen);
     }
 }

@@ -380,3 +380,224 @@ fn unannotated_u32_store_is_byte_identical_to_pre_wave() {
         other => panic!("expected (MemSib base=RDI, Reg(RDX)), got {:?}", other),
     }
 }
+
+// ── SIGNED-NARROW tests (Wave 57, paideia-as#1560) ────────────────────
+//
+// Wave 56 (v0.36.80, #1508) landed the byte-swap for u8/u16/u32/u64/i64
+// and diagnosed i16/i32 with T0567 to prevent silent miscompile. Wave 57
+// (v0.36.81, #1560) lands the three-instruction `swap-low; movsx-widen`
+// recipe on the load side and the matching `mov r11; swap-low r11;
+// narrow-store` recipe on the store side, retiring T0567 for the
+// signed-narrow case (the diagnostic remains as a defensive arm for
+// truly unsupported widths).
+//
+// The load recipes must re-sign-extend AFTER the swap so upper bits
+// track the true sign of the intended value — the initial movsx/movsxd
+// baked stale sign-extension from the raw big-endian byte sequence,
+// which the swap alone does not repair. The store recipes can skip the
+// re-widen because the downstream MovSized{width} narrows the write.
+
+/// `@endian(be)` on an i16 field: `movsx r64, word[rdi];
+/// rol r16, 8; movsx r64, r16`. The first movsx (0F BF) loads
+/// the raw big-endian bytes as a mis-signed 64-bit value. The ROL
+/// swaps the low 16 bits in place. The second movsx (0F BF, reg-
+/// reg) re-derives sign from the correctly-swapped low half,
+/// discarding the stale upper 48. Byte-exact: sequence, register
+/// (RAX), immediate (8), and encoding_hint (opcode 0x0F, operand_size 2)
+/// are all pinned.
+#[test]
+fn i16_be_load_swap_and_sign_extend() {
+    let insts = build_endian_load(2, true, 0, Some(Endianness::Be));
+
+    let mnems: Vec<Mnemonic> = insts.iter().map(|i| i.mnemonic).collect();
+    assert_eq!(
+        mnems,
+        vec![
+            Mnemonic::Movsx,
+            Mnemonic::Rol { width: IntWidth::W16 },
+            Mnemonic::Movsx,
+        ],
+        "i16 @endian(be) must lower to movsx r64,word[mem]; rol r16, 8; movsx r64, r16"
+    );
+
+    // inst[0] — movsx r64, word[rdi + 0], encoding_hint 0x0F/2.
+    match (&insts[0].operands[0], &insts[0].operands[1]) {
+        (Operand::Reg(dst), Operand::MemSib { base, disp, .. }) => {
+            assert_eq!(*dst, abi::RAX, "movsx dst must be RAX (load dest)");
+            assert_eq!(*base, abi::RDI, "movsx base must be RDI (bound `p`)");
+            assert_eq!(*disp, 0);
+        }
+        other => panic!("expected movsx (Reg(RAX), MemSib base=RDI disp=0), got {:?}", other),
+    }
+    let hint0 = insts[0].encoding_hint.expect("movsx load must carry hint");
+    assert_eq!(hint0.opcode, 0x0F, "i16 load opcode must be 0x0F (0F BF /r)");
+    assert_eq!(hint0.operand_size, 2, "i16 load operand_size must be 2");
+
+    // inst[1] — rol RAX, 8 (Rol{W16}).
+    match insts[1].operands.as_slice() {
+        [Operand::Reg(r), Operand::Imm64(imm)] => {
+            assert_eq!(*r, abi::RAX, "rol dest must be RAX");
+            assert_eq!(*imm, 8, "rol amount must be 8 for a byte-pair swap");
+        }
+        other => panic!("expected [Reg(RAX), Imm64(8)], got {:?}", other),
+    }
+
+    // inst[2] — movsx r64, r16 (reg-reg), encoding_hint 0x0F/2.
+    match (&insts[2].operands[0], &insts[2].operands[1]) {
+        (Operand::Reg(dst), Operand::Reg(src)) => {
+            assert_eq!(*dst, abi::RAX, "re-widen dst must be RAX");
+            assert_eq!(*src, abi::RAX, "re-widen src must be RAX (same reg, low 16)");
+        }
+        other => panic!("expected movsx (Reg(RAX), Reg(RAX)), got {:?}", other),
+    }
+    let hint2 = insts[2].encoding_hint.expect("post-swap movsx must carry hint");
+    assert_eq!(hint2.opcode, 0x0F, "post-swap re-widen opcode must be 0x0F (0F BF /r)");
+    assert_eq!(hint2.operand_size, 2, "post-swap re-widen operand_size must be 2");
+}
+
+/// `@endian(be)` on an i32 field: `movsxd r64, dword[rdi];
+/// bswap r32; movsxd r64, r32`. bswap r32 zero-extends to r64,
+/// which is *wrong* for negative i32 values — the second movsxd
+/// (0x63) re-derives the true sign from the swapped low 32.
+/// Byte-exact: sequence, register (RAX), and encoding_hint
+/// (opcode 0x63, operand_size 4) are all pinned.
+#[test]
+fn i32_be_load_swap_and_sign_extend() {
+    let insts = build_endian_load(4, true, 0, Some(Endianness::Be));
+
+    let mnems: Vec<Mnemonic> = insts.iter().map(|i| i.mnemonic).collect();
+    assert_eq!(
+        mnems,
+        vec![Mnemonic::Movsx, Mnemonic::Bswap32, Mnemonic::Movsx],
+        "i32 @endian(be) must lower to movsxd r64,dword[mem]; bswap r32; movsxd r64, r32"
+    );
+
+    // inst[0] — movsxd r64, dword[rdi + 0], encoding_hint 0x63/4.
+    match (&insts[0].operands[0], &insts[0].operands[1]) {
+        (Operand::Reg(dst), Operand::MemSib { base, disp, .. }) => {
+            assert_eq!(*dst, abi::RAX, "movsxd dst must be RAX (load dest)");
+            assert_eq!(*base, abi::RDI, "movsxd base must be RDI (bound `p`)");
+            assert_eq!(*disp, 0);
+        }
+        other => panic!("expected movsxd (Reg(RAX), MemSib base=RDI disp=0), got {:?}", other),
+    }
+    let hint0 = insts[0].encoding_hint.expect("movsxd load must carry hint");
+    assert_eq!(hint0.opcode, 0x63, "i32 load opcode must be 0x63 (single-byte MOVSXD)");
+    assert_eq!(hint0.operand_size, 4, "i32 load operand_size must be 4");
+
+    // inst[1] — bswap RAX (32-bit).
+    match insts[1].operands.as_slice() {
+        [Operand::Reg(r)] => assert_eq!(*r, abi::RAX, "bswap32 operand must be RAX"),
+        other => panic!("expected [Reg(RAX)], got {:?}", other),
+    }
+
+    // inst[2] — movsxd r64, r32 (reg-reg), encoding_hint 0x63/4.
+    match (&insts[2].operands[0], &insts[2].operands[1]) {
+        (Operand::Reg(dst), Operand::Reg(src)) => {
+            assert_eq!(*dst, abi::RAX, "re-widen dst must be RAX");
+            assert_eq!(*src, abi::RAX, "re-widen src must be RAX (same reg, low 32)");
+        }
+        other => panic!("expected movsxd (Reg(RAX), Reg(RAX)), got {:?}", other),
+    }
+    let hint2 = insts[2].encoding_hint.expect("post-swap movsxd must carry hint");
+    assert_eq!(hint2.opcode, 0x63, "post-swap re-widen opcode must be 0x63");
+    assert_eq!(hint2.operand_size, 4, "post-swap re-widen operand_size must be 4");
+}
+
+/// `@endian(be)` on an i16 field store: `mov r11, rdx;
+/// rol r11w, 8; mov word[rdi], r11w`. Same three-instruction
+/// shape as the u16 store — no re-widen because MovSized{W16}
+/// narrows the write to 2 bytes and drops any stale upper bits
+/// left by `rol r16` (the upper 48 of R11 still hold the
+/// sign-extended value from RDX, but the store only writes the
+/// low 2). Byte-exact: mnemonic sequence, all three register
+/// operands, and the immediate 8 are pinned.
+#[test]
+fn i16_be_store_truncate_swap_narrow() {
+    let insts = build_endian_store(2, true, 0, Some(Endianness::Be));
+
+    let mnems: Vec<Mnemonic> = insts.iter().map(|i| i.mnemonic).collect();
+    assert_eq!(
+        mnems,
+        vec![
+            Mnemonic::Mov,
+            Mnemonic::Rol { width: IntWidth::W16 },
+            Mnemonic::MovSized { width: IntWidth::W16 },
+        ],
+        "i16 @endian(be) store must lower to mov r11,rdx; rol r11w, 8; mov word[rdi], r11w"
+    );
+
+    // inst[0] — mov r11, rdx.
+    match (&insts[0].operands[0], &insts[0].operands[1]) {
+        (Operand::Reg(dst), Operand::Reg(src)) => {
+            assert_eq!(*dst, abi::R11, "bswap scratch must be R11");
+            assert_eq!(*src, abi::RDX, "value source must be RDX (bound `v`)");
+        }
+        other => panic!("expected (Reg(R11), Reg(RDX)), got {:?}", other),
+    }
+
+    // inst[1] — rol R11, 8 (Rol{W16}).
+    match insts[1].operands.as_slice() {
+        [Operand::Reg(r), Operand::Imm64(imm)] => {
+            assert_eq!(*r, abi::R11, "rol dest must be R11 (post-scratch-copy)");
+            assert_eq!(*imm, 8, "rol amount must be 8 for a byte-pair swap");
+        }
+        other => panic!("expected [Reg(R11), Imm64(8)], got {:?}", other),
+    }
+
+    // inst[2] — mov word[rdi], r11 (MovSized{W16}).
+    match (&insts[2].operands[0], &insts[2].operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Reg(src)) => {
+            assert_eq!(*base, abi::RDI, "store base must be RDI (bound `p`)");
+            assert_eq!(*disp, 0);
+            assert_eq!(*src, abi::R11, "store source must be R11 (post-swap)");
+        }
+        other => panic!("expected (MemSib base=RDI, Reg(R11)), got {:?}", other),
+    }
+}
+
+/// `@endian(be)` on an i32 field store: `mov r11, rdx;
+/// bswap r11d; mov dword[rdi], r11d`. bswap32 zero-extends the
+/// upper 32 of R11 (Intel-defined behaviour) but that's harmless
+/// — MovSized{W32} writes exactly 4 bytes. Byte-exact: mnemonic
+/// sequence and all register operands are pinned.
+#[test]
+fn i32_be_store_truncate_swap_narrow() {
+    let insts = build_endian_store(4, true, 0, Some(Endianness::Be));
+
+    let mnems: Vec<Mnemonic> = insts.iter().map(|i| i.mnemonic).collect();
+    assert_eq!(
+        mnems,
+        vec![
+            Mnemonic::Mov,
+            Mnemonic::Bswap32,
+            Mnemonic::MovSized { width: IntWidth::W32 },
+        ],
+        "i32 @endian(be) store must lower to mov r11,rdx; bswap r11d; mov dword[rdi], r11d"
+    );
+
+    // inst[0] — mov r11, rdx.
+    match (&insts[0].operands[0], &insts[0].operands[1]) {
+        (Operand::Reg(dst), Operand::Reg(src)) => {
+            assert_eq!(*dst, abi::R11, "bswap scratch must be R11");
+            assert_eq!(*src, abi::RDX, "value source must be RDX (bound `v`)");
+        }
+        other => panic!("expected (Reg(R11), Reg(RDX)), got {:?}", other),
+    }
+
+    // inst[1] — bswap32 R11.
+    match insts[1].operands.as_slice() {
+        [Operand::Reg(r)] => assert_eq!(*r, abi::R11, "bswap32 operand must be R11"),
+        other => panic!("expected [Reg(R11)], got {:?}", other),
+    }
+
+    // inst[2] — mov dword[rdi], r11 (MovSized{W32}).
+    match (&insts[2].operands[0], &insts[2].operands[1]) {
+        (Operand::MemSib { base, disp, .. }, Operand::Reg(src)) => {
+            assert_eq!(*base, abi::RDI, "store base must be RDI (bound `p`)");
+            assert_eq!(*disp, 0);
+            assert_eq!(*src, abi::R11, "store source must be R11 (post-bswap)");
+        }
+        other => panic!("expected (MemSib base=RDI, Reg(R11)), got {:?}", other),
+    }
+}
