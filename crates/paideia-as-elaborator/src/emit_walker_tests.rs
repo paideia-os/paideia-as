@@ -42,3 +42,8 @@ mod sret_slice_c;
 
 #[path = "emit_walker_tests/sret_slice_d.rs"]
 mod sret_slice_d;
+
+// paideia-as#1508 (PAS-DEBT-B2-015): elaborator-side `@endian(be|le)`
+// byte-swap insertion on scalar loads/stores.
+#[path = "emit_walker_tests/endian_byteswap.rs"]
+mod endian_byteswap;

@@ -5,7 +5,7 @@
 //! RecordLayoutTable was never populated in production. Consumes
 //! ItemData::Struct.fields (Vec<(NodeId, NodeId)>) landed in #1071.
 
-use paideia_as_ast::{AstArena, ItemData, NodeId, NodeKind, TypeData};
+use paideia_as_ast::{AstArena, Endianness, FieldAttr, ItemData, NodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, SourceMap};
 use paideia_as_ir::record_layout::RecordTypeId;
 use std::collections::HashMap;
@@ -25,6 +25,19 @@ pub struct StructRegistry {
     /// Map from RecordTypeId to list of AST NodeIds for field types.
     /// Used for T0535 fn-ptr field checking. Index aligns with fields vec.
     pub field_type_nodes: HashMap<RecordTypeId, Vec<NodeId>>,
+    /// paideia-as#1508 (PAS-DEBT-B2-015): per-field `@endian(be|le)`
+    /// attribute recorded during struct-registry construction. Parallel
+    /// to the `fields` vec by index — `None` for the (overwhelmingly
+    /// common) unannotated field, `Some(Endianness)` when the parser
+    /// stashed an `@endian(...)` attribute on the field's name NodeId.
+    /// Emit-side byte-swap insertion consults this via
+    /// `EmitPassState::struct_field_endian` (mirrored into state during
+    /// walker pipeline setup) so the load path can emit `bswap` after a
+    /// widening load and the store path can emit copy+bswap before a
+    /// store when the annotation resolves to `Be` on the little-endian
+    /// x86_64 target. `Le` is retained (parser accepts it as an intent
+    /// annotation) but resolves to a no-op today.
+    pub field_endian: HashMap<RecordTypeId, Vec<Option<Endianness>>>,
 }
 
 impl StructRegistry {
@@ -34,7 +47,20 @@ impl StructRegistry {
             by_name: HashMap::new(),
             fields: HashMap::new(),
             field_type_nodes: HashMap::new(),
+            field_endian: HashMap::new(),
         }
+    }
+
+    /// paideia-as#1508: look up the `@endian(be|le)` annotation for a
+    /// field by (type, index). Returns `None` when the type is unknown,
+    /// the index is out of bounds, or the field carries no annotation
+    /// (the common case).
+    #[must_use]
+    pub fn endian_of(&self, type_id: RecordTypeId, field_index: usize) -> Option<Endianness> {
+        self.field_endian
+            .get(&type_id)
+            .and_then(|v| v.get(field_index))
+            .and_then(|e| *e)
     }
 
     /// Get the RecordTypeId for a struct by name.
@@ -141,6 +167,13 @@ pub fn build_struct_registry(
                         // Process each field in the struct
                         let mut field_descriptors: Vec<(String, u8)> = Vec::new();
                         let mut field_type_node_ids: Vec<NodeId> = Vec::new();
+                        // paideia-as#1508: parallel per-field `@endian(be|le)`
+                        // vector. Populated below at the same sites as
+                        // `field_descriptors.push` so all three vectors stay
+                        // index-aligned. `None` is the common case; the parser
+                        // stashes `FieldAttr::Endian(e)` on the field-name
+                        // NodeId only when the source actually annotates it.
+                        let mut field_endians: Vec<Option<Endianness>> = Vec::new();
                         for (field_name_id, field_type_id) in fields {
                             // Extract field name
                             let field_name = match extract_source_text(ast, source_map, *field_name_id) {
@@ -151,6 +184,23 @@ pub fn build_struct_registry(
                                 }
                             };
 
+                            // paideia-as#1508: look up any `@endian(be|le)`
+                            // attribute stashed by the parser on this
+                            // field-name NodeId. `FieldAttr` currently carries
+                            // one variant (Endian); the destructure is
+                            // intentional so the compiler flags future
+                            // variants (`@bitfield`, `@align`, …) as an
+                            // append-point that this pass may need to
+                            // service.
+                            let endian = ast
+                                .struct_field_attrs()
+                                .get(*field_name_id)
+                                .and_then(|attrs| {
+                                    attrs.iter().find_map(|a| match a {
+                                        FieldAttr::Endian(e) => Some(*e),
+                                    })
+                                });
+
                             // Check if this is a function-pointer type
                             if let Some(type_data) = ast.type_data(*field_type_id) {
                                 if matches!(type_data, TypeData::FnPtr { .. }) {
@@ -158,6 +208,12 @@ pub fn build_struct_registry(
                                     field_type_node_ids.push(*field_type_id);
                                     // Function-pointer fields are encoded as 8-byte pointers
                                     field_descriptors.push((field_name, 0x08));
+                                    // `@endian` on a fn-ptr field is a
+                                    // parser-P0301 case (non-scalar); the
+                                    // attribute never lands here in
+                                    // practice — carry None to keep vector
+                                    // alignment defensively.
+                                    field_endians.push(None);
                                     continue;
                                 }
                             }
@@ -177,6 +233,7 @@ pub fn build_struct_registry(
                                     // Record the field type node ID for T0535 checking
                                     field_type_node_ids.push(*field_type_id);
                                     field_descriptors.push((field_name, code));
+                                    field_endians.push(endian);
                                 }
                                 None => {
                                     // Emit T0552 diagnostic for unsupported field type
@@ -201,6 +258,7 @@ pub fn build_struct_registry(
                         registry.by_name.insert(struct_name, type_id);
                         registry.fields.insert(type_id, field_descriptors);
                         registry.field_type_nodes.insert(type_id, field_type_node_ids);
+                        registry.field_endian.insert(type_id, field_endians);
                     }
                 }
             }
@@ -399,10 +457,18 @@ mod tests {
         // Before the fix, field_type_nodes would have 2 entries while fields has 1
         let fields_count = registry.fields.get(&type_id).map(|v| v.len());
         let field_type_nodes_count = registry.field_type_nodes.get(&type_id).map(|v| v.len());
+        // paideia-as#1508: `field_endian` is a third parallel vec —
+        // pushed at exactly the same sites as `field_descriptors` so
+        // the alignment invariant must hold for it too.
+        let field_endian_count = registry.field_endian.get(&type_id).map(|v| v.len());
 
         assert_eq!(fields_count, Some(1), "should have 1 accepted field (u64)");
         assert_eq!(field_type_nodes_count, Some(1), "field_type_nodes should match fields length");
         assert_eq!(fields_count, field_type_nodes_count, "fields and field_type_nodes must be aligned");
+        assert_eq!(
+            field_endian_count, Some(1),
+            "field_endian must be parallel to fields (paideia-as#1508)"
+        );
 
         // Verify the accepted field is the 'good' one
         if let Some(fields) = registry.fields.get(&type_id) {

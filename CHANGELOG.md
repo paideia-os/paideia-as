@@ -1,5 +1,93 @@
 # Changelog
 
+## v0.36.80 — 2026-09-28 — Issue #1508 (PAS-DEBT-B2-015): elaborator-side @endian(be|le) byte-swap insertion
+
+paideia-as#1508 closes the deferred elaborator half of
+paideia-as#1372 (v0.28-M1-003): `@endian(be|le)` on integral-scalar
+struct fields — the parser already accepted the attribute and
+stashed it on `StructFieldAttrTable` per field-name NodeId, but
+the load/store paths ignored it. Wave 55 wires the annotation
+through the struct registry into `EmitPassState` and inserts a
+width-appropriate byte-swap:
+
+  * **`StructRegistry`** (`crates/paideia-as-elaborator/src/
+    struct_registry.rs`): grows a `field_endian:
+    HashMap<RecordTypeId, Vec<Option<Endianness>>>` parallel to
+    `fields`; `build_struct_registry` pushes into it at exactly the
+    same sites as `field_descriptors`, so the (fields,
+    field_type_nodes, field_endian) trio stays index-aligned. The
+    existing alignment regression test grows one line asserting the
+    third vector. Public `endian_of(type_id, index)` accessor for
+    callers that don't need the whole map.
+
+  * **`EmitPassState`** (`crates/paideia-as-elaborator/src/
+    emit_pass_state.rs`): new sparse
+    `struct_field_endian: HashMap<(RecordTypeId, u32), Endianness>`
+    with `insert_field_endian` / `field_endian` accessors. Only
+    annotated fields land in the map; the unannotated case is a
+    HashMap-miss and adds zero per-field overhead on the hot path.
+
+  * **`walker_pipeline.rs`** (`crates/paideia-as/src/cmd_build/`):
+    right after `finalise_record_layouts`, iterates
+    `registry.field_endian` and calls `insert_field_endian` for
+    every `Some(endian)` entry — one-shot mirror that runs once per
+    build.
+
+  * **`emit_field_access.rs`** (`crates/paideia-as-elaborator/src/`):
+      * `visit_field_access_with_reg` calls
+        `emit_endian_load_swap_if_needed` after
+        `emit_widening_load`. When the field carries `@endian(be)`,
+        a width-matched byte-reversal is appended in-place on
+        `dest_reg`:
+          - u16 → `rol r16, 8` (66h; touches only low 2 bytes —
+            safe because `movzx` left the high 48 zero).
+          - u32 → `bswap r32` (0F C8+rd; zero-extends to r64).
+          - u64 → `bswap r64` (REX.W 0F C8+rd).
+        `@endian(le)` on the native little-endian x86_64 target
+        emits no bswap (no-op preserved as intent annotation and
+        as forward-compat for cross-target retargeting).
+      * `visit_field_assign` calls
+        `emit_endian_store_swap_if_needed` before the
+        `mov [base+off], src`. When `@endian(be)`, the value is
+        copied into R11 (caller-saved, outside SysV arg
+        sequence, canonical scratch across
+        `emit_store_record.rs` and `emit_int_match.rs`),
+        byte-swapped in place, and the store's source register
+        becomes R11. The caller's binding table entry for the
+        original value stays intact — subsequent uses of the
+        value binding get the pre-swap value unchanged.
+
+  * **Signed-narrow scoping**: i8/i16/i32 with `@endian(be)`
+    would need a post-swap `movsx` re-widen because their loads
+    go through `movsxd` and their upper bits carry stale
+    sign-extension after a `bswap` on the low width. Wave 55
+    emits `T0567` and skips the byte-swap on both load and
+    store sides so silent miscompile is impossible; a follow-up
+    wave can land the three-instruction `mov-low; bswap;
+    movsx-widen` recipe. u8/i8 (size 1) is emitted as a plain
+    load/store — byte-swap on a single byte is the identity.
+    u64/i64 share the same recipe (two's-complement).
+
+  * **Byte-identity on the unannotated hot path.** Every existing
+    fixture that touches struct fields keeps the pre-Wave-55
+    load/store byte sequence: the two new helpers early-return on
+    a HashMap-miss without touching the instruction stream, so
+    only sources that literally write `@endian(...)` in the pdx
+    change shape.
+
+  * **Seven new tests** (`crates/paideia-as-elaborator/src/
+    emit_walker_tests/endian_byteswap.rs`): five load-side
+    (u16/u32/u64 Be, u32 Le no-op, unannotated u32 regression)
+    and two store-side (u32 Be scratch+bswap+store, u64 Be
+    likewise) plus the regression twin for the unannotated
+    store. Pins mnemonic + operand shape end-to-end through the
+    walker.
+
+  * **Diagnostic code minted**: `T0567` — `@endian(be)` on signed
+    narrow scalar (deferred sequencing).
+
+  * **Closes** paideia-as#1508 (PAS-DEBT-B2-015).
+
 ## v0.36.79 — 2026-09-28 — Issue #1554 Slice E: recipe callees in return_record_cons_pass
 
 paideia-as#1554 Slice E closes the Wave 54 (v0.36.78) known gap:

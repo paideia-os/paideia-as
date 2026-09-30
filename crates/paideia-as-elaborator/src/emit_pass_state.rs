@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use paideia_as_ast::Endianness;
 use paideia_as_ir::instruction::{CpuFeature, InstrMode, InstructionSideTable, RegId};
 use paideia_as_ir::let_meta::{AtomicOrdering, CallingConvention, InterruptAttr};
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
@@ -270,6 +271,27 @@ pub struct EmitPassState {
     /// and for the .pdx-fixture snapshot to pin the mov shape.
     pub(crate) atomic_bindings: HashMap<String, AtomicOrdering>,
 
+    /// paideia-as#1508 (PAS-DEBT-B2-015): per-field `@endian(be|le)`
+    /// resolution for struct-field loads and stores, keyed by
+    /// `(RecordTypeId, field_index)`. Sparse — only fields that carry
+    /// an actual `@endian(...)` annotation land here; the common
+    /// unannotated case is a `HashMap::get` miss and adds no
+    /// per-field overhead.
+    ///
+    /// Populated by `walker_pipeline.rs` right after
+    /// `finalise_record_layouts`, mirroring what the parser stashed on
+    /// `StructFieldAttrTable`. Consumed by `emit_field_access.rs`:
+    ///   * `visit_field_access_with_reg` emits a byte-swap after the
+    ///     widening load when the resolved endianness is `Be`.
+    ///   * `visit_field_assign` copies the source into scratch,
+    ///     byte-swaps the scratch, and stores from the scratch when
+    ///     the resolved endianness is `Be`.
+    /// `Le` resolves to a no-op on the x86_64 target (native
+    /// little-endian) but is retained end-to-end so cross-target
+    /// retargeting or a big-endian host can flip the polarity in one
+    /// place without another AST/IR rewire.
+    pub(crate) struct_field_endian: HashMap<(RecordTypeId, u32), Endianness>,
+
     /// #1270: Reserved `emission_order` base for each `StmtExpr` (call
     /// expression) statement inside an unsafe block, keyed by
     /// `(unsafe_ir_node_id, statement_index_within_block)`.
@@ -335,6 +357,7 @@ impl Default for EmitPassState {
             emitted_interrupt_prologue: Default::default(),
             unsafe_stmt_expr_order_base: Default::default(),
             atomic_bindings: Default::default(),
+            struct_field_endian: Default::default(),
         }
     }
 }
@@ -364,6 +387,35 @@ impl EmitPassState {
     #[must_use]
     pub fn record_layouts_is_empty(&self) -> bool {
         self.record_layouts.is_empty()
+    }
+
+    // ── Struct-field `@endian(be|le)` map (paideia-as#1508) ──────────────
+
+    /// paideia-as#1508: install (or overwrite) the `@endian(be|le)`
+    /// annotation for one struct field, keyed by
+    /// `(RecordTypeId, field_index)`.
+    ///
+    /// Called by `walker_pipeline.rs` right after
+    /// `finalise_record_layouts`, once per annotated field found in
+    /// the struct registry. Absence from the map is the hot-path
+    /// default; presence is the byte-swap trigger.
+    pub fn insert_field_endian(
+        &mut self,
+        type_id: RecordTypeId,
+        field_index: u32,
+        endian: Endianness,
+    ) {
+        self.struct_field_endian.insert((type_id, field_index), endian);
+    }
+
+    /// paideia-as#1508: look up the resolved endianness of a struct
+    /// field. Returns `None` for the unannotated case (no byte-swap
+    /// emission), `Some(Endianness::Le)` for a native little-endian
+    /// annotation on x86_64 (still a no-op emission today), and
+    /// `Some(Endianness::Be)` for the byte-swap-emission case.
+    #[must_use]
+    pub fn field_endian(&self, type_id: RecordTypeId, field_index: u32) -> Option<Endianness> {
+        self.struct_field_endian.get(&(type_id, field_index)).copied()
     }
 
     // ── Enum layouts ─────────────────────────────────────────────────────

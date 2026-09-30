@@ -8,9 +8,11 @@
 //! All methods run as `impl EmitWalker` and share walker state via
 //! `pub(crate)` visibility on the walker's fields and helper methods.
 
+use paideia_as_ast::Endianness;
 use paideia_as_ir::instruction::{
     EncodingHint, Instruction, IntWidth, Mnemonic, Operand, RegId,
 };
+use paideia_as_ir::record_layout::RecordTypeId;
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
@@ -44,6 +46,20 @@ fn t0564_code() -> DiagnosticCode {
 fn t0565_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::T, Severity::Error, 565)
         .expect("T0565 is within valid T range")
+}
+
+/// paideia-as#1508 (PAS-DEBT-B2-015): sign-extended narrow scalar
+/// (i8/i16/i32) annotated with `@endian(be)` needs a byte-swap on the
+/// pre-sign-extension value AND a re-sign-extend of the swapped low
+/// bytes. The Wave-55 landing scopes the byte-swap emission to
+/// unsigned widths (u8/u16/u32/u64) plus i64 (whose native two's-
+/// complement representation doesn't require post-swap re-extension).
+/// i8/i16/i32 with `@endian(be)` remain unemitted here with T0567 so
+/// silent miscompile is impossible; a follow-up wave adds the
+/// three-instruction `mov-low; bswap; movsx-widen` recipe.
+fn t0567_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 567)
+        .expect("T0567 is within valid T range")
 }
 
 /// Helper to construct U1643 diagnostic code (Malformed field-shape IR node).
@@ -371,6 +387,23 @@ impl EmitWalker {
             _ => abi::RDX,
         };
 
+        // paideia-as#1508 (PAS-DEBT-B2-015): if the parser stashed
+        // `@endian(be)` on this field, byte-swap the value BEFORE
+        // storing. The helper copies `value_reg` into R11, byte-swaps
+        // R11 in place, and returns R11 as the new source register;
+        // when unannotated (or `Le` on x86_64) it returns `value_reg`
+        // unchanged and emits nothing. Callers must not touch
+        // `value_reg` afterwards on the byte-swap path — R11 becomes
+        // the store source, so the caller's binding table entry for
+        // the original value stays intact.
+        let src_reg = self.emit_endian_store_swap_if_needed(
+            field_info.type_id,
+            field_info.field_index,
+            field_size,
+            field_signed,
+            value_reg,
+        );
+
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::MemSib {
             base: base_reg,                               // resolved pointer register
@@ -378,7 +411,7 @@ impl EmitWalker {
             scale: paideia_as_ir::instruction::Scale::X1, // ignored when no index
             disp: field_offset as i32,                    // field offset
         });
-        operands.push(Operand::Reg(value_reg)); // resolved value register
+        operands.push(Operand::Reg(src_reg)); // resolved value register (R11 on BE swap)
 
         let inst = Instruction {
             mnemonic: Mnemonic::MovSized { width },
@@ -660,13 +693,29 @@ impl EmitWalker {
         };
 
         // Route through the unified width dispatch.
+        let field_size = field_layout.size;
+        let field_signed = field_layout.signed;
         self.emit_widening_load(
             field_access_id,
             field_layout.offset as i32,
             base_reg,
             dest_reg,
-            field_layout.size,
-            field_layout.signed,
+            field_size,
+            field_signed,
+        );
+
+        // paideia-as#1508 (PAS-DEBT-B2-015): if the parser stashed
+        // `@endian(be)` on this field, byte-swap the loaded value in
+        // place on `dest_reg`. Unannotated fields (the common case)
+        // hit a HashMap-miss inside the helper and emit no extra
+        // instructions — pre-Wave-55 byte-identity is preserved for
+        // every existing fixture.
+        self.emit_endian_load_swap_if_needed(
+            field_info.type_id,
+            field_info.field_index,
+            field_size,
+            field_signed,
+            dest_reg,
         );
     }
 
@@ -1046,6 +1095,257 @@ impl EmitWalker {
                         size
                     ),
                 );
+            }
+        }
+    }
+
+    /// paideia-as#1508 (PAS-DEBT-B2-015): if the (type_id, field_index)
+    /// pair is annotated with `@endian(be)`, emit a byte-swap on
+    /// `reg` sized to `field_size`. `@endian(le)` on the native
+    /// little-endian x86_64 target is a no-op; unannotated fields are
+    /// a no-op (byte-identical to pre-Wave-55).
+    ///
+    /// Called on the LOAD side immediately after `emit_widening_load`
+    /// materialises the memory value into `reg`. The byte-swap is
+    /// safe in-place: `reg` is the load's destination and any prior
+    /// contents are gone.
+    ///
+    /// **Signed narrow-width scoping.** i8 (size 1) and i16/i32
+    /// (sizes 2/4) that were loaded via `movsx`/`movsxd` carry
+    /// sign-extended upper bits. A `bswap` on the low width would
+    /// leave stale sign-extension in the high bits, silently
+    /// miscompiling the value. This wave only emits byte-swap for
+    /// the loads whose upper bits are zero (u8/u16/u32 via mov/movzx)
+    /// or whose native two's-complement representation permits a
+    /// full-width `bswap` (u64/i64). Signed narrow widths with
+    /// `@endian(be)` emit T0567 and skip the byte-swap so a follow-up
+    /// wave can land the three-instruction `mov-low; bswap;
+    /// movsx-widen` recipe without any silent miscompile hazard.
+    pub(crate) fn emit_endian_load_swap_if_needed(
+        &mut self,
+        type_id: RecordTypeId,
+        field_index: u32,
+        field_size: u8,
+        field_signed: bool,
+        reg: RegId,
+    ) {
+        let endian = match self.state.field_endian(type_id, field_index) {
+            Some(e) => e,
+            None => return, // Unannotated: hot path, no bswap.
+        };
+        // Explicit destructure to force a compile break should
+        // `Endianness` grow a variant (append point per the AST
+        // enum's forward-compat contract).
+        match endian {
+            Endianness::Le => {
+                // Native little-endian on x86_64: no emission.
+            }
+            Endianness::Be => {
+                self.emit_bswap_low_bits(field_size, field_signed, reg);
+            }
+        }
+    }
+
+    /// paideia-as#1508 (PAS-DEBT-B2-015): store-side companion to
+    /// `emit_endian_load_swap_if_needed`. When the annotation resolves
+    /// to `Be`, emit `mov r11, value_reg; bswap-low r11` and return
+    /// `R11` so the caller uses it as the store source. When
+    /// unannotated or `Le`, return `value_reg` unchanged and emit
+    /// nothing.
+    ///
+    /// R11 is used as scratch because it is (a) caller-saved in
+    /// SysV, (b) never in the SysV argument-passing sequence, and
+    /// (c) already the canonical last-resort scratch across
+    /// `emit_store_record.rs` and `emit_int_match.rs` (see
+    /// `PATTERN_SCRATCH` in `paideia-as-ir::abi`). Copying via a
+    /// 64-bit `mov r11, value_reg` is safe for every field width —
+    /// the store mnemonic downstream is width-aware
+    /// (`MovSized{width}`) and writes exactly `field_size` bytes.
+    ///
+    /// Signed narrow-width fields (i8/i16/i32) with `@endian(be)`
+    /// emit T0567 and return `value_reg` unchanged — the store then
+    /// writes the un-swapped bytes, so any subsequent LOAD from
+    /// the same field will read the un-swapped value and, because
+    /// its load path is likewise diagnostic-gated in this wave, the
+    /// round-trip refuses to compile rather than miscompile. i64 is
+    /// bit-pattern-identical to u64 at this level, so `bswap r64`
+    /// is safe.
+    pub(crate) fn emit_endian_store_swap_if_needed(
+        &mut self,
+        type_id: RecordTypeId,
+        field_index: u32,
+        field_size: u8,
+        field_signed: bool,
+        value_reg: RegId,
+    ) -> RegId {
+        let endian = match self.state.field_endian(type_id, field_index) {
+            Some(e) => e,
+            None => return value_reg,
+        };
+        match endian {
+            Endianness::Le => value_reg,
+            Endianness::Be => {
+                // size == 1 (u8 or i8) — byte-swap on a single byte
+                // is the identity for either signedness; leave
+                // value_reg untouched (equivalent to the unannotated
+                // path). Handled BEFORE the signed-narrow diagnostic
+                // so `@endian(be) i8` isn't flagged as deferred when
+                // it is in fact a no-op.
+                if field_size == 1 {
+                    return value_reg;
+                }
+                // Signed narrow widths (i16/i32) with `@endian(be)`
+                // need a post-swap `movsx`/`movsxd` re-widen that this
+                // wave doesn't emit. Refuse with T0567 BEFORE the
+                // scratch copy so no dead `mov r11, value_reg` lands.
+                // i64 is bit-pattern-identical to u64 at this level
+                // and is handled by the fall-through.
+                if field_signed && matches!(field_size, 2 | 4) {
+                    self.push_typed_diag(
+                        t0567_code(),
+                        format!(
+                            "@endian(be) on a signed narrow scalar (size={}) requires a \
+                             post-swap sign-extend recipe not yet implemented; \
+                             use the unsigned form and cast at the use site",
+                            field_size
+                        ),
+                    );
+                    return value_reg;
+                }
+                // Widths 2/4/8: emit `mov r11, value_reg` (64-bit
+                // copy — the store's own MovSized narrows on write)
+                // and then the width-appropriate byte-reversal on
+                // R11.
+                let mov_id = self.alloc_synthetic_id();
+                let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                mov_operands.push(Operand::Reg(abi::R11));
+                mov_operands.push(Operand::Reg(value_reg));
+                let mov = Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: mov_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(mov_id, mov);
+                if !self.emit_bswap_low_bits(field_size, field_signed, abi::R11) {
+                    // Defensive: any unsupported width diagnoses
+                    // through `emit_bswap_low_bits` and returns false.
+                    // Restore `value_reg` as the store source so the
+                    // pre-Wave path still produces bytes rather than
+                    // an orphaned scratch move + broken store.
+                    return value_reg;
+                }
+                abi::R11
+            }
+        }
+    }
+
+    /// paideia-as#1508: emit the width-appropriate byte-reversal
+    /// instruction on `reg`. Returns `true` when an instruction was
+    /// emitted (and the caller may rely on `reg` holding the swapped
+    /// value), `false` when the width is a no-op (single byte) or
+    /// deferred (signed narrow) — in the deferred case a T0567
+    /// diagnostic is emitted so silent miscompile is impossible.
+    ///
+    /// Width recipes:
+    ///   * 1 byte  — no-op (endianness is meaningless for a single
+    ///     byte); returns `false`.
+    ///   * 2 bytes — `rol r16, 8` (66h prefix; touches only the low
+    ///     16 bits, upper bits unchanged — safe because the load
+    ///     path used `movzx` and left the high 48 bits zero, and
+    ///     the store path narrows to 2 bytes on write).
+    ///   * 4 bytes — `bswap r32` (0F C8+rd; zero-extends to r64).
+    ///   * 8 bytes — `bswap r64` (REX.W 0F C8+rd).
+    ///   * i8/i16/i32 (signed narrow) — T0567 diagnostic, `false`
+    ///     (see `emit_endian_load_swap_if_needed` for scoping
+    ///     rationale).
+    ///   * other sizes — T0567 diagnostic (defensive), `false`.
+    fn emit_bswap_low_bits(&mut self, field_size: u8, field_signed: bool, reg: RegId) -> bool {
+        // size == 1: byte-swap on a single byte is the identity for
+        // either signedness. Emit nothing (u8/i8 both fall here).
+        if field_size == 1 {
+            return false;
+        }
+        // Signed narrow widths (i16/i32) require a post-swap
+        // `movsx`/`movsxd` re-widen that this wave doesn't
+        // implement. Diagnose and skip so the load/store path is
+        // safe (no partial-swap silent miscompile).
+        if field_signed && matches!(field_size, 2 | 4) {
+            self.push_typed_diag(
+                t0567_code(),
+                format!(
+                    "@endian(be) on a signed narrow scalar (size={}) requires a \
+                     post-swap sign-extend recipe not yet implemented; \
+                     use the unsigned form and cast at the use site",
+                    field_size
+                ),
+            );
+            return false;
+        }
+        match field_size {
+            1 => {
+                // Unreachable — handled above; kept for match
+                // exhaustiveness against the `other` arm below.
+                false
+            }
+            2 => {
+                let rol_id = self.alloc_synthetic_id();
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(reg));
+                operands.push(Operand::Imm64(8));
+                let rol = Instruction {
+                    mnemonic: Mnemonic::Rol { width: IntWidth::W16 },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(rol_id, rol);
+                true
+            }
+            4 => {
+                let bs_id = self.alloc_synthetic_id();
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(reg));
+                let bs = Instruction {
+                    mnemonic: Mnemonic::Bswap32,
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(bs_id, bs);
+                true
+            }
+            8 => {
+                let bs_id = self.alloc_synthetic_id();
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(reg));
+                let bs = Instruction {
+                    mnemonic: Mnemonic::Bswap,
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                self.emit_inst(bs_id, bs);
+                true
+            }
+            other => {
+                self.push_typed_diag(
+                    t0567_code(),
+                    format!(
+                        "@endian(be) on unsupported scalar size {} — recognised \
+                         widths are 1/2/4/8",
+                        other
+                    ),
+                );
+                false
             }
         }
     }

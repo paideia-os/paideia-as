@@ -182,6 +182,26 @@ pub(super) fn run_walker_pipeline(
             lowering.ir.finalised_record_layouts_mut().insert(*record_type_id, record_layout.clone());
         }
 
+        // paideia-as#1508 (PAS-DEBT-B2-015): mirror per-field
+        // `@endian(be|le)` annotations from the struct registry into
+        // the emit walker's state, keyed by
+        // `(RecordTypeId, field_index)`. This is the plumbing that
+        // lets `visit_field_access_with_reg` and `visit_field_assign`
+        // in `emit_field_access.rs` insert the byte-swap that the
+        // parser deferred to the elaborator. Unannotated fields carry
+        // a `None` in the parallel `field_endian` vector and never
+        // enter the map, so the unannotated hot path stays
+        // byte-identical to pre-Wave 55.
+        for (&type_id, field_endians) in &registry.field_endian {
+            for (idx, maybe_endian) in field_endians.iter().enumerate() {
+                if let Some(endian) = maybe_endian {
+                    emit_walker
+                        .state_mut()
+                        .insert_field_endian(type_id, idx as u32, *endian);
+                }
+            }
+        }
+
         // PA-r17-007 (#1050): Mirror enum layouts from IR into walker state.
         // This enables visit_enum_cons + emit_enum_discriminant to consume layouts during emission.
         for (type_id, layout) in lowering.ir.enum_layout_table().iter() {
