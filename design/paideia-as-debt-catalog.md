@@ -42,10 +42,23 @@ as authoritative for landed state.
 | 48   | v0.36.74  | #1556 @macro_expand cmd_build directive (Option b')                 | none                     |
 | 49   | v0.36.75  | #1524 B4-002 cpuid_leaf retirement deferred (docblock update + 3 gaps enumerated) | #1558, #1559 |
 | 50   | (issue)   | Filed #1558 (Gap A) + #1559 (Gap B/C); closed #1524, #1525, #1552   | #1558, #1559             |
+| 51   | (doc)     | Debt-catalog audit refresh (Waves 41-50 rollup)                     | none                     |
+| 52   | v0.36.76  | #1558 Slice D+ RecordCons App/arith field values (T0578 diag)       | none                     |
+| 53   | v0.36.77  | #1559 stdlib recipe return_record_layout + skip_sret_splice         | none                     |
+| 54   | v0.36.78  | #1524 B4-002 cpuid_leaf recipe machinery (Slice E gap discovered)   | (surfaced Slice E)       |
+| 55   | v0.36.79  | Slice E — recipe callees in return_record_cons_slots (closes #1524) | none                     |
+| 56   | v0.36.80  | #1508 B2-015 @endian byte-swap lowering (u8/u16/u32/u64/i64)        | #1560                    |
+| 57   | (issue)   | Filed #1560 (i16/i32 @endian follow-up)                             | #1560                    |
 
-**Full session summary (Waves 25-50)**: 20 releases (v0.36.57 → v0.36.75), 20 issues closed:
-- paideia-as: #1486, #1487, #1488, #1489, #1524, #1525, #1533, #1534, #1535, #1537, #1541, #1542, #1543, #1544, #1548, #1549, #1551, #1552, #1553, #1554, #1555, #1556, #1557 (23)
+**Full session summary (Waves 25-57)**: 24 releases (v0.36.57 → v0.36.80), 27 issues closed:
+- paideia-as: #1486, #1487, #1488, #1489, #1508, #1524, #1525, #1533, #1534, #1535, #1537, #1541, #1542, #1543, #1544, #1548, #1549, #1551, #1552, #1553, #1554, #1555, #1556, #1557, #1558, #1559 (26)
 - paideia-os: #2512 (partial), #2509 (partial)
+
+**Open paideia-as queue (9 issues)** — mostly compound-blocked on external work:
+- #1560 T0567 signed-narrow @endian (new followup)
+- #1550 m3-829 boot snapshot baseline drift (needs cargo test regen)
+- #1529, #1530, #1531, #1532 B7-001..004 (compound-blocked)
+- #1509, #1511, #1507 B2 parser deferrals (lowering awaits named future waves)
 
 Still-open debt followups filed this session:
 - **#1550** — m3-829 boot snapshot baseline drift.
