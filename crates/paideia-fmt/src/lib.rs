@@ -9,6 +9,8 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod cst;
+
 /// Format options for the paideia-as formatter.
 #[derive(Clone, Debug)]
 pub struct FormatOptions {
