@@ -29,12 +29,17 @@
 //! | attributes            | FMT-8     | after this ticket   |
 //! | doc-comment pass      | FMT-9     | after FMT-4..8      |
 //! | width policy          | FMT-10    | after FMT-9         |
+//! | [`corpus`]            | FMT-13    | landed              |
+//! | [`ast_eq`]            | FMT-14    | landed              |
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod ast_eq;
 pub mod attach;
+pub mod comment_extract;
 pub mod config;
+pub mod corpus;
 pub mod cst;
 pub mod doc;
 pub mod doc_comment;
