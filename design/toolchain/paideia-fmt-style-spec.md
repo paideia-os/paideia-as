@@ -2,11 +2,21 @@
 
 **Issue:** [#1561](https://github.com/PaideiaOS/paideia-as/issues/1561)
 (FMT-0 — Wave 61 paideia-fmt completion chain head).
-**Status:** v1 — settles every style decision the subsequent 20 FMT issues
-depend on. Non-authoritative on parsing (that is the elaborator spec) and
-non-authoritative on tool-surface (that is FMT-11/FMT-12). This spec is the
-contract between the formatter's output and a human reviewer: *given a
-parseable `.pdx` file, what does the canonical formatting look like?*
+**Status:** **COMPLETE as of paideia-as v0.36.82** (FMT-17 capstone,
+[#1581](https://github.com/PaideiaOS/paideia-as/issues/1581)). All 20
+FMT-N wave tickets (`#1561`–`#1580`) have landed and the three corpus
+sweeps (FMT-13 idempotence, FMT-14 parser-equivalence, FMT-15 comment
+preservation) are green. See
+[`paideia-fmt-acceptance.md`](paideia-fmt-acceptance.md) for the
+acceptance report and the five follow-up items (F1..F5) that are
+polish, not regression.
+
+This spec settles every style decision the FMT-N implementation chain
+depended on. Non-authoritative on parsing (that is the elaborator spec)
+and non-authoritative on tool-surface (that is FMT-11/FMT-12). This
+spec is the contract between the formatter's output and a human
+reviewer: *given a parseable `.pdx` file, what does the canonical
+formatting look like?*
 
 **Audience.** (a) Future FMT-N implementors, who read this to decide a
 specific rule without ambiguity; (b) humans reviewing a `paideia-as fmt`

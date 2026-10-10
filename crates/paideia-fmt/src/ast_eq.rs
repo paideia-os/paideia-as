@@ -44,7 +44,7 @@
 //! so a cap hit is itself a signal that something is wrong.
 
 use paideia_as_ast::{
-    AstArena, EnumVariant, ExprData, GenericParam, HandlerArm, ItemData, NodeId, NodeKind,
+    AstArena, EnumVariant, ExprData, GenericParam, HandlerArm, ItemData, NodeId,
     PatternData, StmtData, TypeData,
 };
 

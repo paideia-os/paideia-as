@@ -1,5 +1,14 @@
 //! paideia-fmt: source code formatter for paideia-as.
 //!
+//! **Status: COMPLETE as of paideia-as v0.36.82** (FMT-17 capstone,
+//! paideia-as#1581). All 20 FMT-N wave tickets (`#1561`–`#1580`) have
+//! landed and the three corpus sweeps (FMT-13 idempotence, FMT-14
+//! parser-equivalence, FMT-15 comment preservation) are green across
+//! the full workspace `.pdx` corpus (`tests/` + `examples/`). See
+//! `design/toolchain/paideia-fmt-acceptance.md` for the acceptance
+//! report and the five follow-up items (F1..F5) that are polish, not
+//! regression.
+//!
 //! # Top-level entry
 //!
 //! * [`format`] — the Phase-2-FMT entry: lex → parse → attach trivia →
@@ -14,23 +23,28 @@
 //!   FMT-4..8 per-kind formatters land and [`format`] produces real
 //!   structural output.
 //!
-//! # Pipeline (FMT-1..FMT-10)
+//! # Pipeline (FMT-1..FMT-17)
 //!
-//! | module                | sprint    | status (2026-10-10) |
-//! |-----------------------|-----------|---------------------|
-//! | [`cst`]               | FMT-1a    | landed              |
-//! | [`attach`]            | FMT-1b    | landed              |
-//! | [`doc`] + [`layout`]  | FMT-2     | landed              |
-//! | [`walker`]            | FMT-3     | this ticket         |
-//! | items                 | FMT-4a/4b | after this ticket   |
-//! | expressions           | FMT-5a/5b | after this ticket   |
-//! | types                 | FMT-6     | after this ticket   |
-//! | patterns              | FMT-7     | after this ticket   |
-//! | attributes            | FMT-8     | after this ticket   |
-//! | doc-comment pass      | FMT-9     | after FMT-4..8      |
-//! | width policy          | FMT-10    | after FMT-9         |
-//! | [`corpus`]            | FMT-13    | landed              |
-//! | [`ast_eq`]            | FMT-14    | landed              |
+//! | module / ticket               | sprint    | status (2026-10-10) |
+//! |-------------------------------|-----------|---------------------|
+//! | [`cst`]                       | FMT-1a    | landed              |
+//! | [`attach`]                    | FMT-1b    | landed              |
+//! | [`doc`] + [`layout`]          | FMT-2     | landed              |
+//! | [`walker`]                    | FMT-3     | landed              |
+//! | [`format_item`]               | FMT-4a/4b | landed              |
+//! | [`format_expr`]               | FMT-5a/5b | landed              |
+//! | [`format_type`]               | FMT-6     | landed              |
+//! | [`format_pattern`]            | FMT-7     | landed              |
+//! | [`format_attribute`]          | FMT-8     | landed              |
+//! | [`doc_comment`]               | FMT-9     | landed              |
+//! | width policy                  | FMT-10    | landed              |
+//! | [`config`]                    | FMT-11    | landed              |
+//! | CLI (`main.rs`)               | FMT-12    | landed              |
+//! | [`corpus`]                    | FMT-13    | landed              |
+//! | [`ast_eq`]                    | FMT-14    | landed              |
+//! | [`comment_extract`]           | FMT-15    | landed              |
+//! | LSP (paideia-lsp)             | FMT-16    | landed              |
+//! | **final acceptance**          | FMT-17    | **this ticket**     |
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]

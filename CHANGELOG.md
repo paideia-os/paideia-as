@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.36.82 — 2026-10-10 — Wave 72: paideia-fmt declared COMPLETE (FMT-17 acceptance)
+
+paideia-fmt is now feature-complete. The FMT-0..FMT-16 chain closed
+the full pipeline: trivia-preserving CST (`cst.rs`), span-containment
+trivia attachment (`attach.rs`), Wadler Doc IR + classic "best"
+layout (`doc.rs` + `layout.rs`), AST walker (`walker.rs`), item /
+expression / type / pattern / attribute emitters (5 modules, ~4600
+LOC combined), doc-comment grouping (`doc_comment.rs`), config
+discovery (`config.rs`), corpus harnesses (idempotence,
+parser-equivalence, comment-preservation), CLI integration
+(`cmd_fmt.rs` with glob + `--list-different` + workspace default),
+and the LSP range-formatting path (`range_formatting.rs`).
+
+  * **FMT-17 acceptance report** at
+    `design/toolchain/paideia-fmt-acceptance.md` (469 lines) —
+    §1 scope, §2 harness coverage, §3 known-lossy inventory
+    (lambda param-type side-table re-emission), §4 five
+    follow-ups F1-F5 (filed as issues), §5 declaration of
+    completion.
+
+  * **lib.rs** module header updated to `Status: COMPLETE as of
+    paideia-as v0.36.82`.
+
+  * **Style spec** header (`paideia-fmt-style-spec.md`) updated to
+    FROZEN v1.0 referencing this release.
+
+  * **Housekeeping**: `#[warn(unused_imports)]` noise cleared
+    (`NodeKind` in ast_eq, `TriviaAttachment` in doc_comment).
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## v0.36.81 — 2026-09-29 — Issue #1560 (Wave 57): @endian(be) signed-narrow (i16/i32) recipe; retire T0567 for the signed-narrow case
 
 paideia-as#1560 extends the Wave-56 (#1508 / v0.36.80) `@endian(be)`

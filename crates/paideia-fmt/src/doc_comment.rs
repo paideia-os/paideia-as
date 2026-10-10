@@ -61,7 +61,7 @@
 use paideia_as_ast::{AstArena, NodeId};
 use paideia_as_lexer::{SourceText, Trivia, TriviaKind};
 
-use crate::attach::{TriviaAttachment, TriviaAttachmentMap};
+use crate::attach::TriviaAttachmentMap;
 
 /// A grouped run of doc comments that share rhetorical scope.
 ///
