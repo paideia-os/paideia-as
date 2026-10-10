@@ -276,46 +276,45 @@ pub fn format_node(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
 
 /// FMT-4a/4b target — module-item formatter.
 ///
-/// Scaffold: returns `source[node.span]`. FMT-4a will replace this body
-/// with Doc constructors for `Let`, `Struct`, `Enum`, `Module`,
-/// `Signature`, `Trait`, `Impl`, `UnsafeBlock`, `Capability`, `Effect`,
-/// and `MacroDecl`; FMT-4b handles the richer composite items
-/// (`Functor`, `FunctorDecl`, …).
+/// FMT-4a Bucket A (paideia-as#1566) delegates to
+/// [`crate::format_item::format_item`], which covers nine item kinds:
+/// `Let` (structural), plus `Module`, `Structure`, `Signature`, `Enum`,
+/// `Struct`, `Trait`, and `Impl` (byte-identical fallback on the whole
+/// item span until FMT-4b replaces each with a structural
+/// decomposition). Variants not in Bucket A (`Functor`, `FunctorParam`,
+/// `FunctorDecl`, `Effect`, `OpSig`, `Capability`, `UnsafeBlock`,
+/// `MacroDecl`, `MacroPattern`, `MacroTemplate`) fall through to
+/// [`fallback_slice`] inside [`crate::format_item::format_item`].
 pub fn format_item(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
-    let data = match ctx.arena.get(nid) {
-        Some(d) => d,
-        None => return doc::nil(),
-    };
-    fallback_slice(ctx, data.span)
+    crate::format_item::format_item(ctx, nid)
 }
 
 /// FMT-5a/5b target — expression formatter.
 ///
-/// Scaffold: returns `source[node.span]`. FMT-5a handles leaf and
-/// unary expressions (`ExprLiteral`, `ExprPath`, `ExprPrefix`,
-/// `ExprBorrow`, `ExprDeref`, …); FMT-5b composite expressions
-/// (`ExprInfix`, `ExprCall`, `ExprBlock`, `ExprMatch`, `ExprIf`,
-/// control-flow, closures, action blocks, quote/antiquote).
+/// FMT-5a (paideia-as#1568) delegates to
+/// [`crate::format_expr::format_expr`] for the primary / postfix / call
+/// / binop / prefix buckets. Bucket B (match / if / loop / for / block
+/// / lambda / with-handler / unsafe / perform / resume / handler-value
+/// / quote / antiquote / functor-app / pack / unpack / let-module /
+/// record-cons) still falls through to [`fallback_slice`] inside the
+/// dispatcher and will light up with FMT-5b.
 pub fn format_expr(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
     let data = match ctx.arena.get(nid) {
         Some(d) => d,
         None => return doc::nil(),
     };
-    fallback_slice(ctx, data.span)
+    crate::format_expr::format_expr(ctx, nid, data.kind)
 }
 
 /// FMT-6 target — type-expression formatter.
 ///
-/// Scaffold: returns `source[node.span]`. FMT-6 covers `TypeName`,
-/// `TypeFnPtr`, `TypeClosure`, `TypeTuple`, `TypeLinearClass`,
-/// `TypeEffectRow`, `TypePtr`, `TypeRef`, `TypeRecord`, `TypeEnum`,
-/// `TypeSelfQualifiedPath`, `TypeArray`, and `TypeForall`.
+/// Delegates to [`crate::format_type::format_type_data`], which covers
+/// every `TypeData` variant currently exposed by `paideia-as-ast`
+/// (Name, FnPtr, Closure, Tuple, LinearClass, EffectRow, Ptr, Ref,
+/// Record, Enum, SelfQualifiedPath, Array, Forall). Falls back to a
+/// source slice when the arena has no type-data for `nid`.
 pub fn format_type(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
-    let data = match ctx.arena.get(nid) {
-        Some(d) => d,
-        None => return doc::nil(),
-    };
-    fallback_slice(ctx, data.span)
+    crate::format_type::format_type_data(ctx, nid)
 }
 
 /// FMT-7 target — pattern formatter.

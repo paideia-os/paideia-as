@@ -36,11 +36,14 @@
 pub mod attach;
 pub mod cst;
 pub mod doc;
+pub mod format_expr;
+pub mod format_item;
+pub mod format_type;
 pub mod layout;
 pub mod walker;
 
 use paideia_as_ast::AstArena;
-use paideia_as_diagnostics::{FileId, VecSink};
+use paideia_as_diagnostics::{DiagnosticSink, FileId, VecSink};
 use paideia_as_lexer::SourceText;
 
 /// Format options for the paideia-as formatter.
