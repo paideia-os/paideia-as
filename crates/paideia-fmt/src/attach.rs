@@ -214,6 +214,7 @@ pub fn attach_trivia(
                     leading: Vec::new(),
                     trailing: Vec::new(),
                     inner: strays,
+                    doc_blocks: Vec::new(),
                 },
             );
         }
@@ -292,6 +293,7 @@ pub fn attach_trivia(
                 leading,
                 trailing,
                 inner,
+                doc_blocks: Vec::new(),
             },
         );
     }
@@ -325,6 +327,7 @@ pub fn attach_trivia(
                 leading,
                 trailing,
                 mut inner,
+                doc_blocks,
             } = existing;
             inner.extend(strays);
             map.insert_if_nonempty(
@@ -333,6 +336,7 @@ pub fn attach_trivia(
                     leading,
                     trailing,
                     inner,
+                    doc_blocks,
                 },
             );
         }
