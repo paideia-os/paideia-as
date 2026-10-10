@@ -2380,6 +2380,7 @@ dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
  "paideia-as-lexer",
+ "paideia-as-parser",
 ]
 
 [[package]]

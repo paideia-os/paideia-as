@@ -149,7 +149,10 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         let opts = paideia_fmt::FormatOptions::default();
-        let formatted = paideia_fmt::format(&doc.text, &opts);
+        // LSP format-on-save path still uses the legacy whitespace
+        // normaliser until the Doc-based `paideia_fmt::format` surfaces
+        // structural output (post FMT-4..8). See paideia-as#1565.
+        let formatted = paideia_fmt::format_whitespace(&doc.text, &opts);
         if formatted == doc.text {
             return Ok(Some(vec![]));
         }

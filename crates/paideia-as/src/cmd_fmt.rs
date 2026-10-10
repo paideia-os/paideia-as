@@ -17,7 +17,11 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use paideia_fmt::{FormatOptions, format};
+// `cmd fmt` still delegates to the legacy whitespace normaliser
+// (paideia-as#1565: new Doc-based `format()` lands in FMT-10 once FMT-4..8
+// per-kind formatters produce structural output). Import under the
+// local alias `format` so the rest of the module reads unchanged.
+use paideia_fmt::{FormatOptions, format_whitespace as format};
 use similar::TextDiff;
 
 /// Run `paideia-as fmt [--stdin] [--check] [--diff] [FILES..]`.

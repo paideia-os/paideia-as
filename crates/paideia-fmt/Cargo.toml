@@ -18,3 +18,4 @@ path = "src/main.rs"
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-parser = { path = "../paideia-as-parser" }

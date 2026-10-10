@@ -11,7 +11,10 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
         let opts = paideia_fmt::FormatOptions::default();
-        let out = paideia_fmt::format(&buf, &opts);
+        // CLI binary still uses the legacy whitespace normaliser until
+        // the FMT-4..8 per-kind formatters land. See crate root doc for
+        // the migration plan to the Doc-based pipeline.
+        let out = paideia_fmt::format_whitespace(&buf, &opts);
         if std::io::stdout().write_all(out.as_bytes()).is_err() {
             return ExitCode::from(1);
         }
