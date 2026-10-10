@@ -144,9 +144,10 @@
 //! the whole-item span (loses trailing attributes if present; FMT-4b
 //! will structural-ize both branches once FMT-6 lands).
 
-use paideia_as_ast::{CallingConvention, ItemData, NodeData, NodeId, NodeKind};
+use paideia_as_ast::{ItemData, NodeData, NodeId, NodeKind};
 
 use crate::doc::{self, Doc};
+use crate::format_attribute;
 use crate::walker::{FormatContext, fallback_slice};
 
 /// FMT-4a Bucket A dispatcher — route an item node to its per-kind
@@ -275,35 +276,35 @@ fn fmt_let(ctx: &FormatContext<'_>, nid: NodeId, data: NodeData) -> Doc {
     parts.push(child_slice(ctx, value));
 
     // Trailing symbol attributes (not inside data.span).
+    //
+    // FMT-8 (paideia-as#1572) factors each `@...` into a shared emit
+    // helper in [`crate::format_attribute`] so re-emission is one place.
+    // The space prefix is this layout's choice (trailing attributes
+    // share the same line as the Let header); the helpers themselves
+    // emit bare `@name(args)` with no surrounding whitespace.
     if let Some(n) = align {
-        parts.push(doc::text(format!(" @align({})", n)));
+        parts.push(doc::text(" "));
+        parts.push(format_attribute::emit_align(n));
     }
     if let Some((slots, slot_size)) = ring {
-        parts.push(doc::text(format!(
-            " @ring(slots={}, slot_size={})",
-            slots, slot_size
-        )));
+        parts.push(doc::text(" "));
+        parts.push(format_attribute::emit_ring(slots, slot_size));
     }
     if let Some(section_name) = link_section {
-        parts.push(doc::text(format!(" @link_section(\"{}\")", section_name)));
+        parts.push(doc::text(" "));
+        parts.push(format_attribute::emit_link_section(section_name));
     }
     if let Some(cc) = abi {
-        let s = match cc {
-            CallingConvention::Ms => "ms",
-            CallingConvention::Sysv => "sysv",
-        };
-        parts.push(doc::text(format!(" @abi(\"{}\")", s)));
+        parts.push(doc::text(" "));
+        parts.push(format_attribute::emit_abi(cc));
     }
     if no_frame {
-        parts.push(doc::text(" @no_frame"));
+        parts.push(doc::text(" "));
+        parts.push(format_attribute::emit_no_frame());
     }
     if let Some(attr) = interrupt {
-        let kw = if attr.has_error_code {
-            "interrupt_error"
-        } else {
-            "interrupt"
-        };
-        parts.push(doc::text(format!(" @{}(\"{}\")", kw, attr.name)));
+        parts.push(doc::text(" "));
+        parts.push(format_attribute::emit_interrupt(attr));
     }
 
     doc::group(doc::concat(parts))

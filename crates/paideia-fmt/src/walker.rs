@@ -336,18 +336,24 @@ pub fn format_pattern(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
     crate::format_pattern::format_pattern_data(ctx, nid)
 }
 
-/// FMT-8 target — attribute formatter.
+/// FMT-8 target — attribute formatter (paideia-as#1572).
 ///
-/// Scaffold: returns `source[node.span]`. Attribute AST shape is still
-/// evolving (per-field vs. per-item vs. per-module attributes live on
-/// side-tables); FMT-8 will consolidate the attribute surface and give
-/// this function a real Doc constructor.
+/// Attributes have no dedicated [`NodeKind`] variant in `paideia-as-ast`
+/// today — they live on side-tables (`StructAttrTable`,
+/// `StructFieldAttrTable`, `FunctorAttrTable`, `ItemAtomicTable`,
+/// `MacroExpandDirectiveTable`) or as inline fields of their owning
+/// item (`ItemData::Let`'s `@align`/`@ring`/...; `ExprData::Match`'s
+/// `MatchAttrs::jump_table`). The real per-shape emit helpers live in
+/// [`crate::format_attribute`] and are called directly by the item /
+/// expression formatters that know which attributes to re-emit.
+///
+/// This dispatch-surface function therefore delegates to the module's
+/// defensive fallback: a byte-identical slice of the given node's own
+/// span. It is reached only if a future NodeKind variant describes an
+/// attribute node, or if a caller routes an unexpected id through the
+/// walker; neither path exists in the shipping AST.
 pub fn format_attribute(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
-    let data = match ctx.arena.get(nid) {
-        Some(d) => d,
-        None => return doc::nil(),
-    };
-    fallback_slice(ctx, data.span)
+    crate::format_attribute::format_attribute_fallback(ctx, nid)
 }
 
 /// The one safe fallback — a `Doc::text` whose content is the source
@@ -443,6 +449,79 @@ fn is_comment(k: TriviaKind) -> bool {
             | TriviaKind::DocLineComment
             | TriviaKind::DocBlockComment
     )
+}
+
+/// Dormant helper (FMT-9): format the OUTER doc blocks attached to
+/// `nid` by [`crate::doc_comment::attach_doc_blocks`] into a Doc.
+///
+/// Only [`crate::doc_comment::DocBlock`] entries with `is_inner ==
+/// false` are emitted here — these are the `///` / `/**` style docs
+/// that belong above the node. Each line of a block is a `Doc::text`
+/// separated by [`doc::hardline`]; the block itself is followed by a
+/// final `doc::hardline` so the node body begins on a fresh line.
+///
+/// Not called by any stub today — see the "Trivia emission" note in
+/// the module header. FMT-4..8 structural formatters pick this up as
+/// they transition from span-slice to structural emission.
+#[must_use]
+pub fn emit_outer_doc_blocks(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
+    let att = match ctx.trivia_map.get(nid) {
+        Some(a) => a,
+        None => return doc::nil(),
+    };
+    emit_doc_blocks_filtered(att, /* want_inner = */ false)
+}
+
+/// Dormant helper (FMT-9): format the INNER doc blocks attached to
+/// `nid` into a Doc.
+///
+/// Only [`crate::doc_comment::DocBlock`] entries with `is_inner ==
+/// true` are emitted — these are the `//!` / `/*!` style docs that
+/// belong at the TOP of this node's body (inner leading), plus docs
+/// that detached from a following item via the §9.2 blank-line rule.
+/// Structural formatters for module / structure / block call this
+/// after emitting the opening delimiter and before the first child.
+#[must_use]
+pub fn emit_inner_doc_blocks(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
+    let att = match ctx.trivia_map.get(nid) {
+        Some(a) => a,
+        None => return doc::nil(),
+    };
+    emit_doc_blocks_filtered(att, /* want_inner = */ true)
+}
+
+fn emit_doc_blocks_filtered(
+    att: &crate::attach::TriviaAttachment,
+    want_inner: bool,
+) -> Doc {
+    let mut parts: Vec<Doc> = Vec::new();
+    for (bi, block) in att.doc_blocks.iter().enumerate() {
+        if block.is_inner != want_inner {
+            continue;
+        }
+        if block.lines.is_empty() {
+            continue;
+        }
+        if bi > 0 && !parts.is_empty() {
+            // Blank line between blocks preserves the visual separator
+            // the source carried; a single hardline would merge them.
+            parts.push(doc::hardline());
+        }
+        for (li, line) in block.lines.iter().enumerate() {
+            if li > 0 {
+                parts.push(doc::hardline());
+            }
+            parts.push(doc::text(line.clone()));
+        }
+        // Terminate each block with a hardline so the node body (or
+        // the next block) begins on a fresh line.
+        parts.push(doc::hardline());
+    }
+    if parts.is_empty() {
+        doc::nil()
+    } else {
+        doc::concat(parts)
+    }
 }
 
 #[cfg(test)]

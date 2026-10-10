@@ -36,6 +36,8 @@
 pub mod attach;
 pub mod cst;
 pub mod doc;
+pub mod doc_comment;
+pub mod format_attribute;
 pub mod format_expr;
 pub mod format_item;
 pub mod format_pattern;
@@ -62,6 +64,22 @@ pub struct FormatOptions {
     /// 100 per style-spec paideia-as#1561). Forwarded into
     /// [`layout::FormatOptions`] by the top-level [`format`] entry.
     pub max_width: usize,
+    /// Align `=>` columns within a match block by padding each pattern
+    /// with trailing spaces to the longest pattern's width (style-spec
+    /// §8.2, FMT-10 polish). Default `true`. When `false`, every arm
+    /// emits `pattern => body` with a single space before `=>` (no
+    /// width-based padding). FMT-11 will surface this on the `[fmt]`
+    /// `align = "off"` key in `.pdxfmt`.
+    pub align_match_arms: bool,
+    /// Align the four field-colons of `unsafe { effects, capabilities,
+    /// justification, block }` by padding each key with trailing spaces
+    /// to the longest key's width (style-spec §11.1, OPTION C adaptive —
+    /// FMT-10 polish). Default `true`. When `false`, every field emits
+    /// `key: value` with single-space-after-colon. The adaptive branch
+    /// (`block:` demoted to single-space when alignment would overflow
+    /// `max_width`) still applies when this flag is `true`. FMT-11 will
+    /// surface this on the `[fmt]` `align = "off"` key in `.pdxfmt`.
+    pub align_unsafe_fields: bool,
 }
 
 impl Default for FormatOptions {
@@ -72,6 +90,8 @@ impl Default for FormatOptions {
             max_blank_lines: 2,
             glyph_style: GlyphStyle::Preserve,
             max_width: 100,
+            align_match_arms: true,
+            align_unsafe_fields: true,
         }
     }
 }
@@ -203,7 +223,12 @@ pub fn format(source: &str, opts: &FormatOptions) -> Result<String, FormatError>
     // FMT-1a + FMT-1b: trivia stream + attachment map.
     let mut cst_sink = VecSink::new();
     let stream = cst::tokenize_with_trivia(file, &source_text, &mut cst_sink);
-    let trivia_map = attach::attach_trivia(&stream, &arena, root_id);
+    let mut trivia_map = attach::attach_trivia(&stream, &arena, root_id);
+
+    // FMT-9: doc-comment grouping on top of the raw-trivia map.
+    // Additive — the raw `leading` / `trailing` / `inner` buckets stay
+    // intact, so inputs without doc comments remain byte-identical.
+    doc_comment::attach_doc_blocks(&mut trivia_map, &arena, &source_text);
 
     // FMT-3 walk + FMT-2 render.
     let ctx = walker::FormatContext::new(&source_text, &stream, &arena, &trivia_map, opts);

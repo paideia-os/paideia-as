@@ -60,6 +60,7 @@ use paideia_as_ast::{AstArena, NodeId};
 use paideia_as_lexer::{Trivia, TriviaKind};
 
 use crate::cst::TriviaStream;
+use crate::doc_comment::DocBlock;
 
 /// Comments attached to a single AST node, partitioned by rhetorical
 /// position relative to the node's token range.
@@ -79,13 +80,25 @@ pub struct TriviaAttachment {
     /// Comments inside the node's token range that are not claimed by
     /// any inner child.
     pub inner: Vec<Trivia>,
+    /// Grouped doc-comment blocks for this node — populated by
+    /// [`crate::doc_comment::attach_doc_blocks`] as a FMT-9 pass over
+    /// `leading`. Each block carries a `is_inner` flag that selects
+    /// whether the block is a `///` / `/**` style outer doc (attached
+    /// above the node) or a `//!` / `/*!` style inner doc (attached
+    /// at the top of this node's body). FMT-1b leaves this empty; it
+    /// stays empty for callers that skip the FMT-9 pass.
+    pub doc_blocks: Vec<DocBlock>,
 }
 
 impl TriviaAttachment {
-    /// `true` iff this node has no attached comments of any kind.
+    /// `true` iff this node has no attached comments of any kind
+    /// (leading, trailing, inner, or doc blocks).
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.leading.is_empty() && self.trailing.is_empty() && self.inner.is_empty()
+        self.leading.is_empty()
+            && self.trailing.is_empty()
+            && self.inner.is_empty()
+            && self.doc_blocks.is_empty()
     }
 }
 
@@ -131,6 +144,24 @@ impl TriviaAttachmentMap {
     /// by `NodeId`).
     pub fn iter(&self) -> impl Iterator<Item = (&NodeId, &TriviaAttachment)> {
         self.inner.iter()
+    }
+
+    /// Append `block` to `id`'s `doc_blocks` list, creating a fresh
+    /// (otherwise-empty) attachment entry when none exists. Used by
+    /// [`crate::doc_comment::attach_doc_blocks`] to install the grouped
+    /// doc-block view and to re-home `//!` / `/*!` blocks to their
+    /// enclosing node without disturbing the raw-trivia buckets.
+    pub fn push_doc_block(&mut self, id: NodeId, block: DocBlock) {
+        self.inner.entry(id).or_default().doc_blocks.push(block);
+    }
+
+    /// Collected `NodeId`s of entries carrying any trivia, in HashMap
+    /// order. Returned as an owned `Vec` so the caller can later mutate
+    /// the map without borrowing it during iteration (the FMT-9 pass
+    /// collects then re-attaches).
+    #[must_use]
+    pub fn node_ids(&self) -> Vec<NodeId> {
+        self.inner.keys().copied().collect()
     }
 
     fn insert_if_nonempty(&mut self, id: NodeId, att: TriviaAttachment) {

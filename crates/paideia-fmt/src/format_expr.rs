@@ -67,9 +67,12 @@
 //! outermost first, so the chain unfolds right-to-left into one
 //! `.method()` per line, each at `+2` indent from the chain root.
 
-use paideia_as_ast::{ExprData, HandlerArm, LoopKind, MatchArm, NodeId, NodeKind, SegPrefix, StmtData};
+use paideia_as_ast::{
+    ExprData, HandlerArm, LoopKind, MatchArm, MatchAttrs, NodeId, NodeKind, SegPrefix, StmtData,
+};
 
 use crate::doc::{self, Doc};
+use crate::format_attribute;
 use crate::walker::{self, FormatContext, fallback_slice};
 
 /// Dispatch entry — the walker calls this for every expression node in
@@ -156,8 +159,8 @@ pub fn format_expr(ctx: &FormatContext<'_>, nid: NodeId, kind: NodeKind) -> Doc 
             format_block(ctx, stmts, *tail)
         }
 
-        (NodeKind::ExprMatch, Some(ExprData::Match { scrutinee, arms, attrs: _ })) => {
-            format_match(ctx, *scrutinee, arms)
+        (NodeKind::ExprMatch, Some(ExprData::Match { scrutinee, arms, attrs })) => {
+            format_match(ctx, *scrutinee, arms, attrs)
         }
 
         (NodeKind::ExprIf, Some(ExprData::If { cond, then_block, else_block })) => {
@@ -720,15 +723,36 @@ fn format_stmt(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
 // Match — `match scrutinee { arms }` with `=>` alignment
 // ---------------------------------------------------------------------
 
-/// `match scrutinee { arms }`. Arms render with `=>` alignment per
-/// style-spec §8.2 when all patterns fit single-line and the longest
-/// pattern is under `max_width - 10` columns; else alignment is
-/// dropped and each arm goes `pattern => body`.
-fn format_match(ctx: &FormatContext<'_>, scrutinee: NodeId, arms: &[MatchArm]) -> Doc {
+/// `match scrutinee [@jump_table] { arms }`. Arms render with `=>`
+/// alignment per style-spec §8.2 when all patterns fit single-line and
+/// the longest pattern is under `max_width - 10` columns; else
+/// alignment is dropped and each arm goes `pattern => body`.
+///
+/// `@jump_table` (FMT-8, paideia-as#1572): when the parser recorded
+/// the attribute on `MatchAttrs`, we re-emit it between the scrutinee
+/// and the opening brace via [`format_attribute::emit_jump_table`] —
+/// matching the parser's accept position (see `parse_match.rs:§Match
+/// grammar`).
+fn format_match(
+    ctx: &FormatContext<'_>,
+    scrutinee: NodeId,
+    arms: &[MatchArm],
+    attrs: &MatchAttrs,
+) -> Doc {
     let scrut = format_child(ctx, scrutinee);
+    let jump_table_tail: Doc = if attrs.jump_table {
+        doc::concat(vec![doc::text(" "), format_attribute::emit_jump_table()])
+    } else {
+        doc::nil()
+    };
 
     if arms.is_empty() {
-        return doc::concat(vec![doc::text("match "), scrut, doc::text(" {}")]);
+        return doc::concat(vec![
+            doc::text("match "),
+            scrut,
+            jump_table_tail,
+            doc::text(" {}"),
+        ]);
     }
 
     // First pass: render each pattern (+ optional guard) and its body.
@@ -769,10 +793,13 @@ fn format_match(ctx: &FormatContext<'_>, scrutinee: NodeId, arms: &[MatchArm]) -
         });
     }
 
-    // Alignment-off exception: longest pattern wider than max_width-10
-    // (style-spec §8.2 exception 1), or any pattern unmeasurable
-    // (multi-line pattern — exception 2).
-    let align_off = any_unmeasurable || max_pat_width + 10 >= 100;
+    // Alignment-off exception: feature flag off (FMT-10 adaptive),
+    // longest pattern wider than max_width-10 (style-spec §8.2
+    // exception 1), or any pattern unmeasurable (multi-line pattern —
+    // exception 2).
+    let align_off = !ctx.opts.align_match_arms
+        || any_unmeasurable
+        || max_pat_width + 10 >= ctx.opts.max_width;
 
     let mut arm_docs: Vec<Doc> = Vec::with_capacity(rendered.len());
     for arm in rendered {
@@ -804,6 +831,7 @@ fn format_match(ctx: &FormatContext<'_>, scrutinee: NodeId, arms: &[MatchArm]) -
     doc::concat(vec![
         doc::text("match "),
         scrut,
+        jump_table_tail,
         doc::text(" {"),
         doc::nest(2, doc::concat(vec![doc::hardline(), body])),
         doc::hardline(),
@@ -998,12 +1026,21 @@ fn format_with_handler(
 
 /// `unsafe { effects: …, capabilities: …, justification: …, block: { … } }`
 ///
-/// Field order is FIXED by the parser (§11 style-spec). The three
-/// single-line fields (`effects`, `capabilities`, `justification`) are
-/// aligned by padding each key with trailing spaces so that each
-/// value's first visible column lands at the same position. The
-/// `block:` field uses single-space-after-colon because its body is
-/// multi-line (style-spec example in §11.1).
+/// Field order is FIXED by the parser (§11 style-spec). OPTION C
+/// adaptive alignment (FMT-10, paideia-as#1574):
+///
+/// * When [`FormatOptions::align_unsafe_fields`] is `true`, all four
+///   keys are padded with trailing spaces so each value's first visible
+///   column lands at the same position (`ALIGN_COL = 15`, measured
+///   against `justification:`).
+/// * For `block:` only, if the body is single-line AND padding would
+///   push the first line past `max_width`, the formatter demotes to
+///   single-space-after-colon for that one field. In practice `block:`
+///   bodies are always multi-line (the current `format_unsafe` emits
+///   hardlines unconditionally for non-empty bodies), so the demote
+///   path only fires on empty-block + unusually tight `max_width`.
+/// * When [`FormatOptions::align_unsafe_fields`] is `false`, every
+///   field emits `key: value` with a single space after the colon.
 fn format_unsafe(
     ctx: &FormatContext<'_>,
     effects: &[NodeId],
@@ -1013,15 +1050,35 @@ fn format_unsafe(
 ) -> Doc {
     // Keys and their alignment target.
     //
-    // Longest aligned key is `justification` (13 chars). Content for
-    // the three aligned fields lands at column `base_indent + 15`
-    // (`justification:` + one space).
+    // Longest key is `justification` (13 chars). Content for every
+    // aligned field lands at column `base_indent + 15` (= `len("key:") +
+    // trailing-pad` where trailing-pad brings the whole prefix to
+    // ALIGN_COL).
     const ALIGN_COL: usize = 15; // "justification:" = 14 + " " = 15
 
-    fn pad_for(key: &str) -> Doc {
+    // Conservative upper bound on the outer indent for OPTION C's
+    // `block:` overflow check — unsafe blocks nest inside modules /
+    // functors / let bindings, so 10 covers the common case. Picked
+    // deliberately on the pessimistic side so we demote earlier rather
+    // than let a padded line squeak past `max_width`.
+    const BLOCK_INDENT_EST: usize = 10;
+
+    let align = ctx.opts.align_unsafe_fields;
+
+    /// Padding between `key:` and the value. `align=true` pads to
+    /// ALIGN_COL (so content starts at col 15); `align=false` emits a
+    /// single space.
+    fn pad_for_key(key: &str, align: bool) -> Doc {
+        if !align {
+            return doc::text(" ");
+        }
         let key_len_with_colon = key.chars().count() + 1;
         let pad = ALIGN_COL.saturating_sub(key_len_with_colon);
-        doc::text(" ".repeat(pad))
+        if pad == 0 {
+            doc::text(" ")
+        } else {
+            doc::text(" ".repeat(pad))
+        }
     }
 
     // effects: { ... }
@@ -1035,7 +1092,7 @@ fn format_unsafe(
     let eff_values = render_unsafe_row(ctx, effects);
     let eff_line = doc::concat(vec![
         doc::text("effects:"),
-        pad_for("effects"),
+        pad_for_key("effects", align),
         eff_values,
         doc::text(","),
     ]);
@@ -1044,7 +1101,7 @@ fn format_unsafe(
     let cap_values = render_unsafe_row(ctx, capabilities);
     let cap_line = doc::concat(vec![
         doc::text("capabilities:"),
-        pad_for("capabilities"),
+        pad_for_key("capabilities", align),
         cap_values,
         doc::text(","),
     ]);
@@ -1053,7 +1110,7 @@ fn format_unsafe(
     let just_doc = format_child(ctx, justification);
     let just_line = doc::concat(vec![
         doc::text("justification:"),
-        pad_for("justification"),
+        pad_for_key("justification", align),
         just_doc,
         doc::text(","),
     ]);
@@ -1078,8 +1135,39 @@ fn format_unsafe(
             doc::text("}"),
         ])
     };
+
+    // OPTION C: demote `block:` to single-space if body is single-line
+    // AND padded first-line would overflow `max_width`. For multi-line
+    // bodies the first rendered line is just `{`, so padding is always
+    // safe and we keep the aligned form.
+    let block_pad = if !align {
+        doc::text(" ")
+    } else {
+        let full_pad = ALIGN_COL.saturating_sub("block".chars().count() + 1);
+        match measure_doc_flat(&block_body) {
+            None => {
+                // Multi-line body (contains HardLine). First rendered
+                // row is short (`{`); padding fits by inspection.
+                if full_pad == 0 { doc::text(" ") } else { doc::text(" ".repeat(full_pad)) }
+            }
+            Some(body_width) => {
+                // Single-line body (e.g. empty `{}`). The rendered line
+                // is `<outer-indent><"block:"><pad><body>`; `pad` already
+                // includes the space between colon and value, so there
+                // is no additional +1 term. We pad only when the whole
+                // line stays within budget; else demote.
+                let padded_line = BLOCK_INDENT_EST + ALIGN_COL + body_width;
+                if padded_line <= ctx.opts.max_width && full_pad > 0 {
+                    doc::text(" ".repeat(full_pad))
+                } else {
+                    doc::text(" ")
+                }
+            }
+        }
+    };
     let block_line = doc::concat(vec![
-        doc::text("block: "),
+        doc::text("block:"),
+        block_pad,
         block_body,
         doc::text(","),
     ]);
@@ -1293,6 +1381,16 @@ mod tests {
     }
 
     fn fmt_expr_width(src: &str, max_width: usize) -> String {
+        let opts = FormatOptions {
+            max_width,
+            ..FormatOptions::default()
+        };
+        fmt_expr_opts(src, &opts)
+    }
+
+    /// Like [`fmt_expr`] but with caller-chosen [`FormatOptions`] so FMT-10
+    /// alignment flags can be toggled per test.
+    fn fmt_expr_opts(src: &str, opts: &FormatOptions) -> String {
         let source = SourceText::from_bytes(file_id(), src.as_bytes())
             .expect("test source must be valid UTF-8");
         let mut lex_sink = VecSink::new();
@@ -1315,11 +1413,10 @@ mod tests {
             p.parse_expr().expect("test expression must parse")
         };
         let tmap: TriviaAttachmentMap = attach_trivia(&stream, &arena, expr_id);
-        let opts = FormatOptions::default();
-        let ctx = FormatContext::new(&source, &stream, &arena, &tmap, &opts);
+        let ctx = FormatContext::new(&source, &stream, &arena, &tmap, opts);
         let kind = arena.get(expr_id).unwrap().kind;
         let d = format_expr(&ctx, expr_id, kind);
-        layout::render(&d, &LayoutOptions { max_width })
+        layout::render(&d, &LayoutOptions { max_width: opts.max_width })
     }
 
     // ---- primary -----------------------------------------------------
@@ -1660,6 +1757,17 @@ mod tests {
 
     // ---- Unsafe ------------------------------------------------------
 
+    /// Find the content column of a key-prefixed row (first non-space
+    /// column after `"<key>:"`). Shared by the §11.1 alignment tests.
+    fn content_col_after(line: &str, key: &str) -> Option<usize> {
+        let needle = format!("{key}:");
+        let idx = line.find(&needle)?;
+        let after_colon = idx + needle.len();
+        let rest = &line[after_colon..];
+        let non_space = rest.chars().take_while(|c| *c == ' ').count();
+        Some(after_colon + non_space)
+    }
+
     #[test]
     fn unsafe_four_field_alignment() {
         let got = fmt_expr(
@@ -1668,18 +1776,6 @@ mod tests {
         // All three aligned keys (`effects`, `capabilities`, `justification`)
         // put their colon followed by padding + content; the content
         // column must agree across the three lines.
-        //
-        // The content column for each line is the index of its leftmost
-        // non-space character after the colon.
-        fn content_col_after(line: &str, key: &str) -> Option<usize> {
-            let needle = format!("{key}:");
-            let idx = line.find(&needle)?;
-            let after_colon = idx + needle.len();
-            // walk past spaces
-            let rest = &line[after_colon..];
-            let non_space = rest.chars().take_while(|c| *c == ' ').count();
-            Some(after_colon + non_space)
-        }
         let eff_line = got.lines().find(|l| l.contains("effects:")).unwrap();
         let cap_line = got.lines().find(|l| l.contains("capabilities:")).unwrap();
         let just_line = got.lines().find(|l| l.contains("justification:")).unwrap();
@@ -1690,6 +1786,183 @@ mod tests {
             (eff, cap, just),
             (just, just, just),
             "unsafe-block field colons not aligned: {got:?}"
+        );
+    }
+
+    // ---- FMT-10 (paideia-as#1574): OPTION C adaptive alignment -------
+
+    #[test]
+    fn unsafe_option_c_pads_block_key_with_multi_line_body() {
+        // OPTION C: when the `block:` body is multi-line, padding is
+        // safe (first line of body is `{`), so `block:` lands at the
+        // same content column as the other three keys.
+        let got = fmt_expr(
+            "unsafe {\n  effects: { RawMem },\n  capabilities: { paideia.raw_mem },\n  justification: \"test justification string\",\n  block: { mov rax, rdi }\n}",
+        );
+        let eff_line = got.lines().find(|l| l.contains("effects:")).unwrap();
+        let block_line = got.lines().find(|l| l.contains("block:")).unwrap();
+        let eff = content_col_after(eff_line, "effects").unwrap();
+        let block = content_col_after(block_line, "block").unwrap();
+        assert_eq!(
+            eff, block,
+            "OPTION C requires `block:` to align with the other 3 keys: {got:?}"
+        );
+    }
+
+    #[test]
+    fn unsafe_option_c_block_single_space_when_align_off() {
+        // align_unsafe_fields = false → every field emits single-space
+        // after the colon; the content columns match "key: " length
+        // and differ from each other.
+        let opts = FormatOptions {
+            align_unsafe_fields: false,
+            ..FormatOptions::default()
+        };
+        let got = fmt_expr_opts(
+            "unsafe {\n  effects: { RawMem },\n  capabilities: { paideia.raw_mem },\n  justification: \"j\",\n  block: { mov rax, rdi }\n}",
+            &opts,
+        );
+        let eff_line = got.lines().find(|l| l.contains("effects:")).unwrap();
+        // "effects:" + " " → content at col idx("effects:")+9.
+        let eff = content_col_after(eff_line, "effects").unwrap();
+        let eff_idx = eff_line.find("effects:").unwrap();
+        assert_eq!(
+            eff,
+            eff_idx + "effects:".len() + 1,
+            "align_unsafe_fields=false must emit single-space after colon: {got:?}"
+        );
+    }
+
+    #[test]
+    fn unsafe_option_c_demotes_block_when_single_line_body_would_overflow() {
+        // Simulate OPTION C demote: empty block body `{}` is
+        // single-line (measure returns Some(2)). With a very tight
+        // `max_width`, the padded first-line budget BLOCK_INDENT_EST +
+        // "block:" + full_pad + " " + body_width (= 10+6+9+1+2 = 28)
+        // exceeds `max_width = 20` and demote fires.
+        let opts = FormatOptions {
+            max_width: 20,
+            align_unsafe_fields: true,
+            ..FormatOptions::default()
+        };
+        let got = fmt_expr_opts(
+            "unsafe {\n  effects: { },\n  capabilities: { },\n  justification: \"j\",\n  block: {}\n}",
+            &opts,
+        );
+        let block_line = got.lines().find(|l| l.contains("block:")).unwrap();
+        // Demote → single space (col = idx("block:") + 7).
+        let bl = content_col_after(block_line, "block").unwrap();
+        let bl_idx = block_line.find("block:").unwrap();
+        assert_eq!(
+            bl,
+            bl_idx + "block:".len() + 1,
+            "OPTION C must demote block: when padded first-line overflows max_width: {got:?}"
+        );
+    }
+
+    #[test]
+    fn match_align_match_arms_off_single_space() {
+        // align_match_arms = false → every arm emits "pattern => body"
+        // with no width padding before `=>`; the `=>` columns should
+        // differ across arms of differing pattern widths.
+        let opts = FormatOptions {
+            align_match_arms: false,
+            ..FormatOptions::default()
+        };
+        let got = fmt_expr_opts("match c { A => 0, Bbbb => 1 }", &opts);
+        let mut arrow_cols: Vec<usize> = Vec::new();
+        for line in got.lines() {
+            if let Some(idx) = line.find("=>") {
+                arrow_cols.push(idx);
+            }
+        }
+        assert_eq!(arrow_cols.len(), 2, "expected 2 arrows, got {got:?}");
+        assert_ne!(
+            arrow_cols[0], arrow_cols[1],
+            "align_match_arms=false must leave arrow columns unaligned: {got:?}"
+        );
+    }
+
+    #[test]
+    fn match_align_adapts_to_longest_arm_width() {
+        // Varying arm widths — the padding target follows the longest
+        // pattern, not a hard-coded column, so a wider corpus still
+        // aligns.
+        let got = fmt_expr(
+            "match c { One => 1, Two => 2, Threeeeeee => 3, Four => 4 }",
+        );
+        let mut arrow_cols: Vec<usize> = Vec::new();
+        for line in got.lines() {
+            if let Some(idx) = line.find("=>") {
+                arrow_cols.push(idx);
+            }
+        }
+        assert_eq!(arrow_cols.len(), 4);
+        assert!(
+            arrow_cols.iter().all(|&c| c == arrow_cols[0]),
+            "`=>` columns not aligned across varying arm widths: {arrow_cols:?} in {got:?}"
+        );
+    }
+
+    #[test]
+    fn match_align_drops_when_longest_pattern_exceeds_budget() {
+        // Style-spec §8.2 exception 1: when the longest pattern is wider
+        // than `max_width - 10`, alignment is dropped. Set a tight
+        // `max_width = 20` so a 15-char pattern falls past the gate.
+        let opts = FormatOptions {
+            max_width: 20,
+            ..FormatOptions::default()
+        };
+        let got = fmt_expr_opts(
+            "match c { AaaaaaaaaaBbbbb => 1, X => 2 }",
+            &opts,
+        );
+        // Both arms emit `pattern => body` with no extra padding —
+        // the `=>` after "X" is at column idx("X") + 2 (one space),
+        // which differs from the long arm.
+        let short_line = got
+            .lines()
+            .find(|l| l.contains("X =>"))
+            .expect("short arm missing");
+        let long_line = got
+            .lines()
+            .find(|l| l.contains("AaaaaaaaaaBbbbb =>"))
+            .expect("long arm missing");
+        let short_arrow = short_line.find("=>").unwrap();
+        let long_arrow = long_line.find("=>").unwrap();
+        assert_ne!(
+            short_arrow, long_arrow,
+            "alignment should drop when longest pattern exceeds max_width-10: {got:?}"
+        );
+    }
+
+    #[test]
+    fn match_arm_body_indent_uniform_across_arms() {
+        // Each arm sits at the same +2 indent beneath `match … {`; the
+        // body text follows the padded `=> ` on the same line, so the
+        // first-visible-char of the body indicates the body column.
+        // For single-line bodies, body column == arrow_col + 3.
+        let got = fmt_expr("match c { One => 1, Two => 2 }");
+        let arm_lines: Vec<&str> = got.lines().filter(|l| l.contains("=>")).collect();
+        assert_eq!(arm_lines.len(), 2);
+        // Each line starts with the same leading-space run.
+        let indent0 = arm_lines[0].chars().take_while(|c| *c == ' ').count();
+        let indent1 = arm_lines[1].chars().take_while(|c| *c == ' ').count();
+        assert_eq!(
+            indent0, indent1,
+            "arm indents must match: {arm_lines:?}"
+        );
+    }
+
+    #[test]
+    fn unsafe_option_c_both_flags_default_true() {
+        // Smoke test on the defaults: align_match_arms and
+        // align_unsafe_fields both initialised to true.
+        let opts = FormatOptions::default();
+        assert!(opts.align_match_arms, "align_match_arms default must be true");
+        assert!(
+            opts.align_unsafe_fields,
+            "align_unsafe_fields default must be true"
         );
     }
 

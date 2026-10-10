@@ -632,22 +632,53 @@ Per `examples/15_unsafe.pdx`, the canonical unsafe-block shape has four
 required fields in fixed order: `effects:`, `capabilities:`,
 `justification:`, `block:`.
 
-### 11.1 Field alignment (ON by default)
+### 11.1 Field alignment (ON by default — OPTION C adaptive)
 
-The four field-colons are aligned by padding each key with trailing
+All four field-colons are aligned by padding each key with trailing
 spaces to the longest key's length (`justification` at 13 chars → every
-colon lands at column `base + 14`).
+colon lands at column `base + 14`, so content starts at `base + 15`).
+
+OPTION C (FMT-10, paideia-as#1574) is **adaptive**: `block:` participates
+in the alignment just like the other three fields when its body is
+multi-line (the common case — assembly instruction sequences hard-break),
+because the first rendered row of a multi-line body is just `{` and
+padding never pushes the first line past `max_width`. For a single-line
+`block:` body (empty `{}` or a one-instruction body that fits flat),
+the formatter checks whether `base_indent + "block:" + pad + " " +
+body_width` would exceed `max_width`; if yes, `block:` demotes to
+single-space-after-colon for that one field, keeping the other three
+aligned. This resolves the §11.1 ambiguity between the literal rule
+("pad all four") and the earlier spec example (which padded only three).
 
 ```pdx
 unsafe {
   effects:       { RawMem },
   capabilities:  { paideia.raw_mem },
   justification: "Raw memory access: mov r64, r64 in unsafe block.",
-  block: {
+  block:         {
     mov rax, rdi
   },
 }
 ```
+
+Demote case (hypothetical, `max_width = 20`):
+
+```pdx
+unsafe {
+  effects:       { },
+  capabilities:  { },
+  justification: "j",
+  block: {},
+}
+```
+
+The adaptive alignment is gated by `FormatOptions::align_unsafe_fields`
+(default `true`); setting the flag to `false` emits every field with a
+single space after the colon. FMT-11 will surface this as the
+`[fmt] align = "off"` key in `.pdxfmt`. The parallel knob for match-arm
+`=>` alignment is `FormatOptions::align_match_arms` (default `true`,
+same spec gap resolution: honour the rule by default, flag off for
+users who prefer unpadded output).
 
 The leading `unsafe {` is on the same line as the preceding `->` or `=`.
 Trailing comma mandatory on each of the four fields including `block:`.
