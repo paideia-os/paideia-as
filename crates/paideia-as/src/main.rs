@@ -84,6 +84,7 @@ fn main() -> ExitCode {
             stdin,
             check,
             diff,
-        } => cmd_fmt::run(&inputs, check, diff, stdin),
+            list_different,
+        } => cmd_fmt::run(&inputs, check, diff, stdin, list_different),
     }
 }

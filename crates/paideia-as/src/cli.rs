@@ -132,17 +132,30 @@ pub enum Cmd {
         format: OutputFormat,
     },
     /// Format source code.
+    ///
+    /// Positional args may be literal file paths or shell-style globs
+    /// (e.g. `src/**/*.pdx`). With no positional args and no `--stdin`,
+    /// the formatter discovers the nearest ancestor workspace (marker:
+    /// `.pdxfmt` first, then `Cargo.toml`) and formats every `.pdx`
+    /// file under `src/` and `tests/`.
     Fmt {
-        /// Paths to input `.pdx` files. Omit to read from stdin.
-        inputs: Vec<PathBuf>,
+        /// Paths or glob patterns matching input `.pdx` files. Omit to
+        /// read from stdin (`--stdin`) or fall back to workspace default.
+        inputs: Vec<String>,
         /// Read from stdin instead of a file.
         #[arg(long, conflicts_with = "inputs")]
         stdin: bool,
         /// Check mode: exit with status 1 if formatting would change any file.
-        #[arg(long, conflicts_with = "diff")]
+        #[arg(long, conflicts_with_all = ["diff", "list_different"])]
         check: bool,
         /// Diff mode: display unified diff to stdout; exit 1 if formatting would change any file.
-        #[arg(long, conflicts_with = "check")]
+        #[arg(long, conflicts_with_all = ["check", "list_different"])]
         diff: bool,
+        /// List-different mode: print paths of files that would be
+        /// reformatted (one per line) to stdout. Exits 0 regardless
+        /// of whether any file would change — ideal for script
+        /// pipelines (`paideia-as fmt --list-different | xargs ...`).
+        #[arg(long = "list-different", conflicts_with_all = ["check", "diff"])]
+        list_different: bool,
     },
 }

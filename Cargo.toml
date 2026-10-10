@@ -103,6 +103,10 @@ smallvec = "1"
 # CLI
 clap = { version = "4", features = ["derive"] }
 similar = "2"
+# FMT-12 (paideia-as#1576): shell-style glob expansion for the `paideia-as
+# fmt` subcommand's positional file args. 0.3 is the current major and is
+# API-stable; the crate itself is `std`-only and has no transitive deps.
+glob = "0.3"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

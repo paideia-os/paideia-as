@@ -34,6 +34,7 @@
 #![forbid(unsafe_code)]
 
 pub mod attach;
+pub mod config;
 pub mod cst;
 pub mod doc;
 pub mod doc_comment;
@@ -80,6 +81,32 @@ pub struct FormatOptions {
     /// `max_width`) still applies when this flag is `true`. FMT-11 will
     /// surface this on the `[fmt]` `align = "off"` key in `.pdxfmt`.
     pub align_unsafe_fields: bool,
+    /// Indent width in spaces per structural level (style-spec §4,
+    /// default `2`). FMT-11 surfaces this on `[fmt].indent_width` in
+    /// `.pdxfmt`. Independent of [`tab_width`] (the legacy whitespace
+    /// formatter's tab-expansion width); when the FMT-4..8 structural
+    /// walkers wire indentation through the Doc builder they will read
+    /// this value.
+    ///
+    /// [`tab_width`]: FormatOptions::tab_width
+    pub indent_width: usize,
+    /// Trailing-comma policy for the structural formatter (style-spec
+    /// §7, default [`TrailingCommaPolicy::Always`]). FMT-11 surfaces
+    /// this on `[fmt].trailing_comma` in `.pdxfmt`
+    /// (`"always"`/`"never"`/`"preserve"`). No consumer reads this
+    /// field yet; the FMT-4..8 formatters will route multi-line comma
+    /// decisions through it.
+    pub trailing_comma_policy: TrailingCommaPolicy,
+    /// Glyph policy for the structural formatter (style-spec §10,
+    /// default [`GlyphPolicy::Preserve`]). FMT-11 surfaces this on
+    /// `[fmt].glyph` in `.pdxfmt`
+    /// (`"preserve"`/`"unicode"`/`"ascii"`). Distinct from
+    /// [`glyph_style`] which drives the legacy whitespace formatter —
+    /// when the FMT-4..8 formatters subsume glyph conversion they will
+    /// read this field and `glyph_style` can be deprecated.
+    ///
+    /// [`glyph_style`]: FormatOptions::glyph_style
+    pub glyph_policy: GlyphPolicy,
 }
 
 impl Default for FormatOptions {
@@ -92,8 +119,61 @@ impl Default for FormatOptions {
             max_width: 100,
             align_match_arms: true,
             align_unsafe_fields: true,
+            indent_width: 2,
+            trailing_comma_policy: TrailingCommaPolicy::default(),
+            glyph_policy: GlyphPolicy::default(),
         }
     }
+}
+
+/// Trailing-comma policy for multi-line comma-separated constructs
+/// (argument lists, record literals, tuple patterns, …) emitted by the
+/// FMT-4..8 structural formatters. FMT-11 (paideia-as#1575) exposes this
+/// on `[fmt].trailing_comma` in `.pdxfmt`.
+///
+/// Marked `#[non_exhaustive]`: future style-spec revisions may add e.g.
+/// `OnMultiline` without a breaking API bump. Consumers must terminate
+/// their `match` arms with a wildcard — none exist today (the structural
+/// walkers still return `Doc::text(source)` fallbacks per the FMT-3
+/// byte-identical contract).
+#[non_exhaustive]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrailingCommaPolicy {
+    /// Emit a trailing comma on every multi-line comma-separated
+    /// construct (default — matches the §7 style-spec baseline).
+    #[default]
+    Always,
+    /// Never emit a trailing comma.
+    Never,
+    /// Preserve whatever the source had (round-trip-safe for files
+    /// that mix conventions).
+    Preserve,
+}
+
+/// Glyph policy for the FMT-4..8 structural formatter. FMT-11
+/// (paideia-as#1575) exposes this on `[fmt].glyph` in `.pdxfmt`.
+///
+/// Distinct from [`GlyphStyle`] (which drives the legacy whitespace
+/// formatter in [`format_whitespace`]): having two types lets the
+/// Doc-based pipeline evolve its glyph vocabulary independently of the
+/// line-level normalizer. The two enums converge semantically on their
+/// default (`Preserve`) and share the same four lexical pairs today;
+/// FMT-9/FMT-10 will migrate callers across and deprecate `GlyphStyle`.
+///
+/// Marked `#[non_exhaustive]`: style-spec §10.3 anticipates per-site
+/// overrides (e.g. `Mixed`) that would land as new variants.
+#[non_exhaustive]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GlyphPolicy {
+    /// Leave glyphs as-is (default).
+    #[default]
+    Preserve,
+    /// Convert ASCII → Unicode (`->` → `→`, `=>` → `⇒`, …).
+    Unicode,
+    /// Convert Unicode → ASCII (inverse).
+    Ascii,
 }
 
 /// Glyph normalization style.

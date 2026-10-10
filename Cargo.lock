@@ -1105,6 +1105,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glob"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1973,6 +1979,7 @@ version = "0.36.81"
 dependencies = [
  "assert_cmd",
  "clap",
+ "glob",
  "iced-x86",
  "miette",
  "object",
@@ -2381,6 +2388,9 @@ dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-lexer",
  "paideia-as-parser",
+ "serde",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]
