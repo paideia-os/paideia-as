@@ -2376,6 +2376,11 @@ version = "0.36.81"
 [[package]]
 name = "paideia-fmt"
 version = "0.36.81"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+ "paideia-as-lexer",
+]
 
 [[package]]
 name = "paideia-hw-smoke-crypto"

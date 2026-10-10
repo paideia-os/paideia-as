@@ -17,3 +17,4 @@ path = "src/main.rs"
 [dependencies]
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-ast = { path = "../paideia-as-ast" }

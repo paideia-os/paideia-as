@@ -9,7 +9,10 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod attach;
 pub mod cst;
+pub mod doc;
+pub mod layout;
 
 /// Format options for the paideia-as formatter.
 #[derive(Clone, Debug)]
