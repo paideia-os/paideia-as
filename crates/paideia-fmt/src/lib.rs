@@ -38,6 +38,7 @@ pub mod cst;
 pub mod doc;
 pub mod format_expr;
 pub mod format_item;
+pub mod format_pattern;
 pub mod format_type;
 pub mod layout;
 pub mod walker;

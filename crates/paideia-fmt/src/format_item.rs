@@ -1,6 +1,6 @@
-//! FMT-4a Bucket A: per-item formatters.
+//! FMT-4a Bucket A + FMT-4b Bucket B: per-item formatters.
 //!
-//! # Scope (paideia-as#1566)
+//! # Scope (paideia-as#1566, paideia-as#1567)
 //!
 //! Bucket A of the FMT-4a sprint — nine `ItemData` variants:
 //!
@@ -14,6 +14,80 @@
 //! | `Struct`    | span-slice (whole-decl span)                            |
 //! | `Trait`     | span-slice (whole-decl span)                            |
 //! | `Impl`      | span-slice (whole-decl span)                            |
+//!
+//! Bucket B of the FMT-4b sprint — Functor-family item variants:
+//!
+//! | variant        | strategy                                             |
+//! |----------------|------------------------------------------------------|
+//! | `Functor`      | structural: `functor (p1)(p2) -> <body>`             |
+//! | `FunctorParam` | structural: `(<name> : <sig>)`                       |
+//! | `FunctorDecl`  | span-slice (synthesised ident spans — see below)     |
+//!
+//! # FMT-4b Bucket B — slice-brief vs AST-reality mapping
+//!
+//! The FMT-4b slice brief names eight shapes: `Functor`, `PackedStruct`,
+//! `GpuContext`, `Timeline`, `EndianAttr`, `MacroExpandDirective`,
+//! `AtomicItem`, `FunctorAttr`. Only the first three in the Functor
+//! family exist as [`ItemData`] variants in the AST today
+//! (`ItemData::Functor`, `ItemData::FunctorParam`,
+//! `ItemData::FunctorDecl`). The remaining five are either side-tables
+//! keyed on an owning item, standalone directive tables with no
+//! `NodeId`, block-scope markers lowered at the statement level, or
+//! have no AST landing at all. They are addressed by follow-up slices:
+//!
+//! - **PackedStruct.** Not a dedicated item variant.
+//!   [`paideia_as_ast::StructAttr::Packed { align }`] is attached to a
+//!   `Struct` item through
+//!   [`paideia_as_ast::StructAttrTable`]. The `@packed_struct(...)`
+//!   prefix lives inside the enclosing `Struct` item's span, so
+//!   [`fmt_struct`]'s existing span-slice preserves it byte-identically.
+//!   Structural decomposition lands with FMT-6 (type formatter) + a
+//!   follow-up slice on [`fmt_struct`].
+//!
+//! - **EndianAttr.** Not a dedicated item variant.
+//!   [`paideia_as_ast::FieldAttr::Endian`] is a per-field attribute
+//!   stored in [`paideia_as_ast::StructFieldAttrTable`]. The
+//!   `@endian(be|le)` prefix lives inside the enclosing `Struct`
+//!   item's span, so [`fmt_struct`]'s span-slice preserves it. Pending
+//!   the same follow-up slice as `PackedStruct`.
+//!
+//! - **MacroExpandDirective.** Not an item node at all —
+//!   [`paideia_as_ast::MacroExpandDirectiveTable`] stores a flat
+//!   `Vec<MacroExpandDirective>` of plain owned structs, keyed by
+//!   neither `NodeId` nor arena index. The parser records these
+//!   `@macro_expand([...])` directives independent of the item stream;
+//!   their byte range IS inside the source file but outside every
+//!   [`ItemData`] span. Routing them belongs to the top-level
+//!   [`crate::walker::format_module`], not this per-item dispatcher.
+//!   Byte-identity is preserved today only via the walker's whole-
+//!   source scaffold; a dedicated interleave slice will structural-ize
+//!   the directive stream.
+//!
+//! - **AtomicItem.**  Not a dedicated variant.
+//!   [`paideia_as_ast::ItemAtomicTable`] keys an
+//!   [`paideia_as_ast::AtomicOrdering`] on a [`ItemData::Let`]'s
+//!   `NodeId`. The `@atomic(Ordering)` trails the Let's value
+//!   expression — OUTSIDE [`ItemData::Let`]'s structural span (same
+//!   way `@align` / `@no_frame` are outside the span, which [`fmt_let`]
+//!   already handles). A follow-up slice extends [`fmt_let`] to read
+//!   the side-table and emit the `@atomic(...)` suffix.
+//!
+//! - **FunctorAttr.** Not a dedicated variant.
+//!   [`paideia_as_ast::FunctorAttrTable`] keys a `Vec<FunctorAttr>` on
+//!   a [`ItemData::FunctorDecl`]'s `NodeId`. The `@retain` / `@immediate`
+//!   prefix is consumed BEFORE `parse_functor` begins, so the attribute
+//!   bytes live outside the `FunctorDecl` span. A follow-up slice
+//!   extends [`fmt_functor_decl`] to query the side-table and prepend
+//!   the attribute(s).
+//!
+//! - **GpuContext.** Not an item variant. Lives as
+//!   [`paideia_as_ast::BlockScope::GpuContext`] on an `ExprBlock`
+//!   statement body. FMT-5b handles it when it decomposes expression
+//!   blocks.
+//!
+//! - **Timeline.** `@timeline_wait` / `@timeline_signal` have no parser,
+//!   no `NodeKind`, no `ItemData` variant, and no side-table today.
+//!   Pending a parser-side primitive before any formatter work.
 //!
 //! All eight paths return a [`Doc`] built from the FMT-2 layout
 //! combinators (`doc::group`, `doc::nest`, `doc::line`, `doc::if_break`,
@@ -97,10 +171,14 @@ pub fn format_item(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
         NodeKind::Struct => fmt_struct(ctx, nid, data),
         NodeKind::Trait => fmt_trait(ctx, nid, data),
         NodeKind::Impl => fmt_impl(ctx, nid, data),
-        // FMT-4b: Functor / FunctorParam / FunctorDecl / Effect / OpSig
-        // / Capability / UnsafeBlock / MacroDecl / MacroPattern /
-        // MacroTemplate. The scaffold's byte-identical fallback is
-        // retained until those arms land.
+        // FMT-4b Bucket B: Functor-family variants.
+        NodeKind::Functor => fmt_functor(ctx, nid, data),
+        NodeKind::FunctorParam => fmt_functor_param(ctx, nid, data),
+        NodeKind::FunctorDecl => fmt_functor_decl(ctx, nid, data),
+        // Remaining item kinds — Effect / OpSig / Capability /
+        // UnsafeBlock / MacroDecl / MacroPattern / MacroTemplate —
+        // retain the byte-identical fallback until their dedicated
+        // slices land.
         _ => fallback_slice(ctx, data.span),
     }
 }
@@ -334,6 +412,131 @@ fn fmt_trait(ctx: &FormatContext<'_>, _nid: NodeId, data: NodeData) -> Doc {
 /// are `Let`s with lambda RHS, so [`fmt_let`] already handles their
 /// per-item structure once the body is iterated).
 fn fmt_impl(ctx: &FormatContext<'_>, _nid: NodeId, data: NodeData) -> Doc {
+    doc::group(fallback_slice(ctx, data.span))
+}
+
+/// FMT-4b Bucket B: format a module-parameterised `Functor` item.
+///
+/// Shape:
+///
+/// ```text
+/// functor (<p1-name> : <p1-sig>)(<p2-name> : <p2-sig>) -> <body>
+/// ```
+///
+/// The body is routed back through [`format_item`] so a `structure {
+/// ... }` body picks up [`fmt_structure`] rather than being slurped as
+/// one opaque blob. Params are structural because `FunctorParam`'s own
+/// span covers only the name token (see
+/// `parse_item/module_decl.rs::parse_functor`), so a `fallback_slice`
+/// on the param node would drop the surrounding `( ... : ... )`.
+///
+/// Multi-line wrap: when the one-line form overflows `max_width`, each
+/// param lands on its own line at the continuation indent, followed by
+/// the `-> <body>` on its own line. The style spec §5.5 says a functor
+/// body follows the same rules as `structure {}` — body wrap is the
+/// body formatter's own group's responsibility.
+///
+/// Canonical param-colon spacing: `<name> : <sig>` with spaces around
+/// `:` (style spec §4.3). An input written as `(S: Sig)` is normalised
+/// to `(S : Sig)` — the one deliberate byte-identity departure here.
+fn fmt_functor(ctx: &FormatContext<'_>, nid: NodeId, data: NodeData) -> Doc {
+    let item = match ctx.arena.item_data(nid) {
+        Some(i) => i,
+        None => return fallback_slice(ctx, data.span),
+    };
+    let (params, body) = match item {
+        ItemData::Functor { params, body, .. } => (params.clone(), *body),
+        _ => return fallback_slice(ctx, data.span),
+    };
+
+    if params.is_empty() {
+        // A functor with no params is not legal source
+        // (`parse_functor` loops until it sees no `(`), but defend
+        // against malformed arenas: fall back to the span-slice so we
+        // emit *something* rather than a bare `functor -> body`.
+        return doc::group(fallback_slice(ctx, data.span));
+    }
+
+    // Each param renders to its own `(<name> : <sig>)` doc. We never
+    // intersperse commas — the surface syntax juxtaposes param-tuples
+    // directly, so adjacent params are back-to-back in flat mode and
+    // one-per-line in break mode.
+    let param_docs: Vec<Doc> = params
+        .iter()
+        .map(|p| format_item(ctx, *p))
+        .collect();
+
+    let params_doc = doc::separate(doc::softline(), param_docs);
+
+    doc::group(doc::nest(
+        2,
+        doc::concat(vec![
+            doc::text("functor "),
+            params_doc,
+            doc::line(),
+            doc::text("-> "),
+            format_item(ctx, body),
+        ]),
+    ))
+}
+
+/// FMT-4b Bucket B: format a `FunctorParam` item — `(<name> : <sig>)`.
+///
+/// The `FunctorParam` AST carries both child `NodeId`s with their own
+/// token spans (see `parse_item/module_decl.rs::parse_functor`), so
+/// [`child_slice`] re-emits the names losslessly.
+///
+/// Not published to the dispatcher's expression / type callers — this
+/// function is reachable only via a parent [`fmt_functor`]. If a caller
+/// hands us a bare `FunctorParam` id, the dispatcher routes here just
+/// the same and we emit the same `( <name> : <sig> )` text.
+fn fmt_functor_param(ctx: &FormatContext<'_>, nid: NodeId, data: NodeData) -> Doc {
+    let item = match ctx.arena.item_data(nid) {
+        Some(i) => i,
+        None => return fallback_slice(ctx, data.span),
+    };
+    let (name, sig) = match item {
+        ItemData::FunctorParam { name, sig } => (*name, *sig),
+        _ => return fallback_slice(ctx, data.span),
+    };
+    doc::group(doc::concat(vec![
+        doc::text("("),
+        child_slice(ctx, name),
+        doc::text(" : "),
+        child_slice(ctx, sig),
+        doc::text(")"),
+    ]))
+}
+
+/// FMT-4b Bucket B: format a session-typed `FunctorDecl` item.
+///
+/// Shape (as recognised by `parse_functor_with_attrs_into_arena`):
+///
+/// ```text
+/// functor <Name>(<Param> : <ParamSig>) -> <ReturnSig> (with <S> : session)? { ... }
+/// ```
+///
+/// **Why span-slice, not structural.** The parser
+/// (`toolkit_attrs::parse_functor_with_attrs_into_arena`) anchors every
+/// synthesised `Ident` child (name / param_name / param_sig /
+/// return_sig) on the whole-decl span, because the standalone
+/// `FunctorDecl` struct predates arena awareness and does not carry
+/// per-field byte offsets (toolkit_attrs.rs:233-242). A structural
+/// reconstruction via [`child_slice`] would therefore re-emit the full
+/// decl text per child, which is incorrect. Span-slice on the decl
+/// span IS byte-identical today — the parser's own span covers from
+/// `functor` to the body's closing `}`.
+///
+/// **Attribute prefix.** `@retain` / `@immediate` are stored on
+/// [`paideia_as_ast::FunctorAttrTable`] keyed by this decl's `NodeId`.
+/// The attribute bytes live BEFORE the span's start (the attribute
+/// prefix is consumed by `parse_functor_with_attrs` before
+/// `parse_functor` begins), so a follow-up slice must query
+/// [`FormatContext::arena`]'s side-table and prepend the prefix. For
+/// this slice the attributes are not emitted — any caller that relies
+/// on the attribute prefix should use the pre-existing byte-identical
+/// walker fallback through [`crate::walker::format_module`].
+fn fmt_functor_decl(ctx: &FormatContext<'_>, _nid: NodeId, data: NodeData) -> Doc {
     doc::group(fallback_slice(ctx, data.span))
 }
 
@@ -578,6 +781,161 @@ mod tests {
         // recursive dispatch through format_item does not corrupt the
         // inner let's text.
         let src = "module Nested = structure { pub let n : u64 = 7 }";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    // =====================================================================
+    //  FMT-4b Bucket B (paideia-as#1567) — Functor-family + absent-variant
+    //  byte-identity coverage.
+    // =====================================================================
+
+    // --- Functor (ItemData::Functor) --------------------------------------
+
+    #[test]
+    fn fmt_functor_single_param_byte_identity() {
+        // Canonical form: `(T : Sig)` with space-around colon
+        // (style spec §4.3). `module M = ` prefix means the Functor
+        // item is reached through fmt_module → format_item(body).
+        let src = "module M = functor (T : Sig) -> structure { let x = 1 }";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    #[test]
+    fn fmt_functor_two_params_byte_identity() {
+        // Juxtaposed param-tuples with no separator: `(A : S1)(B : S2)`.
+        // In flat mode the softline between them collapses to empty,
+        // matching source byte-for-byte.
+        let src = "module M = functor (A : S1)(B : S2) -> structure { let x = 1 }";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    #[test]
+    fn fmt_functor_three_params_byte_identity() {
+        let src =
+            "module M = functor (A : S1)(B : S2)(C : S3) -> structure { let x = 1 }";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    #[test]
+    fn fmt_functor_normalises_dense_colon_in_param() {
+        // Source uses the dense `(T: Sig)` colon spacing (the
+        // minority corpus form, style spec §4.3). The structural
+        // formatter normalises to the canonical space-around form.
+        let dense = "module M = functor (T: Sig) -> structure { let x = 1 }";
+        let canonical = "module M = functor (T : Sig) -> structure { let x = 1 }";
+        assert_eq!(render_first_item(dense).as_deref(), Some(canonical));
+    }
+
+    #[test]
+    fn fmt_functor_many_params_wraps_multiline() {
+        // Build an input whose one-line functor header exceeds
+        // max_width = 100 so the enclosing group breaks. The exact
+        // broken shape depends on the layout engine (nest = 2, soft
+        // breaks between params, line before `-> `), so we only
+        // assert that:
+        //   (a) the formatter does not panic,
+        //   (b) the output contains a newline (break mode engaged),
+        //   (c) each param still carries the canonical colon spacing.
+        let src = "module M = functor \
+                   (AAAAAAAAAA : Sig1111111)(BBBBBBBBBB : Sig2222222)(CCCCCCCCCC : Sig3333333)(DDDDDDDDDD : Sig4444444) \
+                   -> structure { let x = 1 }";
+        let out = render_first_item(src).expect("parse OK");
+        assert!(out.contains('\n'), "expected multi-line wrap, got: {out}");
+        for name in ["AAAAAAAAAA", "BBBBBBBBBB", "CCCCCCCCCC", "DDDDDDDDDD"] {
+            assert!(out.contains(name), "lost param name {name}: {out}");
+        }
+        // Every param kept its canonical colon spacing.
+        assert!(out.contains(" : Sig1111111"));
+        assert!(out.contains(" : Sig2222222"));
+        assert!(out.contains(" : Sig3333333"));
+        assert!(out.contains(" : Sig4444444"));
+    }
+
+    #[test]
+    fn fmt_functor_single_param_idempotent_double_format() {
+        // Round-trip: once we normalise, re-formatting the output is
+        // a fixed point. Guards against subtle whitespace drift
+        // between `doc::group`, `doc::separate`, and `doc::nest`.
+        let src = "module M = functor (T : Sig) -> structure { let x = 1 }";
+        let once = render_first_item(src).unwrap();
+        let twice = render_first_item(&once).unwrap();
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn fmt_functor_body_body_recursion_preserves_let() {
+        // The functor's `structure { ... }` body routes through
+        // fmt_structure (span-slice today). Verify a nested let
+        // survives untouched.
+        let src =
+            "module M = functor (T : Sig) -> structure { pub let n : u64 = 7 }";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    // --- FunctorParam (reached via Functor) -------------------------------
+
+    #[test]
+    fn fmt_functor_param_structural_emits_parens() {
+        // FunctorParam's own span is just the name token (see
+        // parse_item/module_decl.rs::parse_functor), so a fallback
+        // slice would drop `( : )`. The structural path puts them back.
+        let src = "module M = functor (Target : Signature) -> structure { let a = 1 }";
+        let out = render_first_item(src).expect("parse OK");
+        assert!(out.contains("(Target : Signature)"), "got: {out}");
+    }
+
+    #[test]
+    fn fmt_functor_param_handles_short_names() {
+        // Smallest legal name/sig identifiers; the formatter must not
+        // introduce incidental whitespace or lose characters.
+        let src = "module M = functor (A : B) -> structure { let x = 1 }";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    // --- MacroExpandDirective (absent as ItemData — Placeholder fallback) -
+
+    #[test]
+    fn fmt_macro_expand_directive_byte_identity_via_fallback() {
+        // paideia-as#1556: top-level `@macro_expand([<macro>, "<input>"])`
+        // is pushed onto MacroExpandDirectiveTable AND leaves a
+        // `NodeKind::Placeholder` entry in the root Structure's items[].
+        // The placeholder's span covers the directive, so the dispatcher's
+        // `_ => fallback_slice` arm emits the directive verbatim —
+        // byte-identical through the walker's `_` fallback.
+        let src = "@macro_expand([foo, \"42\"])";
+        assert_eq!(render_first_item(src).as_deref(), Some(src));
+    }
+
+    // --- FunctorDecl fallback-slice (not reachable via parse_source_file;
+    //  verifies the dispatcher is wired without exercising a specific shape).
+    //  Reaching FunctorDecl requires parse_functor_with_attrs_into_arena,
+    //  which is tested in the parser crate.
+
+    #[test]
+    fn fmt_dispatcher_routes_functor_nodekind() {
+        // Smoke-test the dispatcher-level routing for `NodeKind::Functor`:
+        // feed a module whose body is a functor and verify the output
+        // contains `functor ` (the dispatcher chose fmt_functor and
+        // emitted the keyword structurally; a `_` fallback would also
+        // contain the keyword, but it would not reconstruct the colon
+        // spacing — so pair the keyword check with a canonical-colon
+        // assertion for `fmt_functor_param`).
+        let src = "module M = functor (T: Sig) -> structure { let x = 1 }";
+        let out = render_first_item(src).expect("parse OK");
+        assert!(out.contains("functor "), "missing `functor ` in: {out}");
+        assert!(out.contains("(T : Sig)"), "colon not normalised: {out}");
+    }
+
+    // --- Absent variants: byte-identity through enclosing fallbacks -------
+
+    #[test]
+    fn fmt_struct_with_endian_field_byte_identity() {
+        // `@endian(be)` is a field-level attribute stored on
+        // StructFieldAttrTable. The attribute bytes live INSIDE the
+        // `Struct` item's span, so fmt_struct's existing fallback
+        // preserves them. Guards against regression if a later slice
+        // decomposes struct bodies but forgets to re-emit field attrs.
+        let src = "struct Header { @endian(be) magic: u32, length: u16 }";
         assert_eq!(render_first_item(src).as_deref(), Some(src));
     }
 }

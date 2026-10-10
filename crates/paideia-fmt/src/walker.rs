@@ -218,7 +218,12 @@ pub fn format_node(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
         | NodeKind::ExprArrayRepeat
         | NodeKind::ExprUninit
         | NodeKind::ExprRange
-        | NodeKind::ExprTuple => format_expr(ctx, nid),
+        | NodeKind::ExprTuple
+        // `OperandMemoryRef` is a sub-operand kind, not an expression
+        // in its own right in most parse paths, but its `ExprData` is
+        // routed through [`format_expr`] by FMT-5b (paideia-as#1569)
+        // so the memref bracket form is structural.
+        | NodeKind::OperandMemoryRef => format_expr(ctx, nid),
 
         // Types.
         NodeKind::TypeName
@@ -259,9 +264,11 @@ pub fn format_node(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
         | NodeKind::StmtLabel => fallback_slice(ctx, data.span),
 
         // Operands similarly default-fallback until FMT-5 claims them.
+        // OperandMemoryRef has moved above into the expression bucket
+        // (FMT-5b, paideia-as#1569) because it carries an `ExprData`
+        // payload with a formatter.
         NodeKind::OperandRegister
-        | NodeKind::OperandImmediate
-        | NodeKind::OperandMemoryRef => fallback_slice(ctx, data.span),
+        | NodeKind::OperandImmediate => fallback_slice(ctx, data.span),
 
         // Identifier / Placeholder leaves — always fall back to source
         // slice. There is no structural choice to make.
@@ -319,16 +326,14 @@ pub fn format_type(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
 
 /// FMT-7 target — pattern formatter.
 ///
-/// Scaffold: returns `source[node.span]`. FMT-7 covers `PatWildcard`,
-/// `PatIdent`, `PatLiteral`, `PatTuple`, `PatStruct`,
-/// `PatEnumVariant`, `PatOr`, `PatBinding`, `PatRange`,
-/// `PatReference`, `PatSlice`, and `PatRest`.
+/// Delegates to [`crate::format_pattern::format_pattern_data`], which
+/// covers every `PatternData` variant currently carried by
+/// `paideia-as-ast`: `Wildcard`, `Ident`, `Literal`, `Tuple`, `Struct`,
+/// `EnumVariant`, `Or`, `Binding`, `Range`, `Reference`, `Slice`, and
+/// `Rest`. Falls back to a source slice when the arena has no
+/// pattern-data for `nid`.
 pub fn format_pattern(ctx: &FormatContext<'_>, nid: NodeId) -> Doc {
-    let data = match ctx.arena.get(nid) {
-        Some(d) => d,
-        None => return doc::nil(),
-    };
-    fallback_slice(ctx, data.span)
+    crate::format_pattern::format_pattern_data(ctx, nid)
 }
 
 /// FMT-8 target — attribute formatter.
