@@ -54,6 +54,35 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// UNI-9 (paideia-as#1596) — locale resolver governing how UAX#11
+/// `Ambiguous` characters (Greek, Cyrillic, box-drawing, …) render.
+///
+/// A Latin-locale renderer prints Greek alpha as a single column; an
+/// East-Asian renderer (CJK terminals since the pre-Unicode CJK legacy
+/// double-byte charsets) renders the same code point two columns wide.
+/// The underlying `unicode-width` crate exposes this split as two
+/// separate methods (`UnicodeWidthChar::width` + `width_cjk`); this
+/// enum is the paideia-as-vocabulary dispatch picking between them.
+///
+/// `Latin` is the default to preserve the pre-UNI-9 behavior that the
+/// R229 line editor and SH-D9 cursor-math already consume: existing
+/// callers of [`width`] / [`grapheme_width`] / [`str_width`] continue
+/// to see the Latin resolution they always saw.
+///
+/// `#[non_exhaustive]` is intentional — a future `WindowsConsole` or
+/// `Legacy` variant should not break downstream matches outside this
+/// crate.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum WidthMode {
+    /// Latin-locale resolver: `Ambiguous` → one column. The default.
+    #[default]
+    Latin,
+    /// East-Asian-locale resolver: `Ambiguous` → two columns. What a
+    /// `LANG=ja_JP.UTF-8` terminal (or a legacy CJK console) expects.
+    EastAsian,
+}
+
 /// The four terminal-rendering widths per UAX#11, with `Ambiguous`
 /// exposed so a locale-aware renderer can pick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +126,12 @@ impl Width {
     }
 }
 
-/// UAX#11 width of a single code point.
+/// UAX#11 width of a single code point under the implicit Latin
+/// locale.
+///
+/// Thin wrapper over [`width_in`] with [`WidthMode::default()`] (which
+/// is [`WidthMode::Latin`]). Preserved for backward compatibility
+/// with R229 / SH-D9 callers that predate UNI-9's locale resolver.
 ///
 /// Backed by `unicode-width` (Servo, MIT/Apache), UCD 15.1. Uses the
 /// crate's `width` (Latin-locale) *and* `width_cjk` (East-Asian) to
@@ -106,19 +140,61 @@ impl Width {
 ///
 /// Control characters, format characters (Cf including ZWJ), and
 /// combining marks (Mn/Me) all return `Zero`.
+#[inline]
 pub fn width(c: char) -> Width {
+    width_in(c, WidthMode::default())
+}
+
+/// Greek / Cyrillic letters with UAX#11 East Asian Width `A` that
+/// `unicode-width`'s CJK table leaves at one column.
+fn is_ea_ambiguous_letter(c: char) -> bool {
+    matches!(c as u32,
+        0x0391..=0x03A1 | 0x03A3..=0x03A9 | 0x03B1..=0x03C1 | 0x03C3..=0x03C9
+        | 0x0401 | 0x0410..=0x044F | 0x0451)
+}
+
+/// UAX#11 width of a single code point under `mode`.
+///
+/// `UnicodeWidthChar::width` is the Latin table; `width_cjk` is the
+/// East-Asian table. The two disagree exactly on UAX#11 `Ambiguous`
+/// code points, where Latin reports 1 and East-Asian reports 2. We
+/// consult the method matching `mode` and classify the result; the
+/// `Ambiguous` discriminator is still synthesized (via `width` under
+/// Latin mode) so a renderer that wants the four-way property can get
+/// at it independent of locale resolution.
+pub fn width_in(c: char, mode: WidthMode) -> Width {
+    // `unicode-width` 0.1.x reports width_cjk == 1 for UAX#11 `A` Greek
+    // and Cyrillic letters; overlay them so East-Asian mode resolves
+    // them to two columns (Latin mode keeps them Narrow).
+    if mode == WidthMode::EastAsian && is_ea_ambiguous_letter(c) {
+        return Width::Wide;
+    }
     let w_latin = UnicodeWidthChar::width(c);
     let w_cjk = UnicodeWidthChar::width_cjk(c);
-    match (w_latin, w_cjk) {
-        (None, _) | (Some(0), _) => Width::Zero,
-        (Some(1), Some(1)) => Width::Narrow,
-        (Some(1), Some(2)) => Width::Ambiguous,
-        (Some(2), _) => Width::Wide,
-        // `unicode-width` currently never emits values other than 0/1/2;
-        // any future 3+ we conservatively treat as `Wide` so cursor math
-        // over-advances rather than under-advances (visually harmless,
-        // versus corruption from under-advance).
-        _ => Width::Wide,
+    match mode {
+        WidthMode::Latin => match (w_latin, w_cjk) {
+            (None, _) | (Some(0), _) => Width::Zero,
+            (Some(1), Some(1)) => Width::Narrow,
+            (Some(1), Some(2)) => Width::Ambiguous,
+            (Some(2), _) => Width::Wide,
+            // `unicode-width` currently never emits values other than
+            // 0/1/2; any future 3+ we conservatively treat as `Wide`
+            // so cursor math over-advances rather than under-advances
+            // (visually harmless, versus corruption from under-advance).
+            _ => Width::Wide,
+        },
+        WidthMode::EastAsian => match (w_latin, w_cjk) {
+            (None, _) | (_, Some(0)) => Width::Zero,
+            (Some(1), Some(1)) => Width::Narrow,
+            // Ambiguous promotes to Wide under East-Asian resolution;
+            // the discriminator is preserved via the Latin lookup so
+            // the caller still sees `Ambiguous` rather than `Wide` for
+            // columns-counting purposes `columns_east_asian` folds the
+            // ambiguous → 2 convention in anyway.
+            (Some(1), Some(2)) => Width::Ambiguous,
+            (Some(2), _) | (_, Some(2)) => Width::Wide,
+            _ => Width::Wide,
+        },
     }
 }
 
@@ -126,18 +202,51 @@ pub fn width(c: char) -> Width {
 /// ANSI escape sequences excluded (they render as zero columns) and
 /// grapheme clusters credited by their base character's width.
 ///
+/// Thin wrapper over [`str_width_in`] with [`WidthMode::default()`].
 /// This is what the R229 line editor calls to reposition its cursor
-/// after mutating the buffer.
+/// after mutating the buffer; locale-aware callers (R229's eventual
+/// `WCWIDTH_MODE` env dispatch) should prefer [`str_width_in`].
+#[inline]
 pub fn str_width(input: &str) -> usize {
+    str_width_in(input, WidthMode::default())
+}
+
+/// Column count of an entire `&str` under `mode`, ANSI escape
+/// sequences excluded.
+///
+/// # ASCII fast path
+///
+/// If every byte of `input` is `< 0x80`, no byte can be part of either
+/// an ANSI escape (ESC = 0x1B is <0x80 but handled below), a combining
+/// mark, or a UAX#11 `Ambiguous` character (all of which live above
+/// U+007F). We still have to walk the string to count non-ESC columns
+/// and skip CSI escapes — but we never need to consider East-Asian
+/// resolution, since ASCII is always `Narrow` regardless of `mode`.
+/// So the mode parameter is effectively a no-op on pure-ASCII input;
+/// the generic path below handles that correctly without a dedicated
+/// branch, since `width_in` of any ASCII char returns the same answer
+/// in both modes.
+pub fn str_width_in(input: &str, mode: WidthMode) -> usize {
     let stripped = strip_ansi_escapes(input);
     let mut total = 0usize;
     for cluster in stripped.graphemes(true) {
-        total += grapheme_width(cluster);
+        total += grapheme_width_in(cluster, mode);
     }
     total
 }
 
-/// Column count of a single extended-grapheme-cluster slice.
+/// Column count of a single extended-grapheme-cluster slice under the
+/// implicit Latin locale.
+///
+/// Thin wrapper over [`grapheme_width_in`] with
+/// [`WidthMode::default()`]; preserved for backward compatibility.
+#[inline]
+pub fn grapheme_width(cluster: &str) -> usize {
+    grapheme_width_in(cluster, WidthMode::default())
+}
+
+/// Column count of a single extended-grapheme-cluster slice under
+/// `mode`.
 ///
 /// The caller is responsible for having sliced `cluster` on grapheme
 /// boundaries (typically via `unicode-segmentation`'s `graphemes(true)`
@@ -146,15 +255,15 @@ pub fn str_width(input: &str) -> usize {
 /// character; that is deliberately not asserted (the fast path avoids
 /// the boundary re-scan) but callers relying on a per-cluster
 /// invariant should feed one cluster at a time.
-pub fn grapheme_width(cluster: &str) -> usize {
+pub fn grapheme_width_in(cluster: &str, mode: WidthMode) -> usize {
     if cluster.is_empty() {
         return 0;
     }
     // ANSI escape lone-atom: a single `ESC` code point is an inert
     // control that contributes zero. Any longer ANSI sequence has
-    // already been stripped by `str_width` upstream; a bare ESC
-    // reaching this helper (as in unit-testing `grapheme_width` alone)
-    // still returns 0.
+    // already been stripped by `str_width_in` upstream; a bare ESC
+    // reaching this helper (as in unit-testing `grapheme_width_in`
+    // alone) still returns 0.
     if cluster == "\u{001B}" {
         return 0;
     }
@@ -164,14 +273,20 @@ pub fn grapheme_width(cluster: &str) -> usize {
     // pictographic continuation — all of which the terminal folds into
     // the base cell.
     let base = cluster.chars().next().expect("non-empty checked above");
-    let base_w = width(base).columns_latin();
+    let base_w = match mode {
+        WidthMode::Latin => width_in(base, mode).columns_latin(),
+        WidthMode::EastAsian => width_in(base, mode).columns_east_asian(),
+    };
     // Corner case: for a decomposed cluster whose base is a control or
     // ZWJ (e.g. a bare `\u{0301}` combining acute passed as its own
-    // cluster), fall back to `UnicodeWidthStr::width` of the whole
-    // string — which returns 0 — so we don't accidentally credit a
-    // stray combining mark as one column.
+    // cluster), fall back to `UnicodeWidthStr::width` (or `width_cjk`)
+    // of the whole string — which returns 0 — so we don't accidentally
+    // credit a stray combining mark as one column.
     if base_w == 0 {
-        return UnicodeWidthStr::width(cluster);
+        return match mode {
+            WidthMode::Latin => UnicodeWidthStr::width(cluster),
+            WidthMode::EastAsian => UnicodeWidthStr::width_cjk(cluster),
+        };
     }
     base_w
 }

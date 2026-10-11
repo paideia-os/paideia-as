@@ -54,6 +54,26 @@ unicode-width = { workspace = true }
 # before falling back to the per-char iterator. Shares the same UCD
 # cadence as `unicode-normalization` above.
 caseless = { workspace = true }
+# UNI-3 (paideia-as#1590) — UAX #14 line-break opportunities for
+# `src/segment.rs`. `unicode-linebreak::linebreaks(&str)` yields the
+# raw (byte-offset, class) stream we map to the paideia-as-vocabulary
+# `LineBreakOpportunity`; `wrap_at_width` consumes that stream and
+# composes it with UNI-W1's `str_width` + grapheme-cluster segmentation
+# so wrap decisions are column-correct against the R229 renderer. See
+# `src/segment.rs` for the semantic-shell wrap convention and the
+# `LineBreak` enum / `SegmentError` surface it owns above this crate.
+unicode-linebreak = { workspace = true }
+# UNI-5 (paideia-as#1592) — UCD property adapter.
+# `unicode-properties` drives `general_category(char)`,
+# `unicode-script` drives `script(char)` and provides the re-exported
+# `Script` enum, `unicode-blocks` drives `block(char)` via a
+# `UnicodeBlock::start()`-keyed match. See `src/ucd.rs` module header
+# for the dependency-choice rationale and the fallback plan if the
+# vendored UCD data files (UNI-7) later override one of these
+# crates' tables.
+unicode-properties = { workspace = true }
+unicode-script = { workspace = true }
+unicode-blocks = { workspace = true }
 
 [dev-dependencies]
 # Round-trip / boundary-ordering property tests (100 kg/s throughput

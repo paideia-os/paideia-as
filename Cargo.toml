@@ -141,6 +141,39 @@ unicode-width = "0.1"
 # "prefer crates.io UCD tables over a hand-rolled subset" rationale.
 # Pinned to 0.2 (0.2.1 is the current patch at UNI landing).
 caseless = "0.2"
+# UNI-3 (paideia-as#1590) — UAX #14 line-break opportunity iterator.
+# `unicode-linebreak` (Axel Forsman, Apache-2.0, UCD-table-backed; same
+# UCD-vendor family as the three `unicode-*` crates already pinned
+# above). Exposes `linebreaks(&str) -> impl Iterator<Item = (usize,
+# BreakOpportunity)>` which `src/segment.rs` wraps to produce the
+# paideia-as-unicode `LineBreakOpportunity` surface. Hand-maintaining
+# the full UAX #14 state machine + Pair_Table would exceed every other
+# module in the segmentation layer, matching the §4 "prefer crates.io
+# UCD tables over a hand-rolled subset" rationale. Pinned to the stable
+# 0.1.x line (0.1.5 is the current patch at UNI-3 landing).
+unicode-linebreak = "0.1"
+# UNI-5 (paideia-as#1592) — UCD property adapter (General_Category /
+# Script / Block). Three well-maintained Servo/`unicode-rs` crates in
+# the same UCD-vendor family as `unicode-normalization` /
+# `unicode-segmentation` / `unicode-width`:
+#
+#   * `unicode-properties` 0.1 — UAX #44 General_Category (30 Lu/Ll/…
+#     short-form variants). Pinned to UCD 15.1.
+#   * `unicode-script` 0.5 — UAX #24 Script (~175 ISO 15924 variants
+#     including `Common`, `Inherited`, `Unknown`). Already
+#     `#[non_exhaustive]`, re-exported as our own `Script` type.
+#   * `unicode-blocks` 0.1 — UAX #44 Blocks.txt (~344 block ranges).
+#     No enum in the upstream crate — exposes `UnicodeBlock` structs
+#     with `start`/`end`/`name`. We hand-roll a 344-variant `Block`
+#     enum keyed off `UnicodeBlock::start()` (the dispatch's §UNI-5
+#     Block-fallback rationale: the UCD vendor files land at UNI-7,
+#     and until then the mapping is derived from this crate's data).
+#
+# All three forbid `unsafe` and ship as `no_std`, matching this crate's
+# `#![forbid(unsafe_code)]` discipline.
+unicode-properties = "0.1"
+unicode-script = "0.5"
+unicode-blocks = "0.1"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 quote = "1"
 

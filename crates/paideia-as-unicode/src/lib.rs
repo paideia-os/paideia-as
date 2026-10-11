@@ -32,6 +32,16 @@
 //!   count as two columns, and grapheme clusters (family emoji,
 //!   skin-tone modifiers) collapse to their base cell.
 //!
+//! * [`general_category`] + [`script`] + [`block`] (UNI-5) — the UCD
+//!   property adapter. Three queries over `char`:
+//!   [`GeneralCategory`] (UAX#44 §5.7, 30 variants in UCD short form),
+//!   [`Script`] (UAX#24, re-exported from `unicode-script`), and
+//!   [`Block`] (UCD Blocks.txt, 344 variants). Seven group predicates
+//!   ([`is_letter`], [`is_mark`], [`is_number`], [`is_punctuation`],
+//!   [`is_symbol`], [`is_separator`], [`is_other`]) collapse the 30
+//!   General_Category variants to the top-level groups. See
+//!   `src/ucd.rs` for the dependency and `#[non_exhaustive]` rationale.
+//!
 //! # What this crate does NOT own
 //!
 //! * The context-tracking lexer that switches between pipeline /
@@ -62,6 +72,8 @@ pub mod error;
 pub mod grapheme;
 pub mod nfc;
 pub mod norm;
+pub mod segment;
+pub mod ucd;
 pub mod utf8;
 pub mod width;
 
@@ -86,5 +98,25 @@ pub use norm::{
     Form, is_form, is_nfd, is_nfkc, is_nfkd, nfd_normalize, nfkc_normalize, nfkd_normalize,
     normalize,
 };
+// UNI-3 (paideia-as#1590) — UAX #14 line-break opportunity surface +
+// `wrap_at_width` + streaming `next_line_break`. See `src/segment.rs`
+// for the trimming convention, the ASCII fast path, and the grapheme-
+// level forced-break fallback that keeps the function total when a
+// single unbreakable run exceeds `max_width`.
+pub use segment::{
+    LineBreak, LineBreakOpportunity, SegmentError, SegmentErrorKind, line_break_opportunities,
+    next_line_break, wrap_at_width,
+};
+// UNI-5 (paideia-as#1592) — UCD property adapter: General_Category /
+// Script / Block + the seven top-level group predicates. See
+// `src/ucd.rs` for the module rationale, the `#[non_exhaustive]`
+// discipline, and the `unicode-properties` / `unicode-script` /
+// `unicode-blocks` dependency choice.
+pub use ucd::{
+    Block, GeneralCategory, Script, block, general_category, is_letter, is_mark, is_number,
+    is_other, is_punctuation, is_separator, is_symbol, script,
+};
 pub use utf8::Utf8Decoder;
-pub use width::{Width, grapheme_width, str_width, width};
+pub use width::{
+    Width, WidthMode, grapheme_width, grapheme_width_in, str_width, str_width_in, width, width_in,
+};
