@@ -1,0 +1,15 @@
+# GraphemeBreakTest-15.1.0.txt — PLACEHOLDER smoke corpus
+# VENDOR: fetch from unicode.org on first --include-ignored run.
+# Full file: https://www.unicode.org/Public/15.1.0/ucd/auxiliary/GraphemeBreakTest.txt
+#
+# Format per UAX #29 §3.1:
+#   ÷ (U+00F7) = break opportunity at the preceding byte offset
+#   × (U+00D7) = no-break marker (not a boundary)
+#   Code points are hexadecimal.
+#
+# Hand-crafted smoke rows (3 of them) exercise GB1/GB2 (SOT/EOT),
+# GB3 (CR × LF fuses), and GB4 (control character breaks).
+#
+÷ 0020 ÷ 0020 ÷	# ÷ [0.2] SPACE (Other) ÷ [999.0] SPACE (Other) ÷ [0.3]
+÷ 000D × 000A ÷	# ÷ [0.2] <CR> (CR) × [3.0] <LF> (LF) ÷ [0.3]
+÷ 0061 ÷ 0007 ÷	# ÷ [0.2] LATIN SMALL LETTER A (Other) ÷ [5.0] <BEL> (Control) ÷ [0.3]

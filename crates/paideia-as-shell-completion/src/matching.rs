@@ -85,14 +85,19 @@ pub fn score_match(prefix: &str, candidate: &str) -> Option<i32> {
         return Some(EXACT_PREFIX_BASE - cand_char_len);
     }
 
-    // Tier 2 -- case-insensitive prefix. The `to_lowercase()` call
-    // allocates; that's fine here because the caller runs one
-    // score_match per catalogue entry per keystroke (bounded, small).
-    // A future M4 pass may cache lowercased candidates in the engine
-    // if profiling shows this in a hot path.
-    let lowered_prefix = prefix.to_lowercase();
-    let lowered_candidate = candidate.to_lowercase();
-    if lowered_candidate.starts_with(&lowered_prefix) {
+    // Tier 2 -- case-insensitive prefix. UNI-W5 wires through
+    // `paideia_as_unicode::fold_default`, which applies the UCD
+    // `CaseFolding.txt` `C` + `F` rows under the default locale: `ß`
+    // folds to `ss`, Greek `Σ` folds to `σ`, every Latin-1 letter
+    // folds to its canonical lowercase. `.to_lowercase()` is
+    // simple-casing-only (no `C+F` expansion), so pre-UNI-W5 the
+    // ranker missed `score_match("ß", "SS")` and friends. The fold
+    // allocates per call, which is fine here (bounded catalogue; one
+    // call per keystroke); a future M-pass may cache the folded form
+    // on the engine if profiling shows this in a hot path.
+    let folded_prefix = paideia_as_unicode::fold_default(prefix);
+    let folded_candidate = paideia_as_unicode::fold_default(candidate);
+    if folded_candidate.starts_with(&folded_prefix) {
         return Some(CASE_INSENSITIVE_BASE - cand_char_len);
     }
 

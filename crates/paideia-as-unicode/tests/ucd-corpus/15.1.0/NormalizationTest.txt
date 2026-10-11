@@ -1,0 +1,18 @@
+# NormalizationTest-15.1.0.txt — PLACEHOLDER smoke corpus
+# VENDOR: fetch from unicode.org on first --include-ignored run.
+# Full file: https://www.unicode.org/Public/15.1.0/ucd/NormalizationTest.txt
+#
+# Format per UAX #15 §5:
+#   source ; NFC ; NFD ; NFKC ; NFKD ; # comment
+#   Each field is a space-separated list of hex code points.
+#   Lines beginning with `@` are section headers (`@Part0 # ...`).
+#
+# Hand-crafted smoke rows (3 of them) exercise:
+#   1. ASCII identity ('D' is NFC-stable in every form).
+#   2. Precomposed `é` as source (c1 = c2 = c4; c3 = c5 = decomposed).
+#   3. Decomposed `é` as source (NFC recomposes to U+00E9).
+#
+@Part0 # Specific cases
+0044 ; 0044 ; 0044 ; 0044 ; 0044 ; # (D; D; D; D; D) LATIN CAPITAL LETTER D
+00E9 ; 00E9 ; 0065 0301 ; 00E9 ; 0065 0301 ; # (é; é; e◌́; é; e◌́) LATIN SMALL LETTER E WITH ACUTE
+0065 0301 ; 00E9 ; 0065 0301 ; 00E9 ; 0065 0301 ; # (e◌́; é; e◌́; é; e◌́) decomposed e + combining acute

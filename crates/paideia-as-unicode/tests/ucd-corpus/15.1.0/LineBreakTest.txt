@@ -1,0 +1,18 @@
+# LineBreakTest-15.1.0.txt — PLACEHOLDER smoke corpus
+# VENDOR: fetch from unicode.org on first --include-ignored run.
+# Full file: https://www.unicode.org/Public/15.1.0/ucd/auxiliary/LineBreakTest.txt
+#
+# Format per UAX #14 §7:
+#   × (U+00D7) = no break at the preceding byte offset
+#   ÷ (U+00F7) = break opportunity at the preceding byte offset
+#   Rows always start with × (LB2 — no break at start of text).
+#   Code points are hexadecimal.
+#
+# Hand-crafted smoke rows (3 of them) exercise:
+#   1. Two adjacent letters: no interior break (LB18 catches only EOT).
+#   2. Letter-space-letter: allowed break after the space (LB18 / SP).
+#   3. Mandatory break after LF (LB5).
+#
+× 0061 × 0062 ÷	# × [0.3] LATIN SMALL LETTER A (AL) × [28.0] LATIN SMALL LETTER B (AL) ÷ [0.3]
+× 0061 × 0020 ÷ 0062 ÷	# × [0.3] LATIN SMALL LETTER A (AL) × [7.01] SPACE (SP) ÷ [18.0] LATIN SMALL LETTER B (AL) ÷ [0.3]
+× 0061 × 000A ÷ 0062 ÷	# × [0.3] LATIN SMALL LETTER A (AL) × [6.0] <LF> (LF) ÷ [5.0] LATIN SMALL LETTER B (AL) ÷ [0.3]

@@ -1,0 +1,20 @@
+# IdentifierStatus-15.1.0.txt — PLACEHOLDER smoke corpus
+# VENDOR: fetch from unicode.org on first --include-ignored run.
+# Full file: https://www.unicode.org/Public/security/15.1.0/IdentifierStatus.txt
+#
+# Format per UTS #39 §3.1:
+#   <code-point-range> ; <status>  # comment
+#   Range is either a single hex code point (`0041`) or `LO..HI`.
+#   Status is `Allowed` or `Restricted`.
+#   Lines beginning with `#` are comments; blank lines are ignored.
+#
+# Hand-crafted smoke rows (3 of them) exercise the parser against:
+#   1. ASCII uppercase letters (Allowed + XID_Start — pass).
+#   2. ASCII lowercase letters (Allowed + XID_Start — pass).
+#   3. Deseret historic script (Restricted + XID_Start — exercises
+#      the UTS #39 §3.1 restriction surface; see the test comment
+#      for the known gap in `check_ident` today).
+#
+0041..005A    ; Allowed    # L&  [26] LATIN CAPITAL LETTER A..LATIN CAPITAL LETTER Z
+0061..007A    ; Allowed    # L&  [26] LATIN SMALL LETTER A..LATIN SMALL LETTER Z
+10400..1044F  ; Restricted # L&  [80] DESERET CAPITAL LETTER LONG I..DESERET SMALL LETTER EW

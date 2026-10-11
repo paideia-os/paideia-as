@@ -32,7 +32,14 @@
 //! `Vec` cost of `~2 usize` per non-ASCII char, well under `Cmd`
 //! args' own overhead.
 
-use unicode_normalization::UnicodeNormalization;
+// UNI-W5: NFC compose + canonical-combining-class lookup both now
+// resolve through `paideia_as_unicode`, so the direct `use` of
+// `unicode_normalization::UnicodeNormalization` is gone. The crate's
+// Cargo.toml keeps the `unicode-normalization` dependency because
+// `paideia-as-unicode` already transitively pulls it and a future
+// checkpoint-dense segment-boundary rewrite inside this module will
+// re-introduce a direct iterator consumer.
+use unicode_normalization as _;
 
 use crate::span::ByteRange;
 
@@ -94,10 +101,14 @@ impl NfcMap {
         if src.is_ascii() {
             return (src.to_owned(), Self::identity(src.len()));
         }
-        // `UnicodeNormalization` is implemented for `&str` directly in
-        // this crate (via `nfc(self) -> Recompositions<Chars>`); no
-        // need for an explicit `.chars()` intermediate.
-        let nfc: String = src.nfc().collect();
+        // UNI-W5: centralise the NFC compose through the substrate's
+        // `nfc_normalize` rather than driving `UnicodeNormalization::nfc`
+        // directly. Same semantics (the substrate's non-ASCII path is
+        // `.nfc().collect::<String>()`), but every NFC call-site in
+        // the workspace now goes through one function — any future
+        // adjustment (e.g. a UAX #15 corrigendum, a profiling-driven
+        // table swap) lands at one site.
+        let nfc = paideia_as_unicode::nfc_normalize(src);
         let nfc_len = nfc.len();
         let original_len = src.len();
         let checkpoints = vec![(0usize, 0usize), (nfc_len, original_len)];

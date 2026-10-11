@@ -246,20 +246,28 @@ impl<'a> Lexer<'a> {
     }
 }
 
-/// UAX#31 ID_Start (approximated): ASCII letter or `_`, or any
-/// non-ASCII alphabetic char. Precise UAX#31 tables are `unicode-ident`
-/// crate territory; we defer to `char::is_alphabetic` here to keep the
-/// dep list small and rely on R220's `unicode-ident` for the strict
-/// check at R221.M5.
+/// UAX #31 `ID_Start` with the paideia-as-reserved `_`. UNI-W5 wires
+/// through the UNI-4 (`paideia-as#1591`) `is_xid_start` surface, which
+/// is the Dtolnay-maintained `unicode-ident` crate's bitset table
+/// against the current UCD — strictly tighter than the old
+/// `char::is_alphabetic` approximation (e.g. U+037A `GREEK
+/// YPOGEGRAMMENI` is alphabetic but not `XID_Start`). `_` (U+005F)
+/// is `XID_Continue` but not `XID_Start`, and the shell admits it as
+/// an identifier start by convention, so the branch stays explicit.
 #[inline]
 fn is_ident_start(c: char) -> bool {
-    c == '_' || c.is_ascii_alphabetic() || (!c.is_ascii() && c.is_alphabetic())
+    c == '_' || paideia_as_unicode::is_xid_start(c)
 }
 
-/// UAX#31 ID_Continue (approximated): `is_ident_start` plus digits.
+/// UAX #31 `ID_Continue`. UNI-W5 wires through the UNI-4 surface:
+/// `XID_Continue` already includes ASCII digits and `_` plus the full
+/// UCD `ID_Continue` closure, so no manual union with
+/// `is_ascii_digit` / `is_alphanumeric` is required. Admits
+/// characters like U+00B7 `MIDDLE DOT` (Catalan `l·l`) that the
+/// pre-wire `is_alphanumeric` approximation rejected.
 #[inline]
 fn is_ident_continue(c: char) -> bool {
-    is_ident_start(c) || c.is_ascii_digit() || (!c.is_ascii() && c.is_alphanumeric())
+    paideia_as_unicode::is_xid_continue(c)
 }
 
 impl<'a> Iterator for Lexer<'a> {
