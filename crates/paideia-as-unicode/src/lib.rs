@@ -1,6 +1,18 @@
 //! paideia-as-unicode — R221.M1 (UTF-8 + NFC) + R221.M2 (TR#29 graphemes)
 //! + R221.M3 (TR#11 East-Asian width) semantic-shell Unicode substrate.
 //!
+//! **Status: COMPLETE as of paideia-as v0.37.0** (UNI-16 capstone,
+//! paideia-as#1603). All 17 UNI-N wave tickets (`#1587`–`#1603`) have
+//! landed and the six verification harnesses (24 fingerprint goldens,
+//! 21 proptest invariants, 19 criterion benches, 4 gated UCD-corpus
+//! sweeps, 2 cargo-fuzz targets, 4 public-API drift-gate tests) are
+//! green against the shipped crate surface. The public API is frozen
+//! per `design/toolchain/paideia-as-unicode-api-freeze.md` and
+//! enumerated byte-for-byte in `tests/public_api.golden`. See
+//! `design/toolchain/paideia-as-unicode-acceptance.md` for the
+//! acceptance report and the five follow-up items (F1..F5) that are
+//! polish, not regression.
+//!
 //! # What this crate owns
 //!
 //! * [`Utf8Decoder`] — a streaming, byte-slice-driven decoder that

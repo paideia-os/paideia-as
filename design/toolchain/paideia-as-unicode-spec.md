@@ -38,8 +38,8 @@ R229 renderer's cell model beyond the width-counts this crate feeds it.
 
 | Field | Value |
 |---|---|
-| Spec status | **FROZEN (2026-10-11, UNI-11)** — §4 pub-surface inventory snapshotted into `crates/paideia-as-unicode/tests/public_api.golden` |
-| Crate status | AUTHORED — UNI-0..UNI-10, UNI-12, UNI-14 shipped; UNI-13 (LSP) and UNI-9 locale-resolver glue remain additive-only |
+| Spec status | **COMPLETE (2026-10-11, UNI-16, v0.37.0)** — all 17 UNI tickets landed; §4 FROZEN; acceptance at [`paideia-as-unicode-acceptance.md`](paideia-as-unicode-acceptance.md) |
+| Crate status | **COMPLETE** — UNI-0..UNI-15 shipped; six verification harnesses green; UNI-9 `WidthMode::Auto` + `resolve_width_mode` is the single planned-additive row (follow-up F2) |
 | Workspace version at authoring | `0.36.83` (post-FMT-17 line) |
 | Workspace version at UNI-11 freeze | `0.37.0` target — bump happens at UNI-16 close, freeze is pre-bump |
 | Workspace version at completion | **0.37.0** (minor bump matching the paideia-fmt v0.36.82 cadence) |
@@ -50,6 +50,20 @@ R229 renderer's cell model beyond the width-counts this crate feeds it.
 | Freeze companion | [`paideia-as-unicode-api-freeze.md`](paideia-as-unicode-api-freeze.md) — enumerates the frozen surface and the deprecation policy |
 
 ### Status change — v0.37.0
+
+- **2026-10-11 (UNI-16, Wave UNI-W7).** `paideia-as-unicode` is
+  declared **COMPLETE** against this spec and the UNI-11 public API
+  freeze. The 17 UNI chain tickets (#1587–#1603) have all landed; the
+  six verification harnesses (24 fingerprint goldens, 21 proptest
+  invariants, 19 criterion benches, 4 gated UCD-corpus sweeps, 2
+  cargo-fuzz targets, 4 public-API drift-gate tests) are green against
+  the shipped crate surface; the five known-lossy items are documented
+  under follow-ups F1..F5 in the acceptance report. The acceptance
+  report lives at
+  [`paideia-as-unicode-acceptance.md`](paideia-as-unicode-acceptance.md).
+  §12 change-log row added. Every section bar §12 is now locked
+  against anything but a UCD-upgrade or additive-freeze update (per
+  freeze policy).
 
 - **2026-10-11 (UNI-11, Wave UNI-W6).** §4 **FROZEN** at the inventory
   now mirrored in `crates/paideia-as-unicode/tests/public_api.golden`.
@@ -808,6 +822,8 @@ unimplemented. UNI-11 implements. This spec's §4 is cross-linked from
 | Date | Author | Change |
 |---|---|---|
 | 2026-10-11 | UNI-0 softarch | Document authored (status AUTHORED). Enumerates UNI-1..UNI-16 scope. |
+| 2026-10-11 | UNI-11 softarch | §4 FROZEN at the inventory mirrored in `tests/public_api.golden`. §1 status table updated. |
+| 2026-10-11 | UNI-16 softarch | **Status: COMPLETE** at paideia-as v0.37.0. §1 Status row updated; §Status-change block added. Acceptance report at `paideia-as-unicode-acceptance.md`. Every section bar §12 locked. |
 
 Subsequent UNI-N waves append a row with (date, ticket, change) when
 they land a symbol or alter a claim. UNI-11 adds a `status: FROZEN`

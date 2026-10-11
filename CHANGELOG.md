@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.37.0 — 2026-10-11 — paideia-as-unicode declared COMPLETE (UNI-16 acceptance)
+
+paideia-as-unicode is now feature-complete against the UNI-0 crate
+specification and the UNI-11 public API freeze. The UNI-0..UNI-15
+chain delivered the full semantic-shell Unicode substrate: UAX #15
+normalization in all four forms (`nfc` + `norm`, with ASCII fast
+path), UAX #29 extended-grapheme-cluster segmentation (`grapheme`),
+UAX #11 East-Asian width with locale modes (`width`), UAX #14 line
+breaking + `wrap_at_width` (`segment`), UAX #44 case folding with
+Turkic variant (`case`), UAX #31 identifier predicates + UTS #39
+`AllowedChars` profile (`ident`), the UCD General_Category / Script
+/ Block adapter (`ucd`), the RFC 3629 streaming decoder (`utf8`), the
+LSP position-encoding bridge for UTF-8 ↔ UTF-16 / UTF-32 column
+converters plus `stream_is_nfc` (`lsp_bridge`), the fingerprint-golden
+harness (`fingerprint`), and the three current consumers
+(`paideia-as-shell-lex`, `-ast`, `-completion`) rewired through the
+crate root.
+
+  * **UNI-16 acceptance report** at
+    `design/toolchain/paideia-as-unicode-acceptance.md` (550 lines) —
+    §1 scope + chain-ticket closure matrix (17 tickets), §2 harness
+    coverage inventory (24 fingerprint goldens, 21 proptest
+    invariants, 19 criterion benches, 4 gated UCD sweeps, 2 fuzz
+    targets, 4 drift-gate tests), §3 known-lossy inventory (LSP
+    mid-char round-down, forced-break fallback, reserved
+    `Confusable` variant, `WidthMode::Auto` planned-additive, UCD
+    `Block` taxonomy drift), §4 five follow-ups F1-F5 (UCD 16.0
+    upgrade dry-run, `WidthMode::Auto` resolver, `try_wrap_at_width`,
+    confusables matrix, streaming NFC normalizer), §5 declaration
+    of completion.
+
+  * **17 UNI chain tickets closed** — #1587 UNI-0 (spec) through
+    #1603 UNI-16 (acceptance). Issues #1588 UNI-1 (NFD/NFKC/NFKD),
+    #1589 UNI-2 (case fold), #1590 UNI-3 (line break),
+    #1591 UNI-4 (ident predicates + UTS #39), #1592 UNI-5 (UCD
+    adapter), #1593 UNI-6 (fingerprint goldens), #1594 UNI-7 (UCD
+    corpus sweep harness, gated), #1595 UNI-8 (criterion benches),
+    #1596 UNI-9 (WidthMode locale), #1597 UNI-10 (proptest
+    expansion), #1598 UNI-11 (API freeze + `public_api.golden`),
+    #1599 UNI-12 (shell consumer wire-up), #1600 UNI-13 (LSP
+    bridge), #1601 UNI-14 (`Utf8Decoder` fuzz), #1602 UNI-15
+    (README + examples).
+
+  * **Spec header** (`paideia-as-unicode-spec.md`) updated to
+    `Status: COMPLETE at UNI-16 v0.37.0`; §Status-change v0.37.0
+    block added; §12 change-log row added.
+
+  * **lib.rs module header** updated to `Status: COMPLETE as of
+    paideia-as v0.37.0` with pointer to acceptance report.
+
+  * **workspace.version** bumped `0.36.82 → 0.37.0` (minor cadence
+    matching the paideia-fmt FMT-17 v0.36.82 precedent).
+
+Closes paideia-as#1603.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## v0.36.82 — 2026-10-10 — Wave 72: paideia-fmt declared COMPLETE (FMT-17 acceptance)
 
 paideia-fmt is now feature-complete. The FMT-0..FMT-16 chain closed

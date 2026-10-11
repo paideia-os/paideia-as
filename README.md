@@ -1,6 +1,6 @@
 # paideia-as
 
-**Current workspace version:** `v0.36.82` (paideia-fmt declared COMPLETE at FMT-17 acceptance).
+**Current workspace version:** `v0.37.0` (paideia-fmt COMPLETE at FMT-17; paideia-as-unicode COMPLETE at UNI-16).
 
 `paideia-as` is the Rust-based toolchain for the
 [PaideiaOS](https://github.com/paideia-os/paideia-os) project —
@@ -27,10 +27,22 @@ discipline, and post-quantum signing of build artifacts.
 
 ## Try it
 
-Build the CLI:
+Build the workspace (all crates + binaries):
+
+```sh
+cargo build --workspace --release
+```
+
+Just the CLI:
 
 ```sh
 cargo build --release -p paideia-as
+```
+
+Run the full test suite (~1800 tests in under a minute on a modern laptop):
+
+```sh
+cargo test --workspace
 ```
 
 Parse-check a tutorial example:
@@ -92,29 +104,87 @@ ret
 
 Diagnostics carry stable codes (`S0902` linear-shadow, `S0904` affine-consumed, `S0905` ordered-out-of-order, `B1700` / `B1701` linker, `O1500`–`O1512` optimiser, `Q0902` HSM-no-PQ-support, …) and are rendered three ways: human-readable for the CLI, SARIF for tooling (`<file>.pdx.sarif.json` next to each example), and LSP `PublishDiagnostics` for editors. Each code is forward-pointer-stable: a fix-it that worked once will keep working.
 
-## What's in the box
+## Workspace crates
+
+38 Rust crates. The table is grouped by role; **shipped** = in-tree and used by downstream consumers, **in-progress** = active wave, **planned** = scaffolded.
+
+### Compiler core
+
+| Crate | Role | Status | Entry docs |
+|---|---|:-:|---|
+| `paideia-as` | CLI front end (`check` / `build` / `lsp` / `fmt` / `test` / `doc`) | shipped | [`design/toolchain/syntax-reference.md`](design/toolchain/syntax-reference.md) |
+| `paideia-as-lexer` | UTF-8 + BOM-aware source-text validation; token stream | shipped | [`design/toolchain/syntax-reference.md`](design/toolchain/syntax-reference.md) |
+| `paideia-as-parser` | Hand-written Pratt + recursive-descent parser (P0100–P0299) | shipped | [`design/toolchain/syntax-reference.md`](design/toolchain/syntax-reference.md) §7, §8 |
+| `paideia-as-ast` | Arena-backed surface AST | shipped | [`design/toolchain/syntax-reference.md`](design/toolchain/syntax-reference.md) |
+| `paideia-as-types` | Monomorphic type interner + lattice-class kinds | shipped | [`design/toolchain/custom-assembler.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/custom-assembler.md) §5 (parent repo) |
+| `paideia-as-effects` | Effect-row representation + row-polymorphism unifier | shipped | custom-assembler.md §4.2 |
+| `paideia-as-ir` | Typed core IR + per-node instruction payload | shipped | [`design/toolchain/per-node-ir-payload-phase3.md`](design/toolchain/per-node-ir-payload-phase3.md) |
+| `paideia-as-elaborator` | AST → IR lowering + lattice/effect/capability walkers | shipped | [`design/toolchain/walker-hookups-phase4.md`](design/toolchain/walker-hookups-phase4.md) |
+| `paideia-as-encoder` | Shared x86_64 instruction encoder | shipped | [`design/encoding/32bit-mode-survey.md`](design/encoding/32bit-mode-survey.md) |
+| `paideia-as-emit` | Stable public API for emitting x86_64 instructions at runtime | shipped | — |
+| `paideia-as-emitter-elf` | ELF64 writer | shipped | custom-assembler.md §12.1 |
+| `paideia-as-emitter-pax` | PAX (PaideiaOS Architectural Executable) emitter | shipped | [`design/toolchain/paideia-link.md`](design/toolchain/paideia-link.md) |
+| `paideia-as-emitter-pe` | PE/COFF emitter (Microsoft x64 / UEFI) | shipped | — |
+| `paideia-as-dwarf` | DWARF 5 + paideia vendor sections | shipped | [`design/toolchain/debug-info.md`](design/toolchain/debug-info.md) |
+| `paideia-as-diagnostics` | Diagnostic substrate (SARIF + human + LSP) | shipped | — |
+| `paideia-as-linker` | `paideia-link` — PAX-format linker (4-phase pipeline) | shipped | [`design/toolchain/paideia-link.md`](design/toolchain/paideia-link.md) |
+| `paideia-as-runtime` | `no_std` runtime-compatible core types for instruction encoding | shipped | — |
+
+### Lattice / macros / reflection
+
+| Crate | Role | Status | Entry docs |
+|---|---|:-:|---|
+| `paideia-as-linear` | Linearity-type infrastructure | shipped | [`design/toolchain/borrow-checker-phase4.md`](design/toolchain/borrow-checker-phase4.md) |
+| `paideia-as-macro` | Macro-system infrastructure (phase-1 pattern + phase-2 reflection hooks) | shipped | [`design/toolchain/macros-phase1.md`](design/toolchain/macros-phase1.md) |
+| `paideia-as-reflection` | Typed `Syntax` + `HygienicId` + `SyntaxWalker` elaborator surface | shipped | custom-assembler.md §R220 |
+| `paideia-as-intrinsic` | AML / DMA / GPU / Vulkan intrinsic bindings | shipped | — |
+
+### Stdlib and tooling binaries
+
+| Crate | Role | Status | Entry docs |
+|---|---|:-:|---|
+| `paideia-as-stdlib` | `.pdx` stdlib sources (`Option<T>`, `Result<T,E>`, `Str`, …) | shipped | [`design/toolchain/stdlib-phase4.md`](design/toolchain/stdlib-phase4.md) |
+| `paideia-as-doc` | `paideia-as doc` HTML doc generator | shipped | [`design/toolchain/tooling-phase4.md`](design/toolchain/tooling-phase4.md) |
+| `paideia-as-test` | `paideia-as test` runner (discovers `#[test]`) | shipped | tooling-phase4.md |
+| `paideia-fmt` | Source formatter — **COMPLETE as of v0.36.82** | shipped | [`design/toolchain/paideia-fmt-style-spec.md`](design/toolchain/paideia-fmt-style-spec.md) · [`design/toolchain/paideia-fmt-acceptance.md`](design/toolchain/paideia-fmt-acceptance.md) |
+| `paideia-lsp` | Language Server Protocol server (tower-lsp) | shipped | [`design/toolchain/lsp-phase3.md`](design/toolchain/lsp-phase3.md) |
+
+### Unicode (COMPLETE — UNI-16, v0.37.0)
+
+| Crate | Role | Status | Entry docs |
+|---|---|:-:|---|
+| `paideia-as-unicode` | UTF-8 + NFC/NFD/NFKC/NFKD + case folding + segmentation + UAX #31 + UCD + width + fingerprint goldens | **COMPLETE as of v0.37.0** (UNI-0..UNI-16; §4 FROZEN at UNI-11) | [`crates/paideia-as-unicode/README.md`](crates/paideia-as-unicode/README.md) · [`design/toolchain/paideia-as-unicode-spec.md`](design/toolchain/paideia-as-unicode-spec.md) · [`design/toolchain/paideia-as-unicode-api-freeze.md`](design/toolchain/paideia-as-unicode-api-freeze.md) · [`design/toolchain/paideia-as-unicode-acceptance.md`](design/toolchain/paideia-as-unicode-acceptance.md) |
+
+### Semantic shell (R221–R229)
+
+| Crate | Role | Status | Entry docs |
+|---|---|:-:|---|
+| `paideia-as-shell-lex` | R221.M4 context-tracking lexer (Pipeline / Datalog / Lambda) | shipped | — |
+| `paideia-as-shell-ast` | R221.M5–M7 unified AST + span-across-NFC parser | shipped | — |
+| `paideia-as-shell-cmd` | R222.M1–M3 command-module functor surface | shipped | — |
+| `paideia-as-shell-datalog` | R226.M1–M2 Datalog AST + seminaïve fixpoint evaluator | shipped | — |
+| `paideia-as-shell-pds` | R227.M1 `.pds` script header pragma parser | shipped | — |
+| `paideia-as-shell-hm` | R225.M1–M3 Hindley–Milner Algorithm W + Rémy rows | shipped | [`design/toolchain/rank-restricted-hm.md`](design/toolchain/rank-restricted-hm.md) |
+| `paideia-as-shell-repl` | R229.M1 REPL turn pipeline | shipped | — |
+| `paideia-as-shell-completion` | R228.M1 tab-completion substrate | shipped | — |
+
+### Cryptography (post-quantum)
+
+| Crate | Role | Status | Entry docs |
+|---|---|:-:|---|
+| `paideia-as-crypto` | Narrow crypto primitives for auth and at-rest key sealing | shipped | — |
+| `paideia-pq-sign` | Hybrid signing CLI + library (Ed25519 + ML-DSA-65) | shipped | [`docs/release-signing.md`](docs/release-signing.md) · [`design/security/pq-trust-root.md`](design/security/pq-trust-root.md) |
+| `paideia-satellite-runtime` | Link-line shim for satellite host tools; routes `.pdx` crypto FFI relocations | shipped | — |
+
+### Non-crate asset trees
 
 ```
-crates/
-  paideia-as/                       CLI front end (check / build / lsp)
-  paideia-as-{lexer,parser,ast}     Front end
-  paideia-as-{types,effects}        Substructural lattice + effect rows
-  paideia-as-elaborator             Typed elaborator + walkers
-  paideia-as-ir                     Typed core IR + per-node instruction payload
-  paideia-as-encoder                Shared x86_64 instruction encoder
-  paideia-as-emitter-{elf,pax,pe}   Three backend emitters
-  paideia-as-dwarf                  DWARF 5 + paideia vendor sections
-  paideia-as-diagnostics            SARIF + human + LSP rendering, catalog
-  paideia-as-linker                 paideia-link (PAX -> executable PAX)
-  paideia-lsp                       Language server (tower-lsp)
-  paideia-fmt                       Source formatter
-  paideia-pq-sign                   Hybrid PQ signing CLI + library
-examples/                           17 tutorial .pdx files; see examples/README.md
-asm-reference/                      Hand-written NASM references for files 13-17
-tools/editor/                       VS Code / Helix / Emacs / Neovim + tree-sitter
-tools/ddc/                          DDC orchestrator, differ, allowlist, fixtures
-design/                             Toolchain + security design documents
-docs/                               Operational guides (DDC, signing, determinism)
+examples/        17 tutorial .pdx files; see examples/README.md
+asm-reference/   Hand-written NASM references for files 13-17
+tools/editor/    VS Code / Helix / Emacs / Neovim + tree-sitter grammar
+tools/ddc/       DDC orchestrator, differ, allowlist, fixtures
+design/          Toolchain + security + effects + encoding + stdlib design docs; see design/README.md
+docs/            Operational guides (DDC, signing, determinism)
 ```
 
 Companion binaries built by `cargo build --workspace --release`: `pax-introspect`, `paideia-link`, `paideia-lsp`, `paideia-fmt`, `paideia-pq-sign`, `ddc-diff`.
@@ -142,13 +212,44 @@ Highlights to start with:
 - `10_pure_function.pdx` — what `!{}` actually commits to.
 - `15_sum_array.pdx` — typed raw pointers + the SIB-form lowering shown above.
 
+## Design documents
+
+Every architectural and implementation decision lives under
+[`design/`](design/). The [`design/README.md`](design/README.md)
+index groups 60+ docs by subsystem (toolchain, compiler, effects,
+encoding, security, stdlib, roadmap) with a Status tag per file
+(AUTHORED / Landed / FROZEN / COMPLETE / Closed). Start there when
+you want to understand *why* the toolchain works the way it does
+rather than *how* it does.
+
+## Version policy
+
+`workspace.version` advances at phase close; git tags land at
+acceptance-report landings (see
+`feedback_paideia_as_version_discipline` in the project memory —
+`workspace.version` + git tag + CHANGELOG entry move together, and
+`find-paideia-as.sh` stays strict). Multi-softarch parallel
+dispatches write per-primitive scratch CHANGELOGs under
+`.plans/scratch/CHANGELOG-<name>.md`; main consolidates them and
+bumps `workspace.version` at batch close
+(`feedback_paideia_as_parallel_changelog`).
+
+Current status: **`v0.37.0`** — paideia-fmt COMPLETE at FMT-17 and
+paideia-as-unicode COMPLETE at UNI-16; both subjects now carry
+only polish follow-ups, not regressions. All satellite crates
+listed in the table above are consumed by at least one downstream
+paideia-os component.
+
 ## Where to read next
 
 - [`examples/README.md`](examples/README.md) — language surface tour, in tutorial order.
+- [`design/README.md`](design/README.md) — index of every design doc under this repo.
 - [`paideia-os/design/toolchain/custom-assembler.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/custom-assembler.md) — the master surface-language specification.
 - [`paideia-os/design/toolchain/syntax-reference.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/syntax-reference.md) — normative lexical / grammar reference.
 - [`design/toolchain/calling-convention.md`](design/toolchain/calling-convention.md) — register file, R15 handler table, R12 / R13 capability handles, UEFI thunk.
 - [`design/toolchain/paideia-link.md`](design/toolchain/paideia-link.md) — PAX format and the four-phase linker contract.
+- [`design/toolchain/paideia-fmt-style-spec.md`](design/toolchain/paideia-fmt-style-spec.md) — formatter style spec (FROZEN v1.0).
+- [`crates/paideia-as-unicode/README.md`](crates/paideia-as-unicode/README.md) — Unicode substrate quick reference.
 - [`docs/release-signing.md`](docs/release-signing.md) — hybrid PQ signing operational guide.
 - [`docs/ddc.md`](docs/ddc.md) — Diverse Double Compilation operational guide.
 - [`CHANGELOG.md`](CHANGELOG.md) — per-release notes.

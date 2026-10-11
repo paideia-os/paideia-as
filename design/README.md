@@ -1,6 +1,6 @@
 # paideia-as design documents
 
-**Status:** Index — AUTHORED as of paideia-as v0.36.82 (2026-10-11).
+**Status:** Index — AUTHORED as of paideia-as v0.37.0 (2026-10-11).
 
 This directory is the paideia-as side of the memory record
 "[Design documentation lives in design/](../../../.claude/)" —
@@ -148,14 +148,15 @@ Documents are tagged on their first non-title line with one of:
   FMT-17 final acceptance report
   (**COMPLETE as of v0.36.82**).
 
-### Unicode substrate (paideia-as-unicode — Wave UNI-W6 in flight)
+### Unicode substrate (paideia-as-unicode — COMPLETE, UNI-16, v0.37.0)
 
 - [`paideia-as-unicode-spec.md`](toolchain/paideia-as-unicode-spec.md)
-  — crate specification (**AUTHORED 2026-10-11**; target FROZEN at
-  UNI-11).
+  — crate specification (**COMPLETE 2026-10-11, UNI-16, v0.37.0**).
 - [`paideia-as-unicode-api-freeze.md`](toolchain/paideia-as-unicode-api-freeze.md)
   — UNI-11 public-API freeze contract
-  (**FROZEN 2026-10-11 against workspace v0.37.0 pre-bump**).
+  (**FROZEN 2026-10-11 against workspace v0.37.0**).
+- [`paideia-as-unicode-acceptance.md`](toolchain/paideia-as-unicode-acceptance.md)
+  — UNI-16 final acceptance report (**COMPLETE as of v0.37.0**).
 
 ### Type-system research tracks
 
