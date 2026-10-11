@@ -2360,6 +2360,7 @@ dependencies = [
  "caseless",
  "proptest",
  "unicode-blocks",
+ "unicode-ident",
  "unicode-linebreak",
  "unicode-normalization",
  "unicode-properties",

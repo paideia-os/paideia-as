@@ -70,6 +70,7 @@
 pub mod case;
 pub mod error;
 pub mod grapheme;
+pub mod ident;
 pub mod nfc;
 pub mod norm;
 pub mod segment;
@@ -86,6 +87,15 @@ pub use case::{
 pub use error::Utf8Error;
 pub use grapheme::{
     GraphemeBoundaries, grapheme_advance, grapheme_boundaries, grapheme_count, grapheme_retreat,
+};
+// UNI-4 (paideia-as#1591) — UAX #31 identifier predicates + UTS #39
+// identifier-security profile. See `src/ident.rs` for the NFC-stability
+// extension to UAX #31, the three-level `IdentProfile`, and the
+// `mixed_script` script-set helper that backs the single-script
+// restriction.
+pub use ident::{
+    IdentError, IdentErrorKind, IdentProfile, check_ident, is_identifier, is_xid_continue,
+    is_xid_start, mixed_script,
 };
 // Backward-compatible NFC surface — the names stay re-exported from the
 // crate root so existing shell-lex / shell-ast / shell-completion

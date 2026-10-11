@@ -74,6 +74,14 @@ unicode-linebreak = { workspace = true }
 unicode-properties = { workspace = true }
 unicode-script = { workspace = true }
 unicode-blocks = { workspace = true }
+# UNI-4 (paideia-as#1591) — UAX #31 `XID_Start` / `XID_Continue` bitset
+# tables for `src/ident.rs`. Dtolnay-maintained, `#![no_std]`, same UCD
+# vendor family as the other `unicode-*` crates above. The workspace
+# already pins `unicode-ident = "1"` (currently 1.0.24 against UCD 15.1)
+# for use by other parts of the toolchain (syn, proc-macro2 derivations).
+# The identifier module reuses the same binary tables so no new UCD data
+# lands in this crate's dependency closure.
+unicode-ident = { workspace = true }
 
 [dev-dependencies]
 # Round-trip / boundary-ordering property tests (100 kg/s throughput

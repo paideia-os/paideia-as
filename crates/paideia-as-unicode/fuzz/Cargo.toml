@@ -1,0 +1,58 @@
+# UNI-14 (paideia-as#1601) — cargo-fuzz sub-crate for the hand-rolled
+# `Utf8Decoder` and the NFC normalizer round-trip.
+#
+# This Cargo.toml is intentionally a *standalone* workspace root (see
+# the empty `[workspace]` table below) so the parent paideia-as
+# workspace at `tools/paideia-as/Cargo.toml` does NOT auto-discover it
+# and does NOT need to carry a `exclude = ["crates/paideia-as-unicode/fuzz"]`
+# entry. This matches cargo-fuzz's documented convention
+# (<https://rust-fuzz.github.io/book/cargo-fuzz/guide.html>) — the fuzz
+# sub-crate lives physically inside the crate it targets but uses its
+# own `target/` directory and its own feature-unification graph (the
+# `libfuzzer-sys` sanitizer flags we would otherwise fight against on
+# every ordinary `cargo check`).
+#
+# The parent `paideia-as-unicode` crate is pulled in by relative path
+# so the fuzzer exercises the exact source tree in the working copy —
+# no `crates.io` publish gate between a code change and the fuzz run.
+
+[package]
+name = "paideia-as-unicode-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+authors = ["Santiago Núñez-Corrales <snunezcr@gmail.com>"]
+
+# Standalone workspace — see module docstring above.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.paideia-as-unicode]
+path = ".."
+
+# Each fuzz target lives in `fuzz_targets/<name>.rs` and is built as its
+# own `[[bin]]` with `test = false` + `doc = false` so cargo-fuzz does
+# not try to run them under `cargo test` or document them. The
+# `path = "fuzz_targets/<name>.rs"` form matches the cargo-fuzz
+# scaffolding `cargo fuzz init` would emit.
+
+[[bin]]
+name = "utf8_decoder"
+path = "fuzz_targets/utf8_decoder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "utf8_roundtrip"
+path = "fuzz_targets/utf8_roundtrip.rs"
+test = false
+doc = false
+bench = false
