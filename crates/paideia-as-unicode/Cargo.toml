@@ -47,6 +47,13 @@ unicode-segmentation = { workspace = true }
 # discriminator UAX#11 requires (the crate itself splits its API but
 # does not expose the four-way property directly).
 unicode-width = { workspace = true }
+# UNI-2 (paideia-as#1589) — UCD CaseFolding.txt (common + full folds)
+# driver for `src/case.rs`. The crate's `default_case_fold_str` and
+# per-char `default_case_fold_char` iterator feed `fold(_, Default)`;
+# the Turkic locale pre-empts the two I/i dotted/dotless codepoints
+# before falling back to the per-char iterator. Shares the same UCD
+# cadence as `unicode-normalization` above.
+caseless = { workspace = true }
 
 [dev-dependencies]
 # Round-trip / boundary-ordering property tests (100 kg/s throughput

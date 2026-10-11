@@ -57,16 +57,34 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod case;
 pub mod error;
 pub mod grapheme;
 pub mod nfc;
+pub mod norm;
 pub mod utf8;
 pub mod width;
 
+// UNI-2 (paideia-as#1589) — Unicode case folding (CaseFolding.txt
+// common + full folds), locale-aware equality, full uppercase /
+// lowercase. See `src/case.rs` for the API-surface rationale.
+pub use case::{
+    CaseFoldLocale, eq_ignore_case_unicode, fold, fold_default, lowercase, uppercase,
+};
 pub use error::Utf8Error;
 pub use grapheme::{
     GraphemeBoundaries, grapheme_advance, grapheme_boundaries, grapheme_count, grapheme_retreat,
 };
+// Backward-compatible NFC surface — the names stay re-exported from the
+// crate root so existing shell-lex / shell-ast / shell-completion
+// consumers (`use paideia_as_unicode::nfc_normalize`) keep compiling.
 pub use nfc::{is_ascii_fast_path_eligible, is_nfc, nfc_normalize};
+// UNI-1 generalization: NFD / NFKC / NFKD + `Form` dispatcher. See
+// `design/toolchain/paideia-as-unicode-spec.md` for the per-form
+// contracts.
+pub use norm::{
+    Form, is_form, is_nfd, is_nfkc, is_nfkd, nfd_normalize, nfkc_normalize, nfkd_normalize,
+    normalize,
+};
 pub use utf8::Utf8Decoder;
 pub use width::{Width, grapheme_width, str_width, width};

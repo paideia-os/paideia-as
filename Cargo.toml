@@ -132,6 +132,15 @@ unicode-segmentation = "1"
 # and `unicode-segmentation` above — hand-maintaining the four-way
 # property table would exceed every other module in the width layer.
 unicode-width = "0.1"
+# UNI-2 (paideia-as#1589) — Unicode case folding (UCD CaseFolding.txt).
+# Henri Sivonen's `caseless` crate (MIT/Apache, same UCD-vendor family
+# as `unicode-normalization`). Exposes `default_case_fold_str` plus a
+# per-char iterator we can wrap for the Turkic-locale override (I/i
+# dotted/dotless pair). Hand-rolling the 1500+ fold mappings would
+# dwarf every other module in the Unicode layer, matching the §4
+# "prefer crates.io UCD tables over a hand-rolled subset" rationale.
+# Pinned to 0.2 (0.2.1 is the current patch at UNI landing).
+caseless = "0.2"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 quote = "1"
 
