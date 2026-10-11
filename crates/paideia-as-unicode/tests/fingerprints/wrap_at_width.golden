@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is "<width_decimal>\x1f<text>" (U+001F unit-separator).
+# Output is the wrapped lines joined with LF.
+# Blank lines + lines starting with # are ignored.
+wrap.ascii.hello_5	351f68656c6c6f20776f726c64	68656c6c6f0a776f726c64
+wrap.ascii.hello_11	31311f68656c6c6f20776f726c64	68656c6c6f20776f726c64
+wrap.ascii.hello_10	31301f68656c6c6f	68656c6c6f
+wrap.ascii.aaaa_2	321f61616161	61610a6161
+wrap.ascii.aaaaaaaa_5	351f6161616161616161	61616161610a616161
+wrap.ascii.empty_5	351f	
+wrap.ascii.abc_def_ghi_3	331f6162632064656620676869	6162630a6465660a676869
+wrap.ascii.ab_lf_cd_4	341f61620a6364	61620a6364
+wrap.ascii.ab_c_10	31301f61622063	61622063
+wrap.ascii.ab_1	311f6162	610a62

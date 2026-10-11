@@ -1,0 +1,13 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Blank lines + lines starting with # are ignored.
+fold.ascii.empty		
+fold.ascii.a	61	61
+fold.ascii.A	41	61
+fold.ascii.hello	48656c6c6f	68656c6c6f
+fold.ascii.HELLO	48454c4c4f	68656c6c6f
+fold.ascii.hello_world	48656c6c6f20576f726c64	68656c6c6f20776f726c64
+fold.full.sharp_s	c39f	7373
+fold.compose.E_acute	c389	c3a9
+fold.ascii.ABC	414243	616263
+fold.ascii.ABCDEF	414243444546	616263646566

@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is a UTF-8 string; output is str_width_in(s, Latin) as decimal
+# string.
+# Blank lines + lines starting with # are ignored.
+str_width.ascii.empty		30
+str_width.ascii.a	61	31
+str_width.ascii.hello	48656c6c6f	35
+str_width.ascii.hello_world	48656c6c6f20776f726c64	3131
+str_width.cjk.4e2d	e4b8ad	32
+str_width.cjk.4e2d_56fd	e4b8ade59bbd	34
+str_width.cjk.jp_three	e697a5e69cace8aa9e	36
+str_width.mixed.ab_4e2d	6162e4b8ad	34
+str_width.combining.a_acute	61cc81	31
+str_width.combining.e_acute	65cc81	31

@@ -1,0 +1,14 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Output is grapheme_count(input) as decimal.
+# Blank lines + lines starting with # are ignored.
+graphc.ascii.empty		30
+graphc.ascii.a	61	31
+graphc.ascii.ab	6162	32
+graphc.ascii.hello	48656c6c6f	35
+graphc.combining.e_acute	65cc81	31
+graphc.combining.a_acute	61cc81	31
+graphc.cjk.4e2d	e4b8ad	31
+graphc.cjk.4e2d_56fd	e4b8ade59bbd	32
+graphc.cjk.jp_three	e697a5e69cace8aa9e	33
+graphc.combining.n_tilde	6ecc83	31

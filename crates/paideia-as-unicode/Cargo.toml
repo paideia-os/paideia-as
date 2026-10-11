@@ -93,3 +93,30 @@ proptest = { workspace = true }
 # round-trip). Same crate this package's public path already depends
 # on, so no new external surface area.
 unicode-segmentation = { workspace = true }
+# UNI-8 (paideia-as#1595) — throughput + p99 latency harness. Pulled
+# in as a direct `version = "0.5"` pin (rather than a workspace
+# dependency) because this is the first criterion consumer in the
+# workspace; UNI-16 or a follow-on hardening ticket may promote the
+# entry to `[workspace.dependencies]` once other crates adopt it.
+# The `html_reports` feature wires Gnuplot-free HTML output under
+# `target/criterion/`; see `benches/README.md` for how to inspect it.
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# UNI-8 — benches land here. Each file registers its own
+# `criterion_group! { ... }` + `criterion_main! { ... }` under
+# `harness = false` so cargo invokes criterion directly instead of
+# libtest. The three-file split tracks the public-API quadrants of
+# `src/lib.rs` (normalization / segmentation / everything else)
+# rather than the module layout, so a reader of a wave-N throughput
+# report maps bench to spec-§9 table row in one hop.
+[[bench]]
+name = "normalize"
+harness = false
+
+[[bench]]
+name = "segment"
+harness = false
+
+[[bench]]
+name = "misc"
+harness = false

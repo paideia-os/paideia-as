@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is a single-character UTF-8 string; output is the Width
+# variant name (Debug format of width::Width under Latin mode).
+# Blank lines + lines starting with # are ignored.
+width.latin.ascii.a	61	4e6172726f77
+width.latin.ascii.A	41	4e6172726f77
+width.latin.ascii.0	30	4e6172726f77
+width.latin.latin1.n_tilde	c3b1	4e6172726f77
+width.latin.greek.alpha	ceb1	4e6172726f77
+width.latin.combining.acute	cc81	5a65726f
+width.latin.cjk.4e2d	e4b8ad	57696465
+width.latin.cjk.65e5	e697a5	57696465
+width.latin.ascii.space	20	4e6172726f77
+width.latin.ascii.plus	2b	4e6172726f77

@@ -69,6 +69,7 @@
 
 pub mod case;
 pub mod error;
+pub mod fingerprint;
 pub mod grapheme;
 pub mod ident;
 pub mod nfc;

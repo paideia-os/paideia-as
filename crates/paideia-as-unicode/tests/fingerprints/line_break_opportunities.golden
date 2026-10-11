@@ -1,0 +1,14 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Output is "offset:Kind,offset:Kind,..." or empty for no opportunities.
+# Blank lines + lines starting with # are ignored.
+line.ascii.empty		
+line.ascii.a	61	313a4d616e6461746f7279
+line.ascii.ab	6162	323a4d616e6461746f7279
+line.ascii.hello	68656c6c6f	353a4d616e6461746f7279
+line.ascii.hello_world	68656c6c6f20776f726c64	363a416c6c6f7765642c31313a4d616e6461746f7279
+line.ascii.foo_lf_bar	666f6f0a626172	343a4d616e6461746f72792c373a4d616e6461746f7279
+line.ascii.a_sp_b	612062	323a416c6c6f7765642c333a4d616e6461746f7279
+line.ascii.a_sp_b_sp_c	6120622063	323a416c6c6f7765642c343a416c6c6f7765642c353a4d616e6461746f7279
+line.ascii.hi_lf	68690a	333a4d616e6461746f7279
+line.ascii.x_sp_y	782079	323a416c6c6f7765642c333a4d616e6461746f7279

@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is a single-character UTF-8 string; output is the GC short-form
+# variant name (Debug format of GeneralCategory).
+# Blank lines + lines starting with # are ignored.
+gc.ascii.A	41	4c75
+gc.ascii.a	61	4c6c
+gc.ascii.5	35	4e64
+gc.ascii.space	20	5a73
+gc.ascii.period	2e	506f
+gc.ascii.plus	2b	536d
+gc.ascii.lparen	28	5073
+gc.ascii.rparen	29	5065
+gc.ascii.hyphen	2d	5064
+gc.ascii.underscore	5f	5063

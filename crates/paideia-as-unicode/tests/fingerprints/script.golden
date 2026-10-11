@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is a single-character UTF-8 string; output is the Script
+# variant name (Debug format of unicode_script::Script).
+# Blank lines + lines starting with # are ignored.
+script.latin.a	61	4c6174696e
+script.latin.A	41	4c6174696e
+script.greek.alpha_lower	ceb1	477265656b
+script.greek.alpha_upper	ce91	477265656b
+script.han.4e2d	e4b8ad	48616e
+script.thai.ko_kai	e0b881	54686169
+script.hebrew.dalet	d793	486562726577
+script.arabic.ain	d8b9	417261626963
+script.common.period	2e	436f6d6d6f6e
+script.common.digit0	30	436f6d6d6f6e

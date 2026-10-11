@@ -1,0 +1,13 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Blank lines + lines starting with # are ignored.
+is_nfkc.ascii.empty		74727565
+is_nfkc.ascii.a	61	74727565
+is_nfkc.ascii.hello	48656c6c6f	74727565
+is_nfkc.precomposed.e_acute	c3a9	74727565
+is_nfkc.decomposed.e_combining	65cc81	66616c7365
+is_nfkc.ligature.fi	efac81	66616c7365
+is_nfkc.ligature.ff	efac80	66616c7365
+is_nfkc.circled.one	e291a0	66616c7365
+is_nfkc.ascii.fi_as_letters	6669	74727565
+is_nfkc.ascii.one	31	74727565

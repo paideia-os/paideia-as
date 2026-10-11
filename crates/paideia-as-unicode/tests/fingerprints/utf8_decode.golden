@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Round-trip: Utf8Decoder::new(input.as_bytes()).collect::<String>() == input.
+# Output equals input hex for every valid UTF-8 string.
+# Blank lines + lines starting with # are ignored.
+utf8.ascii.empty		
+utf8.ascii.a	61	61
+utf8.ascii.hello	48656c6c6f	48656c6c6f
+utf8.ascii.digits	30313233343536373839	30313233343536373839
+utf8.latin1.e_acute	c3a9	c3a9
+utf8.latin1.n_tilde	c3b1	c3b1
+utf8.cjk.4e2d	e4b8ad	e4b8ad
+utf8.greek.alpha	ceb1	ceb1
+utf8.cjk.65e5	e697a5	e697a5
+utf8.cyrillic.a	d0b0	d0b0

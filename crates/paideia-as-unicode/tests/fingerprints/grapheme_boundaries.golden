@@ -1,0 +1,14 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Output is "offset,offset,..." (byte offsets of boundaries, comma-sep).
+# Blank lines + lines starting with # are ignored.
+graph.ascii.empty		30
+graph.ascii.a	61	302c31
+graph.ascii.ab	6162	302c312c32
+graph.ascii.abc	616263	302c312c322c33
+graph.combining.e_acute	65cc81	302c33
+graph.combining.a_acute	61cc81	302c33
+graph.cjk.4e2d	e4b8ad	302c33
+graph.cjk.4e2d_56fd	e4b8ade59bbd	302c332c36
+graph.ascii.hello	48656c6c6f	302c312c322c332c342c35
+graph.combining.n_tilde	6ecc83	302c33

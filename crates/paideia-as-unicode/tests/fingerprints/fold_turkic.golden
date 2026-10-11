@@ -1,0 +1,13 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Blank lines + lines starting with # are ignored.
+fold.turkic.empty		
+fold.turkic.a	61	61
+fold.turkic.A	41	61
+fold.turkic.I_dotless	49	c4b1
+fold.turkic.I_dotted	c4b0	69
+fold.turkic.hello	48656c6c6f	68656c6c6f
+fold.turkic.ABC	414243	616263
+fold.turkic.HI	4849	68c4b1
+fold.turkic.DEFI	44454649	646566c4b1
+fold.turkic.a1b2	61316232	61316232

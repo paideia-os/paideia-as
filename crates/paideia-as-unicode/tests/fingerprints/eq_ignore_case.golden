@@ -1,0 +1,14 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is "<a>\x1f<b>" (U+001F unit-separator between the two sides).
+# Blank lines + lines starting with # are ignored.
+eq.ascii.a_vs_A	611f41	74727565
+eq.ascii.A_vs_a	411f61	74727565
+eq.ascii.Hello_vs_HELLO	48656c6c6f1f48454c4c4f	74727565
+eq.ascii.foo_vs_bar	666f6f1f626172	66616c7365
+eq.ascii.ABC_vs_abc	4142431f616263	74727565
+eq.ascii.abc_vs_abd	6162631f616264	66616c7365
+eq.ascii.empty_vs_empty	1f	74727565
+eq.ascii.x_vs_y	781f79	66616c7365
+eq.ascii.test_vs_TEST	746573741f54455354	74727565
+eq.ascii.a_vs_b	611f62	66616c7365

@@ -1,0 +1,15 @@
+# paideia-as-unicode fingerprint golden
+# Format: TAG\tINPUT_HEX\tOUTPUT_HEX
+# Input is a single-character UTF-8 string; output is the Block
+# variant name (Debug format of ucd::Block).
+# Blank lines + lines starting with # are ignored.
+block.basic_latin.a	61	42617369634c6174696e
+block.basic_latin.A	41	42617369634c6174696e
+block.latin1_supplement.e_acute	c3a9	4c6174696e31537570706c656d656e74
+block.latin_extended_a.a_macron	c480	4c6174696e457874656e64656441
+block.greek_and_coptic.alpha	ceb1	477265656b416e64436f70746963
+block.cyrillic.a	d0b0	437972696c6c6963
+block.cjk_unified_ideographs.4e2d	e4b8ad	436a6b556e69666965644964656f677261706873
+block.currency_symbols.euro	e282ac	43757272656e637953796d626f6c73
+block.thai.ko_kai	e0b881	54686169
+block.hebrew.dalet	d793	486562726577
