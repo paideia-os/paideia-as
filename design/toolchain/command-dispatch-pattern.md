@@ -1,5 +1,9 @@
 # Command-Dispatch Pattern for Semantic Terminal (pa-r18-006)
 
+**Status:** AUTHORED (pa-r18-006). Target canonical shape blocks on
+`#994`, `#995`, `#996`, `#998b`–`#998e`; three today-buildable
+dispatch strategies are documented inline.
+
 ## 1. Overview
 
 The command-dispatch pattern is the semantic foundation for a terminal command handler: given a user-supplied command name (as a string), route to the appropriate handler function and execute it. This pattern is the paideia-as-side contract that enables paideia-os phase 11 to implement the semantic shell (see `design/terminal/semantic-shell.md` §SH-D5).

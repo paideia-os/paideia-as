@@ -1,5 +1,13 @@
 # Reserved-Word Policy
 
+**Status:** AUTHORED — reserved-word discipline reference. The
+canonical list of 71 reserved words lives in
+`crates/paideia-as-lexer/src/token.rs`; this document is the policy
+layer and the add/remove criteria. See also the memory record
+`feedback_paideia_as_reserved_labels` — words like `loop` and `if`
+cannot be used as asm labels and must be prefixed by their enclosing
+function name.
+
 This document describes paideia-as's policy for reserved words, contextual keywords, and the
 decision criteria for adding or removing words from reservation.
 

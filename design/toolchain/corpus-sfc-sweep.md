@@ -1,5 +1,8 @@
 # Corpus S/F/C sweep (deferred artefact for #1245)
 
+**Status:** AUTHORED — deferred artefact; retire when the three
+dormant walker surfaces (LinearityWalker, EffectRowWalker, CapWalker)
+light up end-to-end and `#1245` closes.
 **Tool:** `tools/corpus-sfc-sweep.py`
 **Issue:** [#1245 — M3 follow-up: run corpus S/F/C sweep once lin_class/effect payload wiring lands](https://github.com/paideia-os/paideia-as/issues/1245)
 **Depends on:** #1237 (root walker fix — closed)

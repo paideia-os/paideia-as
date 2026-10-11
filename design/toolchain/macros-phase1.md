@@ -1,5 +1,10 @@
 # Macros — phase 1 (pattern matcher) + phase 2 outcome (reflection)
 
+**Status:** Superseded. Phase-1 pattern macros (PRs `#136`–`#139`)
+continue to work as a degenerate case; the elaborator-reflection
+substrate (`paideia-as-reflection`, R220.M1) is the canonical Phase
+2+ form, and `@dsl_parser` (R220.M3) is the extension entry point.
+
 This document covers the phase-1 pattern-based macro system that shipped
 with PRs #136-#139 + the **phase-2 reflection track** that supersedes
 it. Phase-1 macros continue to work as a degenerate case; reflection is

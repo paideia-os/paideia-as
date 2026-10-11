@@ -1,0 +1,645 @@
+# paideia-as-unicode public API freeze — UNI-11 (paideia-as#1598).
+#
+# Frozen on 2026-10-11 at crate state covering UNI-0..UNI-10 + UNI-12 + UNI-14.
+# Workspace version: 0.37.0 target (freeze precedes bump per spec §1).
+#
+# Format: `<kind>\t<path>[\t<extras>]` — tab-separated.
+# Kinds:
+#   mod       module declaration (lib.rs: `pub mod <name>;`)
+#   reexport  crate-root re-export (lib.rs: `pub use <path>::<name>;`); extras = source path
+#   use       intra-module re-export; extras = source path
+#   struct    pub struct definition; extras = attribute tokens (e.g. non_exhaustive)
+#   field     pub struct field; extras = type
+#   enum      pub enum definition; extras = attribute tokens
+#   variant   enum variant; extras = default marker or payload shape
+#   fn        pub free function; extras = signature
+#   method    pub inherent method; extras = signature
+#   impl      trait implementation; extras = `<Trait> for <Type>`
+#
+# Line-end normalization: CR is stripped and trailing whitespace is removed
+# before comparison, so the file survives autocrlf, editor fingerprints, and
+# tooling that trims lines.
+#
+# To regenerate after a reviewed signature change:
+#   PAIDEIA_UNICODE_REGEN_API=1 cargo test -p paideia-as-unicode --test public_api_test
+#
+# Every modification requires: (a) a UNI follow-up ticket per spec §1 freeze
+# discipline; (b) an entry in CHANGELOG under the workspace version at the
+# time; (c) parallel edits to design/toolchain/paideia-as-unicode-api-freeze.md.
+
+# == Module declarations (lib.rs `pub mod ...;`) ==
+mod	paideia_as_unicode::case
+mod	paideia_as_unicode::error
+mod	paideia_as_unicode::fingerprint
+mod	paideia_as_unicode::grapheme
+mod	paideia_as_unicode::ident
+mod	paideia_as_unicode::lsp_bridge
+mod	paideia_as_unicode::nfc
+mod	paideia_as_unicode::norm
+mod	paideia_as_unicode::segment
+mod	paideia_as_unicode::ucd
+mod	paideia_as_unicode::utf8
+mod	paideia_as_unicode::width
+
+# == Crate-root re-exports (lib.rs `pub use ...::{...};`) ==
+reexport	paideia_as_unicode::CaseFoldLocale	paideia_as_unicode::case::CaseFoldLocale
+reexport	paideia_as_unicode::eq_ignore_case_unicode	paideia_as_unicode::case::eq_ignore_case_unicode
+reexport	paideia_as_unicode::fold	paideia_as_unicode::case::fold
+reexport	paideia_as_unicode::fold_default	paideia_as_unicode::case::fold_default
+reexport	paideia_as_unicode::lowercase	paideia_as_unicode::case::lowercase
+reexport	paideia_as_unicode::uppercase	paideia_as_unicode::case::uppercase
+reexport	paideia_as_unicode::Utf8Error	paideia_as_unicode::error::Utf8Error
+reexport	paideia_as_unicode::GraphemeBoundaries	paideia_as_unicode::grapheme::GraphemeBoundaries
+reexport	paideia_as_unicode::grapheme_advance	paideia_as_unicode::grapheme::grapheme_advance
+reexport	paideia_as_unicode::grapheme_boundaries	paideia_as_unicode::grapheme::grapheme_boundaries
+reexport	paideia_as_unicode::grapheme_count	paideia_as_unicode::grapheme::grapheme_count
+reexport	paideia_as_unicode::grapheme_retreat	paideia_as_unicode::grapheme::grapheme_retreat
+reexport	paideia_as_unicode::IdentError	paideia_as_unicode::ident::IdentError
+reexport	paideia_as_unicode::IdentErrorKind	paideia_as_unicode::ident::IdentErrorKind
+reexport	paideia_as_unicode::IdentProfile	paideia_as_unicode::ident::IdentProfile
+reexport	paideia_as_unicode::check_ident	paideia_as_unicode::ident::check_ident
+reexport	paideia_as_unicode::is_identifier	paideia_as_unicode::ident::is_identifier
+reexport	paideia_as_unicode::is_xid_continue	paideia_as_unicode::ident::is_xid_continue
+reexport	paideia_as_unicode::is_xid_start	paideia_as_unicode::ident::is_xid_start
+reexport	paideia_as_unicode::mixed_script	paideia_as_unicode::ident::mixed_script
+reexport	paideia_as_unicode::stream_is_nfc	paideia_as_unicode::lsp_bridge::stream_is_nfc
+reexport	paideia_as_unicode::utf16_offset_to_utf8	paideia_as_unicode::lsp_bridge::utf16_offset_to_utf8
+reexport	paideia_as_unicode::utf32_offset_to_utf8	paideia_as_unicode::lsp_bridge::utf32_offset_to_utf8
+reexport	paideia_as_unicode::utf8_offset_to_utf16	paideia_as_unicode::lsp_bridge::utf8_offset_to_utf16
+reexport	paideia_as_unicode::utf8_offset_to_utf32	paideia_as_unicode::lsp_bridge::utf8_offset_to_utf32
+reexport	paideia_as_unicode::is_ascii_fast_path_eligible	paideia_as_unicode::nfc::is_ascii_fast_path_eligible
+reexport	paideia_as_unicode::is_nfc	paideia_as_unicode::nfc::is_nfc
+reexport	paideia_as_unicode::nfc_normalize	paideia_as_unicode::nfc::nfc_normalize
+reexport	paideia_as_unicode::Form	paideia_as_unicode::norm::Form
+reexport	paideia_as_unicode::is_form	paideia_as_unicode::norm::is_form
+reexport	paideia_as_unicode::is_nfd	paideia_as_unicode::norm::is_nfd
+reexport	paideia_as_unicode::is_nfkc	paideia_as_unicode::norm::is_nfkc
+reexport	paideia_as_unicode::is_nfkd	paideia_as_unicode::norm::is_nfkd
+reexport	paideia_as_unicode::nfd_normalize	paideia_as_unicode::norm::nfd_normalize
+reexport	paideia_as_unicode::nfkc_normalize	paideia_as_unicode::norm::nfkc_normalize
+reexport	paideia_as_unicode::nfkd_normalize	paideia_as_unicode::norm::nfkd_normalize
+reexport	paideia_as_unicode::normalize	paideia_as_unicode::norm::normalize
+reexport	paideia_as_unicode::LineBreak	paideia_as_unicode::segment::LineBreak
+reexport	paideia_as_unicode::LineBreakOpportunity	paideia_as_unicode::segment::LineBreakOpportunity
+reexport	paideia_as_unicode::SegmentError	paideia_as_unicode::segment::SegmentError
+reexport	paideia_as_unicode::SegmentErrorKind	paideia_as_unicode::segment::SegmentErrorKind
+reexport	paideia_as_unicode::line_break_opportunities	paideia_as_unicode::segment::line_break_opportunities
+reexport	paideia_as_unicode::next_line_break	paideia_as_unicode::segment::next_line_break
+reexport	paideia_as_unicode::wrap_at_width	paideia_as_unicode::segment::wrap_at_width
+reexport	paideia_as_unicode::Block	paideia_as_unicode::ucd::Block
+reexport	paideia_as_unicode::GeneralCategory	paideia_as_unicode::ucd::GeneralCategory
+reexport	paideia_as_unicode::Script	paideia_as_unicode::ucd::Script
+reexport	paideia_as_unicode::block	paideia_as_unicode::ucd::block
+reexport	paideia_as_unicode::general_category	paideia_as_unicode::ucd::general_category
+reexport	paideia_as_unicode::is_letter	paideia_as_unicode::ucd::is_letter
+reexport	paideia_as_unicode::is_mark	paideia_as_unicode::ucd::is_mark
+reexport	paideia_as_unicode::is_number	paideia_as_unicode::ucd::is_number
+reexport	paideia_as_unicode::is_other	paideia_as_unicode::ucd::is_other
+reexport	paideia_as_unicode::is_punctuation	paideia_as_unicode::ucd::is_punctuation
+reexport	paideia_as_unicode::is_separator	paideia_as_unicode::ucd::is_separator
+reexport	paideia_as_unicode::is_symbol	paideia_as_unicode::ucd::is_symbol
+reexport	paideia_as_unicode::script	paideia_as_unicode::ucd::script
+reexport	paideia_as_unicode::Utf8Decoder	paideia_as_unicode::utf8::Utf8Decoder
+reexport	paideia_as_unicode::Width	paideia_as_unicode::width::Width
+reexport	paideia_as_unicode::WidthMode	paideia_as_unicode::width::WidthMode
+reexport	paideia_as_unicode::grapheme_width	paideia_as_unicode::width::grapheme_width
+reexport	paideia_as_unicode::grapheme_width_in	paideia_as_unicode::width::grapheme_width_in
+reexport	paideia_as_unicode::str_width	paideia_as_unicode::width::str_width
+reexport	paideia_as_unicode::str_width_in	paideia_as_unicode::width::str_width_in
+reexport	paideia_as_unicode::width	paideia_as_unicode::width::width
+reexport	paideia_as_unicode::width_in	paideia_as_unicode::width::width_in
+
+# == paideia_as_unicode::case ==
+enum	paideia_as_unicode::case::CaseFoldLocale	non_exhaustive
+variant	paideia_as_unicode::case::CaseFoldLocale::Default	default
+variant	paideia_as_unicode::case::CaseFoldLocale::Turkic
+fn	paideia_as_unicode::case::fold	(s: &str, locale: CaseFoldLocale) -> String
+fn	paideia_as_unicode::case::fold_default	(s: &str) -> String
+fn	paideia_as_unicode::case::eq_ignore_case_unicode	(a: &str, b: &str, locale: CaseFoldLocale) -> bool
+fn	paideia_as_unicode::case::uppercase	(s: &str) -> String
+fn	paideia_as_unicode::case::lowercase	(s: &str) -> String
+
+# == paideia_as_unicode::error ==
+struct	paideia_as_unicode::error::Utf8Error
+field	paideia_as_unicode::error::Utf8Error::offset	usize
+field	paideia_as_unicode::error::Utf8Error::reason	Utf8ErrorKind
+enum	paideia_as_unicode::error::Utf8ErrorKind
+variant	paideia_as_unicode::error::Utf8ErrorKind::InvalidLeadByte
+variant	paideia_as_unicode::error::Utf8ErrorKind::InvalidContinuationByte
+variant	paideia_as_unicode::error::Utf8ErrorKind::UnexpectedEndOfInput
+variant	paideia_as_unicode::error::Utf8ErrorKind::Overlong
+variant	paideia_as_unicode::error::Utf8ErrorKind::Surrogate
+variant	paideia_as_unicode::error::Utf8ErrorKind::OutOfRange
+impl	paideia_as_unicode::error::Utf8Error	core::fmt::Display for Utf8Error
+impl	paideia_as_unicode::error::Utf8ErrorKind	core::fmt::Display for Utf8ErrorKind
+impl	paideia_as_unicode::error::Utf8Error	std::error::Error for Utf8Error
+
+# == paideia_as_unicode::fingerprint ==
+struct	paideia_as_unicode::fingerprint::FingerprintCase
+field	paideia_as_unicode::fingerprint::FingerprintCase::tag	&'static str
+field	paideia_as_unicode::fingerprint::FingerprintCase::input	&'static str
+field	paideia_as_unicode::fingerprint::FingerprintCase::expected	&'static str
+struct	paideia_as_unicode::fingerprint::FingerprintRecord
+field	paideia_as_unicode::fingerprint::FingerprintRecord::tag	String
+field	paideia_as_unicode::fingerprint::FingerprintRecord::input	String
+field	paideia_as_unicode::fingerprint::FingerprintRecord::expected	String
+fn	paideia_as_unicode::fingerprint::fingerprint_golden_path	(name: &str) -> PathBuf
+fn	paideia_as_unicode::fingerprint::verify_fingerprint	(case: &FingerprintCase, actual: &str) -> Result<(), String>
+fn	paideia_as_unicode::fingerprint::write_fingerprint_golden	(name: &str, cases: &[FingerprintCase]) -> io::Result<()>
+fn	paideia_as_unicode::fingerprint::write_fingerprint_golden_records	(name: &str, records: &[FingerprintRecord]) -> io::Result<()>
+fn	paideia_as_unicode::fingerprint::read_fingerprint_golden	(name: &str) -> io::Result<Vec<FingerprintRecord>>
+fn	paideia_as_unicode::fingerprint::maybe_regen_fingerprints	() -> bool
+
+# == paideia_as_unicode::grapheme ==
+struct	paideia_as_unicode::grapheme::GraphemeBoundaries	<'a>
+impl	paideia_as_unicode::grapheme::GraphemeBoundaries	Iterator for GraphemeBoundaries<'a> (Item = usize)
+fn	paideia_as_unicode::grapheme::grapheme_boundaries	(input: &str) -> GraphemeBoundaries<'_>
+fn	paideia_as_unicode::grapheme::grapheme_count	(input: &str) -> usize
+fn	paideia_as_unicode::grapheme::grapheme_advance	(input: &str, byte_offset: usize) -> usize
+fn	paideia_as_unicode::grapheme::grapheme_retreat	(input: &str, byte_offset: usize) -> usize
+
+# == paideia_as_unicode::ident ==
+fn	paideia_as_unicode::ident::is_xid_start	(c: char) -> bool
+fn	paideia_as_unicode::ident::is_xid_continue	(c: char) -> bool
+fn	paideia_as_unicode::ident::is_identifier	(s: &str) -> bool
+enum	paideia_as_unicode::ident::IdentProfile	non_exhaustive
+variant	paideia_as_unicode::ident::IdentProfile::Ascii
+variant	paideia_as_unicode::ident::IdentProfile::Default	default
+variant	paideia_as_unicode::ident::IdentProfile::AllowedChars
+enum	paideia_as_unicode::ident::IdentErrorKind	non_exhaustive
+variant	paideia_as_unicode::ident::IdentErrorKind::BadStart
+variant	paideia_as_unicode::ident::IdentErrorKind::BadContinue
+variant	paideia_as_unicode::ident::IdentErrorKind::NotNfc
+variant	paideia_as_unicode::ident::IdentErrorKind::MixedScript	{ scripts: Vec<Script> }
+variant	paideia_as_unicode::ident::IdentErrorKind::Confusable
+struct	paideia_as_unicode::ident::IdentError
+field	paideia_as_unicode::ident::IdentError::offset	usize
+field	paideia_as_unicode::ident::IdentError::kind	IdentErrorKind
+fn	paideia_as_unicode::ident::check_ident	(s: &str, profile: IdentProfile) -> Result<(), IdentError>
+fn	paideia_as_unicode::ident::mixed_script	(s: &str) -> Vec<Script>
+
+# == paideia_as_unicode::lsp_bridge ==
+fn	paideia_as_unicode::lsp_bridge::utf8_offset_to_utf16	(s: &str, utf8_offset: usize) -> usize
+fn	paideia_as_unicode::lsp_bridge::utf16_offset_to_utf8	(s: &str, utf16_offset: usize) -> usize
+fn	paideia_as_unicode::lsp_bridge::utf8_offset_to_utf32	(s: &str, utf8_offset: usize) -> usize
+fn	paideia_as_unicode::lsp_bridge::utf32_offset_to_utf8	(s: &str, utf32_offset: usize) -> usize
+fn	paideia_as_unicode::lsp_bridge::stream_is_nfc	<I: Iterator<Item = char>>(iter: I) -> bool
+
+# == paideia_as_unicode::nfc (shim module; re-exports from ::norm) ==
+use	paideia_as_unicode::nfc::is_ascii_fast_path_eligible	paideia_as_unicode::norm::is_ascii_fast_path_eligible
+use	paideia_as_unicode::nfc::is_nfc	paideia_as_unicode::norm::is_nfc
+use	paideia_as_unicode::nfc::nfc_normalize	paideia_as_unicode::norm::nfc_normalize
+
+# == paideia_as_unicode::norm ==
+enum	paideia_as_unicode::norm::Form	non_exhaustive
+variant	paideia_as_unicode::norm::Form::Nfc	default
+variant	paideia_as_unicode::norm::Form::Nfd
+variant	paideia_as_unicode::norm::Form::Nfkc
+variant	paideia_as_unicode::norm::Form::Nfkd
+fn	paideia_as_unicode::norm::is_ascii_fast_path_eligible	(input: &str) -> bool
+fn	paideia_as_unicode::norm::is_nfc	(input: &str) -> bool
+fn	paideia_as_unicode::norm::is_nfd	(input: &str) -> bool
+fn	paideia_as_unicode::norm::is_nfkc	(input: &str) -> bool
+fn	paideia_as_unicode::norm::is_nfkd	(input: &str) -> bool
+fn	paideia_as_unicode::norm::is_form	(input: &str, form: Form) -> bool
+fn	paideia_as_unicode::norm::nfc_normalize	(input: &str) -> String
+fn	paideia_as_unicode::norm::nfd_normalize	(input: &str) -> String
+fn	paideia_as_unicode::norm::nfkc_normalize	(input: &str) -> String
+fn	paideia_as_unicode::norm::nfkd_normalize	(input: &str) -> String
+fn	paideia_as_unicode::norm::normalize	(input: &str, form: Form) -> String
+
+# == paideia_as_unicode::segment ==
+enum	paideia_as_unicode::segment::LineBreak	non_exhaustive
+variant	paideia_as_unicode::segment::LineBreak::Mandatory
+variant	paideia_as_unicode::segment::LineBreak::Allowed	default
+variant	paideia_as_unicode::segment::LineBreak::Prohibited
+struct	paideia_as_unicode::segment::LineBreakOpportunity	non_exhaustive
+field	paideia_as_unicode::segment::LineBreakOpportunity::byte_offset	usize
+field	paideia_as_unicode::segment::LineBreakOpportunity::kind	LineBreak
+struct	paideia_as_unicode::segment::SegmentError	non_exhaustive
+field	paideia_as_unicode::segment::SegmentError::offset	usize
+field	paideia_as_unicode::segment::SegmentError::kind	SegmentErrorKind
+enum	paideia_as_unicode::segment::SegmentErrorKind	non_exhaustive
+variant	paideia_as_unicode::segment::SegmentErrorKind::WidthTooSmall	{ minimum: usize }
+fn	paideia_as_unicode::segment::line_break_opportunities	(s: &str) -> Vec<LineBreakOpportunity>
+fn	paideia_as_unicode::segment::next_line_break	(s: &str, from: usize) -> Option<(usize, LineBreak)>
+fn	paideia_as_unicode::segment::wrap_at_width	(s: &str, max_width: usize) -> Vec<&str>
+impl	paideia_as_unicode::segment::SegmentError	core::fmt::Display for SegmentError
+impl	paideia_as_unicode::segment::SegmentErrorKind	core::fmt::Display for SegmentErrorKind
+impl	paideia_as_unicode::segment::SegmentError	std::error::Error for SegmentError
+
+# == paideia_as_unicode::ucd ==
+use	paideia_as_unicode::ucd::Script	unicode_script::Script
+enum	paideia_as_unicode::ucd::GeneralCategory	non_exhaustive
+variant	paideia_as_unicode::ucd::GeneralCategory::Lu
+variant	paideia_as_unicode::ucd::GeneralCategory::Ll
+variant	paideia_as_unicode::ucd::GeneralCategory::Lt
+variant	paideia_as_unicode::ucd::GeneralCategory::Lm
+variant	paideia_as_unicode::ucd::GeneralCategory::Lo
+variant	paideia_as_unicode::ucd::GeneralCategory::Mn
+variant	paideia_as_unicode::ucd::GeneralCategory::Mc
+variant	paideia_as_unicode::ucd::GeneralCategory::Me
+variant	paideia_as_unicode::ucd::GeneralCategory::Nd
+variant	paideia_as_unicode::ucd::GeneralCategory::Nl
+variant	paideia_as_unicode::ucd::GeneralCategory::No
+variant	paideia_as_unicode::ucd::GeneralCategory::Pc
+variant	paideia_as_unicode::ucd::GeneralCategory::Pd
+variant	paideia_as_unicode::ucd::GeneralCategory::Ps
+variant	paideia_as_unicode::ucd::GeneralCategory::Pe
+variant	paideia_as_unicode::ucd::GeneralCategory::Pi
+variant	paideia_as_unicode::ucd::GeneralCategory::Pf
+variant	paideia_as_unicode::ucd::GeneralCategory::Po
+variant	paideia_as_unicode::ucd::GeneralCategory::Sm
+variant	paideia_as_unicode::ucd::GeneralCategory::Sc
+variant	paideia_as_unicode::ucd::GeneralCategory::Sk
+variant	paideia_as_unicode::ucd::GeneralCategory::So
+variant	paideia_as_unicode::ucd::GeneralCategory::Zs
+variant	paideia_as_unicode::ucd::GeneralCategory::Zl
+variant	paideia_as_unicode::ucd::GeneralCategory::Zp
+variant	paideia_as_unicode::ucd::GeneralCategory::Cc
+variant	paideia_as_unicode::ucd::GeneralCategory::Cf
+variant	paideia_as_unicode::ucd::GeneralCategory::Cs
+variant	paideia_as_unicode::ucd::GeneralCategory::Co
+variant	paideia_as_unicode::ucd::GeneralCategory::Cn
+impl	paideia_as_unicode::ucd::GeneralCategory	From<unicode_properties::GeneralCategory> for GeneralCategory
+fn	paideia_as_unicode::ucd::general_category	(c: char) -> GeneralCategory
+fn	paideia_as_unicode::ucd::script	(c: char) -> Script
+fn	paideia_as_unicode::ucd::block	(c: char) -> Block
+enum	paideia_as_unicode::ucd::Block	non_exhaustive
+variant	paideia_as_unicode::ucd::Block::BasicLatin
+variant	paideia_as_unicode::ucd::Block::Latin1Supplement
+variant	paideia_as_unicode::ucd::Block::LatinExtendedA
+variant	paideia_as_unicode::ucd::Block::LatinExtendedB
+variant	paideia_as_unicode::ucd::Block::IpaExtensions
+variant	paideia_as_unicode::ucd::Block::SpacingModifierLetters
+variant	paideia_as_unicode::ucd::Block::CombiningDiacriticalMarks
+variant	paideia_as_unicode::ucd::Block::GreekAndCoptic
+variant	paideia_as_unicode::ucd::Block::Cyrillic
+variant	paideia_as_unicode::ucd::Block::CyrillicSupplement
+variant	paideia_as_unicode::ucd::Block::Armenian
+variant	paideia_as_unicode::ucd::Block::Hebrew
+variant	paideia_as_unicode::ucd::Block::Arabic
+variant	paideia_as_unicode::ucd::Block::Syriac
+variant	paideia_as_unicode::ucd::Block::ArabicSupplement
+variant	paideia_as_unicode::ucd::Block::Thaana
+variant	paideia_as_unicode::ucd::Block::Nko
+variant	paideia_as_unicode::ucd::Block::Samaritan
+variant	paideia_as_unicode::ucd::Block::Mandaic
+variant	paideia_as_unicode::ucd::Block::SyriacSupplement
+variant	paideia_as_unicode::ucd::Block::ArabicExtendedB
+variant	paideia_as_unicode::ucd::Block::ArabicExtendedA
+variant	paideia_as_unicode::ucd::Block::Devanagari
+variant	paideia_as_unicode::ucd::Block::Bengali
+variant	paideia_as_unicode::ucd::Block::Gurmukhi
+variant	paideia_as_unicode::ucd::Block::Gujarati
+variant	paideia_as_unicode::ucd::Block::Oriya
+variant	paideia_as_unicode::ucd::Block::Tamil
+variant	paideia_as_unicode::ucd::Block::Telugu
+variant	paideia_as_unicode::ucd::Block::Kannada
+variant	paideia_as_unicode::ucd::Block::Malayalam
+variant	paideia_as_unicode::ucd::Block::Sinhala
+variant	paideia_as_unicode::ucd::Block::Thai
+variant	paideia_as_unicode::ucd::Block::Lao
+variant	paideia_as_unicode::ucd::Block::Tibetan
+variant	paideia_as_unicode::ucd::Block::Myanmar
+variant	paideia_as_unicode::ucd::Block::Georgian
+variant	paideia_as_unicode::ucd::Block::HangulJamo
+variant	paideia_as_unicode::ucd::Block::Ethiopic
+variant	paideia_as_unicode::ucd::Block::EthiopicSupplement
+variant	paideia_as_unicode::ucd::Block::Cherokee
+variant	paideia_as_unicode::ucd::Block::UnifiedCanadianAboriginalSyllabics
+variant	paideia_as_unicode::ucd::Block::Ogham
+variant	paideia_as_unicode::ucd::Block::Runic
+variant	paideia_as_unicode::ucd::Block::Tagalog
+variant	paideia_as_unicode::ucd::Block::Hanunoo
+variant	paideia_as_unicode::ucd::Block::Buhid
+variant	paideia_as_unicode::ucd::Block::Tagbanwa
+variant	paideia_as_unicode::ucd::Block::Khmer
+variant	paideia_as_unicode::ucd::Block::Mongolian
+variant	paideia_as_unicode::ucd::Block::Limbu
+variant	paideia_as_unicode::ucd::Block::TaiLe
+variant	paideia_as_unicode::ucd::Block::NewTaiLue
+variant	paideia_as_unicode::ucd::Block::KhmerSymbols
+variant	paideia_as_unicode::ucd::Block::Buginese
+variant	paideia_as_unicode::ucd::Block::TaiTham
+variant	paideia_as_unicode::ucd::Block::CombiningDiacriticalMarksExtended
+variant	paideia_as_unicode::ucd::Block::Balinese
+variant	paideia_as_unicode::ucd::Block::Sundanese
+variant	paideia_as_unicode::ucd::Block::Batak
+variant	paideia_as_unicode::ucd::Block::Lepcha
+variant	paideia_as_unicode::ucd::Block::OlChiki
+variant	paideia_as_unicode::ucd::Block::CyrillicExtendedC
+variant	paideia_as_unicode::ucd::Block::GeorgianExtended
+variant	paideia_as_unicode::ucd::Block::SundaneseSupplement
+variant	paideia_as_unicode::ucd::Block::VedicExtensions
+variant	paideia_as_unicode::ucd::Block::PhoneticExtensions
+variant	paideia_as_unicode::ucd::Block::PhoneticExtensionsSupplement
+variant	paideia_as_unicode::ucd::Block::CombiningDiacriticalMarksSupplement
+variant	paideia_as_unicode::ucd::Block::LatinExtendedAdditional
+variant	paideia_as_unicode::ucd::Block::GreekExtended
+variant	paideia_as_unicode::ucd::Block::GeneralPunctuation
+variant	paideia_as_unicode::ucd::Block::SuperscriptsAndSubscripts
+variant	paideia_as_unicode::ucd::Block::CurrencySymbols
+variant	paideia_as_unicode::ucd::Block::CombiningDiacriticalMarksForSymbols
+variant	paideia_as_unicode::ucd::Block::LetterlikeSymbols
+variant	paideia_as_unicode::ucd::Block::NumberForms
+variant	paideia_as_unicode::ucd::Block::Arrows
+variant	paideia_as_unicode::ucd::Block::MathematicalOperators
+variant	paideia_as_unicode::ucd::Block::MiscellaneousTechnical
+variant	paideia_as_unicode::ucd::Block::ControlPictures
+variant	paideia_as_unicode::ucd::Block::OpticalCharacterRecognition
+variant	paideia_as_unicode::ucd::Block::EnclosedAlphanumerics
+variant	paideia_as_unicode::ucd::Block::BoxDrawing
+variant	paideia_as_unicode::ucd::Block::BlockElements
+variant	paideia_as_unicode::ucd::Block::GeometricShapes
+variant	paideia_as_unicode::ucd::Block::MiscellaneousSymbols
+variant	paideia_as_unicode::ucd::Block::Dingbats
+variant	paideia_as_unicode::ucd::Block::MiscellaneousMathematicalSymbolsA
+variant	paideia_as_unicode::ucd::Block::SupplementalArrowsA
+variant	paideia_as_unicode::ucd::Block::BraillePatterns
+variant	paideia_as_unicode::ucd::Block::SupplementalArrowsB
+variant	paideia_as_unicode::ucd::Block::MiscellaneousMathematicalSymbolsB
+variant	paideia_as_unicode::ucd::Block::SupplementalMathematicalOperators
+variant	paideia_as_unicode::ucd::Block::MiscellaneousSymbolsAndArrows
+variant	paideia_as_unicode::ucd::Block::Glagolitic
+variant	paideia_as_unicode::ucd::Block::LatinExtendedC
+variant	paideia_as_unicode::ucd::Block::Coptic
+variant	paideia_as_unicode::ucd::Block::GeorgianSupplement
+variant	paideia_as_unicode::ucd::Block::Tifinagh
+variant	paideia_as_unicode::ucd::Block::EthiopicExtended
+variant	paideia_as_unicode::ucd::Block::CyrillicExtendedA
+variant	paideia_as_unicode::ucd::Block::SupplementalPunctuation
+variant	paideia_as_unicode::ucd::Block::CjkRadicalsSupplement
+variant	paideia_as_unicode::ucd::Block::KangxiRadicals
+variant	paideia_as_unicode::ucd::Block::IdeographicDescriptionCharacters
+variant	paideia_as_unicode::ucd::Block::CjkSymbolsAndPunctuation
+variant	paideia_as_unicode::ucd::Block::Hiragana
+variant	paideia_as_unicode::ucd::Block::Katakana
+variant	paideia_as_unicode::ucd::Block::Bopomofo
+variant	paideia_as_unicode::ucd::Block::HangulCompatibilityJamo
+variant	paideia_as_unicode::ucd::Block::Kanbun
+variant	paideia_as_unicode::ucd::Block::BopomofoExtended
+variant	paideia_as_unicode::ucd::Block::CjkStrokes
+variant	paideia_as_unicode::ucd::Block::KatakanaPhoneticExtensions
+variant	paideia_as_unicode::ucd::Block::EnclosedCjkLettersAndMonths
+variant	paideia_as_unicode::ucd::Block::CjkCompatibility
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionA
+variant	paideia_as_unicode::ucd::Block::YijingHexagramSymbols
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographs
+variant	paideia_as_unicode::ucd::Block::YiSyllables
+variant	paideia_as_unicode::ucd::Block::YiRadicals
+variant	paideia_as_unicode::ucd::Block::Lisu
+variant	paideia_as_unicode::ucd::Block::Vai
+variant	paideia_as_unicode::ucd::Block::CyrillicExtendedB
+variant	paideia_as_unicode::ucd::Block::Bamum
+variant	paideia_as_unicode::ucd::Block::ModifierToneLetters
+variant	paideia_as_unicode::ucd::Block::LatinExtendedD
+variant	paideia_as_unicode::ucd::Block::SylotiNagri
+variant	paideia_as_unicode::ucd::Block::CommonIndicNumberForms
+variant	paideia_as_unicode::ucd::Block::PhagsPa
+variant	paideia_as_unicode::ucd::Block::Saurashtra
+variant	paideia_as_unicode::ucd::Block::DevanagariExtended
+variant	paideia_as_unicode::ucd::Block::KayahLi
+variant	paideia_as_unicode::ucd::Block::Rejang
+variant	paideia_as_unicode::ucd::Block::HangulJamoExtendedA
+variant	paideia_as_unicode::ucd::Block::Javanese
+variant	paideia_as_unicode::ucd::Block::MyanmarExtendedB
+variant	paideia_as_unicode::ucd::Block::Cham
+variant	paideia_as_unicode::ucd::Block::MyanmarExtendedA
+variant	paideia_as_unicode::ucd::Block::TaiViet
+variant	paideia_as_unicode::ucd::Block::MeeteiMayekExtensions
+variant	paideia_as_unicode::ucd::Block::EthiopicExtendedA
+variant	paideia_as_unicode::ucd::Block::LatinExtendedE
+variant	paideia_as_unicode::ucd::Block::CherokeeSupplement
+variant	paideia_as_unicode::ucd::Block::MeeteiMayek
+variant	paideia_as_unicode::ucd::Block::HangulSyllables
+variant	paideia_as_unicode::ucd::Block::HangulJamoExtendedB
+variant	paideia_as_unicode::ucd::Block::HighSurrogates
+variant	paideia_as_unicode::ucd::Block::HighPrivateUseSurrogates
+variant	paideia_as_unicode::ucd::Block::LowSurrogates
+variant	paideia_as_unicode::ucd::Block::PrivateUseArea
+variant	paideia_as_unicode::ucd::Block::CjkCompatibilityIdeographs
+variant	paideia_as_unicode::ucd::Block::AlphabeticPresentationForms
+variant	paideia_as_unicode::ucd::Block::ArabicPresentationFormsA
+variant	paideia_as_unicode::ucd::Block::VariationSelectors
+variant	paideia_as_unicode::ucd::Block::VerticalForms
+variant	paideia_as_unicode::ucd::Block::CombiningHalfMarks
+variant	paideia_as_unicode::ucd::Block::CjkCompatibilityForms
+variant	paideia_as_unicode::ucd::Block::SmallFormVariants
+variant	paideia_as_unicode::ucd::Block::ArabicPresentationFormsB
+variant	paideia_as_unicode::ucd::Block::HalfwidthAndFullwidthForms
+variant	paideia_as_unicode::ucd::Block::Specials
+variant	paideia_as_unicode::ucd::Block::LinearBSyllabary
+variant	paideia_as_unicode::ucd::Block::LinearBIdeograms
+variant	paideia_as_unicode::ucd::Block::AegeanNumbers
+variant	paideia_as_unicode::ucd::Block::AncientGreekNumbers
+variant	paideia_as_unicode::ucd::Block::AncientSymbols
+variant	paideia_as_unicode::ucd::Block::PhaistosDisc
+variant	paideia_as_unicode::ucd::Block::Lycian
+variant	paideia_as_unicode::ucd::Block::Carian
+variant	paideia_as_unicode::ucd::Block::CopticEpactNumbers
+variant	paideia_as_unicode::ucd::Block::OldItalic
+variant	paideia_as_unicode::ucd::Block::Gothic
+variant	paideia_as_unicode::ucd::Block::OldPermic
+variant	paideia_as_unicode::ucd::Block::Ugaritic
+variant	paideia_as_unicode::ucd::Block::OldPersian
+variant	paideia_as_unicode::ucd::Block::Deseret
+variant	paideia_as_unicode::ucd::Block::Shavian
+variant	paideia_as_unicode::ucd::Block::Osmanya
+variant	paideia_as_unicode::ucd::Block::Osage
+variant	paideia_as_unicode::ucd::Block::Elbasan
+variant	paideia_as_unicode::ucd::Block::CaucasianAlbanian
+variant	paideia_as_unicode::ucd::Block::Vithkuqi
+variant	paideia_as_unicode::ucd::Block::Todhri
+variant	paideia_as_unicode::ucd::Block::LinearA
+variant	paideia_as_unicode::ucd::Block::LatinExtendedF
+variant	paideia_as_unicode::ucd::Block::CypriotSyllabary
+variant	paideia_as_unicode::ucd::Block::ImperialAramaic
+variant	paideia_as_unicode::ucd::Block::Palmyrene
+variant	paideia_as_unicode::ucd::Block::Nabataean
+variant	paideia_as_unicode::ucd::Block::Hatran
+variant	paideia_as_unicode::ucd::Block::Phoenician
+variant	paideia_as_unicode::ucd::Block::Lydian
+variant	paideia_as_unicode::ucd::Block::Sidetic
+variant	paideia_as_unicode::ucd::Block::MeroiticHieroglyphs
+variant	paideia_as_unicode::ucd::Block::MeroiticCursive
+variant	paideia_as_unicode::ucd::Block::Kharoshthi
+variant	paideia_as_unicode::ucd::Block::OldSouthArabian
+variant	paideia_as_unicode::ucd::Block::OldNorthArabian
+variant	paideia_as_unicode::ucd::Block::Manichaean
+variant	paideia_as_unicode::ucd::Block::Avestan
+variant	paideia_as_unicode::ucd::Block::InscriptionalParthian
+variant	paideia_as_unicode::ucd::Block::InscriptionalPahlavi
+variant	paideia_as_unicode::ucd::Block::PsalterPahlavi
+variant	paideia_as_unicode::ucd::Block::OldTurkic
+variant	paideia_as_unicode::ucd::Block::OldHungarian
+variant	paideia_as_unicode::ucd::Block::HanifiRohingya
+variant	paideia_as_unicode::ucd::Block::Garay
+variant	paideia_as_unicode::ucd::Block::RumiNumeralSymbols
+variant	paideia_as_unicode::ucd::Block::Yezidi
+variant	paideia_as_unicode::ucd::Block::ArabicExtendedC
+variant	paideia_as_unicode::ucd::Block::OldSogdian
+variant	paideia_as_unicode::ucd::Block::Sogdian
+variant	paideia_as_unicode::ucd::Block::OldUyghur
+variant	paideia_as_unicode::ucd::Block::Chorasmian
+variant	paideia_as_unicode::ucd::Block::Elymaic
+variant	paideia_as_unicode::ucd::Block::Brahmi
+variant	paideia_as_unicode::ucd::Block::Kaithi
+variant	paideia_as_unicode::ucd::Block::SoraSompeng
+variant	paideia_as_unicode::ucd::Block::Chakma
+variant	paideia_as_unicode::ucd::Block::Mahajani
+variant	paideia_as_unicode::ucd::Block::Sharada
+variant	paideia_as_unicode::ucd::Block::SinhalaArchaicNumbers
+variant	paideia_as_unicode::ucd::Block::Khojki
+variant	paideia_as_unicode::ucd::Block::Multani
+variant	paideia_as_unicode::ucd::Block::Khudawadi
+variant	paideia_as_unicode::ucd::Block::Grantha
+variant	paideia_as_unicode::ucd::Block::TuluTigalari
+variant	paideia_as_unicode::ucd::Block::Newa
+variant	paideia_as_unicode::ucd::Block::Tirhuta
+variant	paideia_as_unicode::ucd::Block::Siddham
+variant	paideia_as_unicode::ucd::Block::Modi
+variant	paideia_as_unicode::ucd::Block::MongolianSupplement
+variant	paideia_as_unicode::ucd::Block::Takri
+variant	paideia_as_unicode::ucd::Block::MyanmarExtendedC
+variant	paideia_as_unicode::ucd::Block::Ahom
+variant	paideia_as_unicode::ucd::Block::Dogra
+variant	paideia_as_unicode::ucd::Block::WarangCiti
+variant	paideia_as_unicode::ucd::Block::DivesAkuru
+variant	paideia_as_unicode::ucd::Block::Nandinagari
+variant	paideia_as_unicode::ucd::Block::ZanabazarSquare
+variant	paideia_as_unicode::ucd::Block::Soyombo
+variant	paideia_as_unicode::ucd::Block::PauCinHau
+variant	paideia_as_unicode::ucd::Block::DevanagariExtendedA
+variant	paideia_as_unicode::ucd::Block::SharadaSupplement
+variant	paideia_as_unicode::ucd::Block::Sunuwar
+variant	paideia_as_unicode::ucd::Block::Bhaiksuki
+variant	paideia_as_unicode::ucd::Block::Marchen
+variant	paideia_as_unicode::ucd::Block::MasaramGondi
+variant	paideia_as_unicode::ucd::Block::GunjalaGondi
+variant	paideia_as_unicode::ucd::Block::TolongSiki
+variant	paideia_as_unicode::ucd::Block::Makasar
+variant	paideia_as_unicode::ucd::Block::Kawi
+variant	paideia_as_unicode::ucd::Block::LisuSupplement
+variant	paideia_as_unicode::ucd::Block::TamilSupplement
+variant	paideia_as_unicode::ucd::Block::Cuneiform
+variant	paideia_as_unicode::ucd::Block::CuneiformNumbersAndPunctuation
+variant	paideia_as_unicode::ucd::Block::EarlyDynasticCuneiform
+variant	paideia_as_unicode::ucd::Block::CyproMinoan
+variant	paideia_as_unicode::ucd::Block::EgyptianHieroglyphs
+variant	paideia_as_unicode::ucd::Block::EgyptianHieroglyphFormatControls
+variant	paideia_as_unicode::ucd::Block::EgyptianHieroglyphsExtendedA
+variant	paideia_as_unicode::ucd::Block::AnatolianHieroglyphs
+variant	paideia_as_unicode::ucd::Block::GurungKhema
+variant	paideia_as_unicode::ucd::Block::BamumSupplement
+variant	paideia_as_unicode::ucd::Block::Mro
+variant	paideia_as_unicode::ucd::Block::Tangsa
+variant	paideia_as_unicode::ucd::Block::BassaVah
+variant	paideia_as_unicode::ucd::Block::PahawhHmong
+variant	paideia_as_unicode::ucd::Block::KiratRai
+variant	paideia_as_unicode::ucd::Block::Medefaidrin
+variant	paideia_as_unicode::ucd::Block::BeriaErfe
+variant	paideia_as_unicode::ucd::Block::Miao
+variant	paideia_as_unicode::ucd::Block::IdeographicSymbolsAndPunctuation
+variant	paideia_as_unicode::ucd::Block::Tangut
+variant	paideia_as_unicode::ucd::Block::TangutComponents
+variant	paideia_as_unicode::ucd::Block::KhitanSmallScript
+variant	paideia_as_unicode::ucd::Block::TangutSupplement
+variant	paideia_as_unicode::ucd::Block::TangutComponentsSupplement
+variant	paideia_as_unicode::ucd::Block::KanaExtendedB
+variant	paideia_as_unicode::ucd::Block::KanaSupplement
+variant	paideia_as_unicode::ucd::Block::KanaExtendedA
+variant	paideia_as_unicode::ucd::Block::SmallKanaExtension
+variant	paideia_as_unicode::ucd::Block::Nushu
+variant	paideia_as_unicode::ucd::Block::Duployan
+variant	paideia_as_unicode::ucd::Block::ShorthandFormatControls
+variant	paideia_as_unicode::ucd::Block::SymbolsForLegacyComputingSupplement
+variant	paideia_as_unicode::ucd::Block::MiscellaneousSymbolsSupplement
+variant	paideia_as_unicode::ucd::Block::ZnamennyMusicalNotation
+variant	paideia_as_unicode::ucd::Block::ByzantineMusicalSymbols
+variant	paideia_as_unicode::ucd::Block::MusicalSymbols
+variant	paideia_as_unicode::ucd::Block::AncientGreekMusicalNotation
+variant	paideia_as_unicode::ucd::Block::KaktovikNumerals
+variant	paideia_as_unicode::ucd::Block::MayanNumerals
+variant	paideia_as_unicode::ucd::Block::TaiXuanJingSymbols
+variant	paideia_as_unicode::ucd::Block::CountingRodNumerals
+variant	paideia_as_unicode::ucd::Block::MathematicalAlphanumericSymbols
+variant	paideia_as_unicode::ucd::Block::SuttonSignwriting
+variant	paideia_as_unicode::ucd::Block::LatinExtendedG
+variant	paideia_as_unicode::ucd::Block::GlagoliticSupplement
+variant	paideia_as_unicode::ucd::Block::CyrillicExtendedD
+variant	paideia_as_unicode::ucd::Block::NyiakengPuachueHmong
+variant	paideia_as_unicode::ucd::Block::Toto
+variant	paideia_as_unicode::ucd::Block::Wancho
+variant	paideia_as_unicode::ucd::Block::NagMundari
+variant	paideia_as_unicode::ucd::Block::OlOnal
+variant	paideia_as_unicode::ucd::Block::TaiYo
+variant	paideia_as_unicode::ucd::Block::EthiopicExtendedB
+variant	paideia_as_unicode::ucd::Block::MendeKikakui
+variant	paideia_as_unicode::ucd::Block::Adlam
+variant	paideia_as_unicode::ucd::Block::IndicSiyaqNumbers
+variant	paideia_as_unicode::ucd::Block::OttomanSiyaqNumbers
+variant	paideia_as_unicode::ucd::Block::ArabicMathematicalAlphabeticSymbols
+variant	paideia_as_unicode::ucd::Block::MahjongTiles
+variant	paideia_as_unicode::ucd::Block::DominoTiles
+variant	paideia_as_unicode::ucd::Block::PlayingCards
+variant	paideia_as_unicode::ucd::Block::EnclosedAlphanumericSupplement
+variant	paideia_as_unicode::ucd::Block::EnclosedIdeographicSupplement
+variant	paideia_as_unicode::ucd::Block::MiscellaneousSymbolsAndPictographs
+variant	paideia_as_unicode::ucd::Block::Emoticons
+variant	paideia_as_unicode::ucd::Block::OrnamentalDingbats
+variant	paideia_as_unicode::ucd::Block::TransportAndMapSymbols
+variant	paideia_as_unicode::ucd::Block::AlchemicalSymbols
+variant	paideia_as_unicode::ucd::Block::GeometricShapesExtended
+variant	paideia_as_unicode::ucd::Block::SupplementalArrowsC
+variant	paideia_as_unicode::ucd::Block::SupplementalSymbolsAndPictographs
+variant	paideia_as_unicode::ucd::Block::ChessSymbols
+variant	paideia_as_unicode::ucd::Block::SymbolsAndPictographsExtendedA
+variant	paideia_as_unicode::ucd::Block::SymbolsForLegacyComputing
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionB
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionC
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionD
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionE
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionF
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionI
+variant	paideia_as_unicode::ucd::Block::CjkCompatibilityIdeographsSupplement
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionG
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionH
+variant	paideia_as_unicode::ucd::Block::CjkUnifiedIdeographsExtensionJ
+variant	paideia_as_unicode::ucd::Block::Tags
+variant	paideia_as_unicode::ucd::Block::VariationSelectorsSupplement
+variant	paideia_as_unicode::ucd::Block::SupplementaryPrivateUseAreaA
+variant	paideia_as_unicode::ucd::Block::SupplementaryPrivateUseAreaB
+variant	paideia_as_unicode::ucd::Block::Unassigned
+fn	paideia_as_unicode::ucd::is_letter	(c: char) -> bool
+fn	paideia_as_unicode::ucd::is_mark	(c: char) -> bool
+fn	paideia_as_unicode::ucd::is_number	(c: char) -> bool
+fn	paideia_as_unicode::ucd::is_punctuation	(c: char) -> bool
+fn	paideia_as_unicode::ucd::is_symbol	(c: char) -> bool
+fn	paideia_as_unicode::ucd::is_separator	(c: char) -> bool
+fn	paideia_as_unicode::ucd::is_other	(c: char) -> bool
+
+# == paideia_as_unicode::utf8 ==
+struct	paideia_as_unicode::utf8::Utf8Decoder	<'a>
+method	paideia_as_unicode::utf8::Utf8Decoder::new	(bytes: &'a [u8]) -> Self
+method	paideia_as_unicode::utf8::Utf8Decoder::position	(&self) -> usize
+method	paideia_as_unicode::utf8::Utf8Decoder::is_exhausted	(&self) -> bool
+impl	paideia_as_unicode::utf8::Utf8Decoder	Iterator for Utf8Decoder<'a> (Item = Result<char, Utf8Error>)
+
+# == paideia_as_unicode::width ==
+enum	paideia_as_unicode::width::WidthMode	non_exhaustive
+variant	paideia_as_unicode::width::WidthMode::Latin	default
+variant	paideia_as_unicode::width::WidthMode::EastAsian
+enum	paideia_as_unicode::width::Width
+variant	paideia_as_unicode::width::Width::Zero
+variant	paideia_as_unicode::width::Width::Narrow
+variant	paideia_as_unicode::width::Width::Ambiguous
+variant	paideia_as_unicode::width::Width::Wide
+method	paideia_as_unicode::width::Width::columns_latin	(self) -> usize
+method	paideia_as_unicode::width::Width::columns_east_asian	(self) -> usize
+fn	paideia_as_unicode::width::width	(c: char) -> Width
+fn	paideia_as_unicode::width::width_in	(c: char, mode: WidthMode) -> Width
+fn	paideia_as_unicode::width::str_width	(input: &str) -> usize
+fn	paideia_as_unicode::width::str_width_in	(input: &str, mode: WidthMode) -> usize
+fn	paideia_as_unicode::width::grapheme_width	(cluster: &str) -> usize
+fn	paideia_as_unicode::width::grapheme_width_in	(cluster: &str, mode: WidthMode) -> usize

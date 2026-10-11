@@ -1,5 +1,9 @@
 # @jump_table Attribute for Match Expressions (Issue #964)
 
+**Status:** AUTHORED — design doc for `#964`. Attribute parsed in
+the lexer / parser; elaborator-side density analysis + rodata table
+synthesis gated behind the match-arm coverage check.
+
 ## Overview
 
 The `@jump_table` attribute enables dense O(1) dispatch for match expressions on integer-literal patterns. When applied to a match scrutinee, the elaborator analyzes arm coverage and, if density requirements are met, generates a rodata table of code addresses and emits memory-indirect jump instructions instead of a linear cmp/je chain.

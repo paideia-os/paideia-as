@@ -1,5 +1,11 @@
 # Driver-Side Effect Vocabulary (pa-r14-010)
 
+**Status:** AUTHORED (pa-r14-010). The five driver effects
+(`MmioRead`, `MmioWrite`, `CachePolicy`, plus `Atomic` and `RawMem`
+from the base effect lattice) are declared in
+`src/toolchain/abi/abi.pdx` and are the type-level discipline every
+paideia-os device driver must respect.
+
 ## Overview
 
 This document specifies the **driver-side effect discipline** for PaideiaOS kernel device drivers. Effects track side effects (I/O, state changes) that require explicit handler installation in the type system. The 5 driver effects enable hardware-aware programming with compile-time verification.

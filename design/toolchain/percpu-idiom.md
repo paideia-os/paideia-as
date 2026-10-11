@@ -1,5 +1,10 @@
 # Per-CPU Counter Idiom (Issue #965)
 
+**Status:** AUTHORED — design doc for `#965`. The GS-indexed
+`lock inc` / `lock add` recipe is the canonical idiom for per-CPU
+counters in paideia-os; `PerCpuOps::percpu_inc` / `percpu_add`
+lower through the stdlib trait registry.
+
 ## Overview
 
 Per-CPU counters live at fixed offsets in the GS segment, which is per-CPU kernel memory set up at boot via `wrmsr(MSR_GS_BASE, &percpu_block[core_id])`. The GS segment base points to a per-CPU control block containing scheduler state, network stack counters, and other core-local data.

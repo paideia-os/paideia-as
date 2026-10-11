@@ -2603,6 +2603,7 @@ dependencies = [
  "paideia-as-parser",
  "paideia-as-reflection",
  "paideia-as-types",
+ "paideia-as-unicode",
  "paideia-fmt",
  "serde",
  "serde_json",

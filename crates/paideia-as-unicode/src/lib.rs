@@ -72,6 +72,7 @@ pub mod error;
 pub mod fingerprint;
 pub mod grapheme;
 pub mod ident;
+pub mod lsp_bridge;
 pub mod nfc;
 pub mod norm;
 pub mod segment;
@@ -97,6 +98,16 @@ pub use grapheme::{
 pub use ident::{
     IdentError, IdentErrorKind, IdentProfile, check_ident, is_identifier, is_xid_continue,
     is_xid_start, mixed_script,
+};
+// UNI-13 (paideia-as#1600) — LSP position-encoding bridge:
+// UTF-8 ↔ UTF-16 / UTF-32 column converters that the paideia-lsp
+// Backend uses to answer `Position` requests under any of the three
+// `PositionEncodingKind` values LSP 3.17 permits, plus the streaming
+// NFC predicate paired with [`is_nfc`] for input validation. See
+// `src/lsp_bridge.rs` for the mid-char rounding convention.
+pub use lsp_bridge::{
+    stream_is_nfc, utf16_offset_to_utf8, utf32_offset_to_utf8, utf8_offset_to_utf16,
+    utf8_offset_to_utf32,
 };
 // Backward-compatible NFC surface — the names stay re-exported from the
 // crate root so existing shell-lex / shell-ast / shell-completion

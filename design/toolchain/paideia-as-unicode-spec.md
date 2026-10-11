@@ -38,22 +38,44 @@ R229 renderer's cell model beyond the width-counts this crate feeds it.
 
 | Field | Value |
 |---|---|
-| Spec status | AUTHORED (2026-10-11) |
-| Crate status | PARTIAL — M1 (UTF-8 + NFC), M2 (UAX#29 graphemes), M3 (UAX#11 width) shipped; UNI-1..UNI-16 add the rest |
+| Spec status | **FROZEN (2026-10-11, UNI-11)** — §4 pub-surface inventory snapshotted into `crates/paideia-as-unicode/tests/public_api.golden` |
+| Crate status | AUTHORED — UNI-0..UNI-10, UNI-12, UNI-14 shipped; UNI-13 (LSP) and UNI-9 locale-resolver glue remain additive-only |
 | Workspace version at authoring | `0.36.83` (post-FMT-17 line) |
-| Workspace version at UNI-11 freeze | kept pinned at UNI-11-current (no bump mid-chain) |
+| Workspace version at UNI-11 freeze | `0.37.0` target — bump happens at UNI-16 close, freeze is pre-bump |
 | Workspace version at completion | **0.37.0** (minor bump matching the paideia-fmt v0.36.82 cadence) |
 | Chain | UNI-0..UNI-16 (17 tickets) |
 | Chain head | UNI-0 ([#1587](https://github.com/paideia-os/paideia-as/issues/1587)) — this doc |
 | Chain capstone | UNI-16 ([#1603](https://github.com/paideia-os/paideia-as/issues/1603)) — final acceptance report at `design/toolchain/paideia-as-unicode-acceptance.md` |
 | Dispatch map | `.plans/scratch/UNICODE-dispatch-map.md` |
+| Freeze companion | [`paideia-as-unicode-api-freeze.md`](paideia-as-unicode-api-freeze.md) — enumerates the frozen surface and the deprecation policy |
 
-The spec moves AUTHORED → **FROZEN** at UNI-11 landing. Freezing means
-every `pub` symbol under `paideia_as_unicode` is enumerated in
-`tests/fingerprints/public_api.golden` (UNI-11's deliverable) and any
-addition or signature change post-freeze requires a UNI follow-up ticket
-plus a workspace minor-version bump. Freezing does NOT lock the UCD
-version — UCD upgrades are a separate discipline (§3).
+### Status change — v0.37.0
+
+- **2026-10-11 (UNI-11, Wave UNI-W6).** §4 **FROZEN** at the inventory
+  now mirrored in `crates/paideia-as-unicode/tests/public_api.golden`.
+  Enforcement: `cargo test -p paideia-as-unicode --test public_api_test`
+  parses the golden, checks per-kind counts against an in-source
+  authoritative inventory, verifies every sentinel entry, and
+  compile-time-touches every top-level pub item. Audit totals at freeze:
+  12 modules (`::lsp_bridge` is the UNI-13 landing in the same wave),
+  66 crate-root re-exports, 4 intra-module uses, 11 enums (405
+  variants, 345 of them in `ucd::Block`), 8 structs with 14 pub fields,
+  55 free functions, 5 inherent methods, 9 trait impls — 589 total
+  audit entries. See the freeze companion doc for the authoritative
+  surface + the per-category deprecation policy. The UNI-9 locale-
+  resolver completion is the only inventory row the freeze pins as
+  *planned additive*: addition is a UNI follow-up ticket, lands behind
+  a parallel update to the golden + the companion doc + the inventory
+  arrays in `tests/public_api_test.rs`, and does not alter any entry
+  already in the freeze.
+
+The spec AUTHORED → **FROZEN** transition landed at UNI-11 as described
+above. Freezing means every `pub` symbol under `paideia_as_unicode` is
+enumerated in `crates/paideia-as-unicode/tests/public_api.golden`
+(the UNI-11 deliverable) and any addition or signature change
+post-freeze requires a UNI follow-up ticket plus a workspace minor-
+version bump. Freezing does NOT lock the UCD version — UCD upgrades
+remain a separate discipline (§3).
 
 ---
 
@@ -157,8 +179,17 @@ observable and consumer-affecting even when no API changes.
 
 ## 4. Public API inventory
 
+**Status: FROZEN as of 2026-10-11 (UNI-11, Wave UNI-W6).** The
+inventory below is the canonical reading of the pub surface; the
+on-disk snapshot the test harness enforces is
+`crates/paideia-as-unicode/tests/public_api.golden`, and the
+freeze policy (deprecation cadence, UNI-13 additive-only rules,
+regen workflow) lives in
+[`paideia-as-unicode-api-freeze.md`](paideia-as-unicode-api-freeze.md).
+
 Enumerated by module. Column key: *UAX* = backing standard; *Status* =
-`shipped` (lives in the crate today), `UNI-N` (lands at that wave).
+`shipped` (lives in the crate today — FROZEN at UNI-11), `UNI-N`
+(lands at that wave, additive-only against the freeze).
 
 ### 4.1 `paideia_as_unicode::error` (crate root re-exports starred)
 
@@ -272,31 +303,43 @@ Enumerated by module. Column key: *UAX* = backing standard; *Status* =
 | `block(char) -> Block` | UAX #44 | **UNI-5** |
 | `Block` enum (~320 variants per UCD 15.1) | UAX #44 | **UNI-5** |
 
-### 4.10 `paideia_as_unicode::lsp` (new module at UNI-13)
+### 4.10 `paideia_as_unicode::lsp_bridge` (new module at UNI-13)
+
+Landed as `::lsp_bridge` rather than the §4-draft name `::lsp` to make
+the module's role at the LSP/encoding boundary explicit (and to leave
+`::lsp` free for a future higher-level LSP binding crate).
 
 | Symbol | UAX | Status |
 |---|---|---|
-| `utf8_to_utf16_col(&str, usize) -> usize` | LSP position encoding | **UNI-13** |
-| `utf16_to_utf8_col(&str, usize) -> usize` | LSP position encoding | **UNI-13** |
-| `utf8_to_utf32_col(&str, usize) -> usize` | LSP position encoding | **UNI-13** |
-| `utf32_to_utf8_col(&str, usize) -> usize` | LSP position encoding | **UNI-13** |
+| `utf8_offset_to_utf16(&str, usize) -> usize` | LSP position encoding | shipped (UNI-13) |
+| `utf16_offset_to_utf8(&str, usize) -> usize` | LSP position encoding | shipped (UNI-13) |
+| `utf8_offset_to_utf32(&str, usize) -> usize` | LSP position encoding | shipped (UNI-13) |
+| `utf32_offset_to_utf8(&str, usize) -> usize` | LSP position encoding | shipped (UNI-13) |
+| `stream_is_nfc<I: Iterator<Item = char>>(I) -> bool` | UAX #15 | shipped (UNI-13) |
 
 ### 4.11 Starred-symbol freeze
 
-Every symbol marked with `*` above is a current crate-root re-export (via
-`pub use` in `lib.rs`). The UNI-11 freeze guarantees:
+**Freeze: landed at UNI-11 on 2026-10-11.** Every symbol marked with
+`*` above is a crate-root re-export (`pub use` in `lib.rs`). The
+UNI-11 freeze guarantees:
 
-* Every shipped symbol in §§4.1–4.5 remains callable with identical
-  signature at every post-UNI-11 release.
-* Every UNI-N planned symbol is additive-only — no planned symbol
-  displaces or renames a shipped symbol.
-* The `nfc` module's rename to `normalize` at UNI-1 keeps a `pub use
-  normalize as nfc;` deprecation alias through UNI-11, dropped at
-  UNI-16.
-* Variant additions on enums are permitted pre-UNI-11 (e.g.
-  `Utf8ErrorKind` cannot gain a new variant without a UNI follow-up
-  post-freeze, because the crate uses non-exhaustive-safe matching
-  internally; consumers may use exhaustive matches).
+* Every shipped symbol in §§4.1–4.9 remains callable with its
+  current signature at every post-UNI-11 release; `tests/public_api.golden`
+  is the canonical byte-level snapshot and
+  `tests/public_api_test.rs` the drift gate.
+* Every post-freeze planned symbol (UNI-9 locale-resolver fns in §4.5
+  marked `str_width_in`-style, UNI-13 LSP column converters in §4.10)
+  is **additive-only** — a new symbol never displaces or renames one
+  the freeze pins.
+* The `nfc` module keeps `is_ascii_fast_path_eligible`, `is_nfc`, and
+  `nfc_normalize` as re-exports from `::norm`. The deprecation marker
+  tracking the `nfc → normalize` migration is a UNI-16 close item;
+  the shim is **frozen** at UNI-11 and its removal is a UNI-16-plus
+  minor-version bump.
+* Variant additions on `#[non_exhaustive]` enums are a UNI follow-up
+  ticket post-freeze. Consumers may still use exhaustive matches on
+  the current variant set, but the enum shape is pinned at the
+  freeze line.
 
 ---
 

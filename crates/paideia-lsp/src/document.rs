@@ -48,22 +48,34 @@ impl Document {
 
 /// Convert an LSP Position to a byte offset in the text.
 ///
-/// Phase-2-m8-003 simplification: treat position.character as UTF-8 byte offset (CORRECT
-/// for ASCII; INCORRECT for multi-byte text). Document the simplification; m8-004+ adds
-/// UTF-16 code-unit awareness once we wire structured diagnostics.
+/// UNI-13 (paideia-as#1600): `position.character` is interpreted as a
+/// count of UTF-16 code units, which is LSP 3.17's default position
+/// encoding (`PositionEncodingKind::UTF16`). The conversion from
+/// UTF-16 column to UTF-8 byte offset within the resolved line
+/// delegates to [`paideia_as_unicode::utf16_offset_to_utf8`], which
+/// shares its mid-char rounding convention with LSP 3.17 §3.14.
+///
+/// For ASCII inputs the paideia-as-unicode converter short-circuits
+/// to `offset.min(line.len())`, so this call is byte-for-byte
+/// equivalent to the pre-UNI-13 code path on ASCII — the historical
+/// Phase-2-m8-003 shim semantics are preserved for every ASCII test
+/// in this file.
 pub fn position_to_offset(text: &str, position: Position) -> usize {
     let mut current_line = 0;
     let mut line_start = 0;
 
     for (i, ch) in text.char_indices() {
         if current_line == position.line as usize {
-            // We're on the right line; advance by character count.
-            for (chars_in, (j, _)) in text[line_start..].char_indices().enumerate() {
-                if chars_in == position.character as usize {
-                    return line_start + j;
-                }
-            }
-            return text.len();
+            // We're on the right line; map the UTF-16 column to a
+            // UTF-8 byte offset within the line slice, then shift by
+            // `line_start`.
+            let line = &text[line_start..];
+            let line_end = line.find('\n').unwrap_or(line.len());
+            let byte_in_line = paideia_as_unicode::utf16_offset_to_utf8(
+                &line[..line_end],
+                position.character as usize,
+            );
+            return line_start + byte_in_line;
         }
         if ch == '\n' {
             current_line += 1;

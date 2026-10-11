@@ -1,5 +1,12 @@
 # Function-Pointer Dispatch Unsafe Pattern (pa-r14-009)
 
+**Status:** Landed (pa-r14-009). Superseded for new code by
+first-class function-pointer types
+([`function-pointer-types.md`](function-pointer-types.md),
+pa-r17-004) once v0.17 ships; this unsafe pattern remains the
+reference for driver / VFS vops surfaces authored before that
+landing.
+
 ## Motivation
 
 paideia-os Phase 6+ requires trait-object-like dispatch for dynamically-bound operations:

@@ -200,22 +200,47 @@ fn find_identifier_ranges(text: &str, name: &str) -> Vec<Range> {
 }
 
 /// Convert a byte offset to an LSP Position (line, character).
+///
+/// UNI-13 (paideia-as#1600): `character` is emitted as a count of
+/// UTF-16 code units, matching LSP 3.17's default position encoding
+/// (`PositionEncodingKind::UTF16`). The intra-line UTF-8 → UTF-16
+/// conversion delegates to [`paideia_as_unicode::utf8_offset_to_utf16`]
+/// so the entire paideia-lsp Backend speaks one wire shape at both
+/// edges (compare `document::position_to_offset`).
+///
+/// A `byte_offset` that lands mid-char rounds DOWN to the preceding
+/// char boundary — the same convention the inverse converter uses.
 fn offset_to_position(text: &str, byte_offset: usize) -> Position {
-    let mut line = 0;
-    let mut character = 0;
-
+    // Walk to the start of the line containing `byte_offset`, and
+    // remember the greatest char boundary that is <= `byte_offset`
+    // along the way (so a mid-char offset rounds DOWN rather than
+    // panicking in the trailing `&text[line_start..rounded]` slice).
+    let clamped = byte_offset.min(text.len());
+    let mut line: u32 = 0;
+    let mut line_start: usize = 0;
+    let mut rounded: usize = 0;
     for (i, ch) in text.char_indices() {
-        if i >= byte_offset {
+        if i > clamped {
+            break;
+        }
+        rounded = i;
+        if i == clamped {
             break;
         }
         if ch == '\n' {
             line += 1;
-            character = 0;
-        } else {
-            character += 1;
+            line_start = i + ch.len_utf8();
         }
     }
-
+    // If `clamped == text.len()` the loop above never visits an
+    // `i == clamped`, so `rounded` is the last iterated byte offset
+    // (the final char's start). Promote it to the end-of-text sentinel.
+    if clamped == text.len() {
+        rounded = clamped;
+    }
+    let within_line = &text[line_start..rounded];
+    let character =
+        paideia_as_unicode::utf8_offset_to_utf16(within_line, within_line.len()) as u32;
     Position { line, character }
 }
 

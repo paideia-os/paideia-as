@@ -1,5 +1,9 @@
 # Ring Buffer Attribute (`@ring`)
 
+**Status:** Landed — Phase 14 (PA14-r14-008). `@ring(slots=M,
+slot_size=K)` on a `pub let` synthesises the pool / head / tail /
+mask quartet with the section and alignment discipline documented
+below.
 **Issue:** [#951](https://github.com/PaideiaOS/paideia-as/issues/951)
 **Phase:** Phase 14 (PA14-r14-008)
 

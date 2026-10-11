@@ -1,5 +1,6 @@
 # Phase Transition 9: v0.9.0 Retrospective
 
+**Status:** Closed (v0.9.0 retrospective, 2026-06-22).  
 **Prepared:** 2026-06-22 (m3-003 closure)  
 **Scope:** PA9 v0.9 round (m1–m3 outcomes)  
 **Impact:** Substrate fixes + paideia-os rewrite campaign + full checkpoint-2 unquarantine

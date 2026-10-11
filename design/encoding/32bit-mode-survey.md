@@ -1,5 +1,12 @@
 # 32-bit Mode Instruction Survey for PVH Boot Bridge
 
+**Status:** AUTHORED — reference survey for encoder v1.5 milestones
+m2–m6. Enumerates the 32-bit instruction forms the PVH boot bridge
+requires (CPU mode switch, page-table setup, control-register
+configuration, EFER MSR programming, segment reload) and is the
+driving document for the Phase 15 32-bit encoding substrate (closed
+at v0.11.0).
+
 ## 1. Scope and Rationale
 
 This document surveys all 32-bit instruction forms required during PVH (ParaVirtualized Hypervisor) boot bridge initialization in paideia-as. The PVH boot bridge (`tools/boot_stub.S`) is responsible for:

@@ -1,6 +1,15 @@
 # paideia-as
 
-A custom x86_64 assembler for [PaideiaOS](https://github.com/paideia-os/paideia-os) whose surface language is a small, statically-typed core with substructural types, algebraic effects, capability-based discipline, and post-quantum signing of build artifacts.
+**Current workspace version:** `v0.36.82` (paideia-fmt declared COMPLETE at FMT-17 acceptance).
+
+`paideia-as` is the Rust-based toolchain for the
+[PaideiaOS](https://github.com/paideia-os/paideia-os) project —
+assembler, compiler, formatter, LSP, and the satellite crates
+(`paideia-as-unicode`, `paideia-as-crypto`, `paideia-pq-sign`,
+`paideia-as-shell-*`) that the OS and its userland tools link
+against. The surface language is a small, statically-typed core
+with substructural types, algebraic effects, capability-based
+discipline, and post-quantum signing of build artifacts.
 
 `paideia-as` compiles `.pdx` source through a typed elaborator into ELF64, PAX (PaideiaOS-native), or PE/COFF (UEFI) objects. The differentiated technical claim is that a typed surface — Ordered / Linear / Affine / Unrestricted classes (after Walker 2005), row-polymorphic effect rows, `@{...}` capability sets, typed raw pointers — lowers all the way down to the canonical x86_64 instruction sequence a hand-written assembler would emit, with the discipline preserved as DWARF vendor sections on the object. The target is x86_64 long mode; 16-bit real mode is out of scope.
 

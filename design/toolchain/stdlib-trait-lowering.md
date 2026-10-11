@@ -1,5 +1,11 @@
 # Stdlib Trait Method Lowering (PA-r16-007-backtrack, #1036)
 
+**Status:** Landed (PA-r16-007-backtrack, `#1036`). Direct-mnemonic
+lowering for bodyless stdlib trait methods is in-tree at
+`crates/paideia-as-elaborator/src/stdlib_lowering.rs`; the registry
+is one of the god files flagged by the memory record
+`feedback_god_file_refactor` for an upcoming survey + refactor.
+
 ## Overview
 
 PA-r16-007-backtrack (#1036) implements **direct mnemonic lowering for bodyless stdlib trait methods**. This is a hardcoded registry that maps `(trait_name, method_name)` pairs to the instruction sequences they lower to, consulted by `emit_call` before normal SysV call-marshalling.

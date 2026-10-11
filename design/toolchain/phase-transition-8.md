@@ -1,5 +1,6 @@
 # Phase Transition 8: v0.8.0 Retrospective
 
+**Status:** Closed (v0.8.0 retrospective, 2026-06-22).  
 **Prepared:** 2026-06-22 (m7-003 closure)  
 **Scope:** PA8 v0.8 round (m1–m7 outcomes)  
 **Impact:** Elaborator gap closure + checkpoint 2 fixture + unquarantine attempt
